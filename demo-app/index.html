@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AcuGuide iOS Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="presentation-shell">
+      <section class="device-wrap" aria-label="AcuGuide iOS prototype">
+        <div class="iphone">
+          <div class="iphone-bezel">
+            <div class="island"></div>
+            <div class="screen">
+              <header class="ios-status">
+                <span>9:41</span>
+                <span>LTE 100%</span>
+              </header>
+              <section class="app-screen" id="appScreen" aria-live="polite"></section>
+              <nav class="tab-bar" aria-label="Prototype navigation">
+                <button class="tab active" data-nav="home">
+                  <span class="tab-icon home-icon"></span>
+                  <span>Today</span>
+                </button>
+                <button class="tab" data-nav="coach">
+                  <span class="tab-icon coach-icon"></span>
+                  <span>Coach</span>
+                </button>
+                <button class="tab" data-nav="recap">
+                  <span class="tab-icon recap-icon"></span>
+                  <span>Recap</span>
+                </button>
+              </nav>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="demo-panel">
+        <p class="panel-kicker">AcuGuide Demo</p>
+        <h1>iOS-style self-care coach</h1>
+        <p>
+          A Ladder-inspired mobile prototype: dark workout-app language, bold routine cards,
+          guided coach state, and a clear bottom CTA.
+        </p>
+        <ol id="flowList">
+          <li data-step="home" class="active">Choose routine</li>
+          <li data-step="safety">Safety boundary</li>
+          <li data-step="preview">Routine preview</li>
+          <li data-step="coach">Coach feedback</li>
+          <li data-step="recap">Completion recap</li>
+        </ol>
+        <div class="panel-note">
+          <strong>Prototype only</strong>
+          <span>No camera, no model, no medical logic. This shows UI, flow, and state behavior for the demo.</span>
+        </div>
+      </aside>
+    </main>
+
+    <template id="homeTemplate">
+      <div class="screen-page home-page">
+        <div class="top-row">
+          <div>
+            <p class="small-label">AcuGuide</p>
+            <h2>Today&apos;s hand coach</h2>
+          </div>
+          <button class="round-button" aria-label="Safety info" data-action="open-safety">i</button>
+        </div>
+
+        <section class="hero-card">
+          <p class="small-label">Guided routine</p>
+          <h3>Know whether you&apos;re pressing the right spot.</h3>
+          <p>Visual feedback for hand placement, hold stability, and routine duration.</p>
+          <div class="hero-meta" aria-label="Selected session summary">
+            <span>30 sec</span>
+            <span>Hand-only</span>
+            <span>Coach score</span>
+          </div>
+          <button class="primary-cta" data-action="start-selected">Start selected</button>
+        </section>
+
+        <section class="routine-stack" id="routineList" aria-label="Routine choices"></section>
+      </div>
+    </template>
+
+    <template id="safetyTemplate">
+      <div class="screen-page safety-page">
+        <button class="text-back" data-action="back-home">Back</button>
+        <p class="small-label">Before you start</p>
+        <h2>Safety boundary</h2>
+        <p class="lead">AcuGuide provides wellness self-care guidance only. It does not diagnose, treat, or replace medical care.</p>
+
+        <div class="safety-cards">
+          <div>Use gentle pressure only.</div>
+          <div>Stop if you feel sharp pain, numbness, dizziness, unusual symptoms, or worsening discomfort.</div>
+          <div>Do not press on broken, irritated, swollen, or infected skin.</div>
+          <div>If pregnant or possibly pregnant, avoid certain pressure points unless advised by a clinician.</div>
+        </div>
+
+        <button class="primary-cta bottom-cta" data-action="accept-safety">I understand</button>
+      </div>
+    </template>
+
+    <template id="previewTemplate">
+      <div class="screen-page preview-page">
+        <button class="text-back" data-action="back-safety">Back</button>
+        <p class="small-label" id="routineCategory">Routine</p>
+        <h2 id="routineTitle"></h2>
+        <p class="lead" id="routineDescription"></p>
+
+        <div class="metric-row">
+          <div>
+            <span>Time</span>
+            <strong id="routineDuration"></strong>
+          </div>
+          <div>
+            <span>Pressure</span>
+            <strong>Gentle</strong>
+          </div>
+          <div>
+            <span>Mode</span>
+            <strong>Coach</strong>
+          </div>
+        </div>
+
+        <div class="step-list" id="routineSteps"></div>
+        <section class="prep-card" aria-label="Coach checks">
+          <div>
+            <span>Placement</span>
+            <strong>Target region</strong>
+          </div>
+          <div>
+            <span>Hold</span>
+            <strong>30-second timer</strong>
+          </div>
+          <div>
+            <span>Safety</span>
+            <strong>Stop boundary</strong>
+          </div>
+        </section>
+        <button class="primary-cta bottom-cta" data-action="open-coach">Open coach</button>
+      </div>
+    </template>
+
+    <template id="coachTemplate">
+      <div class="screen-page coach-page">
+        <div class="top-row">
+          <button class="round-button ghost" data-action="back-preview" aria-label="Back"></button>
+          <div class="coach-title">
+            <p class="small-label">Coach mode</p>
+            <h2 id="coachRoutineTitle"></h2>
+          </div>
+          <button class="round-button" data-action="run-demo" aria-label="Run demo"></button>
+        </div>
+
+        <section class="coach-stage" id="coachStage">
+          <div class="scan-grid"></div>
+          <div class="hand-model">
+            <div class="finger f1"></div>
+            <div class="finger f2"></div>
+            <div class="finger f3"></div>
+            <div class="finger f4"></div>
+            <div class="palm"></div>
+            <div class="press-zone" id="pressZone"></div>
+          </div>
+          <div class="coach-target" id="coachTarget"></div>
+          <div class="stage-readout" aria-hidden="true">
+            <span>Target lock</span>
+            <span>Steady hold</span>
+            <span>Gentle pressure</span>
+          </div>
+        </section>
+
+        <section class="feedback-card">
+          <div>
+            <p class="small-label" id="feedbackState">Looking for hand</p>
+            <h3 id="feedbackText">Move your hand into frame.</h3>
+          </div>
+          <div class="progress-ring">
+            <svg viewBox="0 0 44 44" role="img" aria-label="Progress">
+              <circle class="ring-bg" cx="22" cy="22" r="18"></circle>
+              <circle class="ring-fg" id="progressCircle" cx="22" cy="22" r="18"></circle>
+            </svg>
+            <span id="timerLabel">0s</span>
+          </div>
+        </section>
+
+        <div class="state-controls" aria-label="Demo state controls">
+          <button data-state="no_hand">No hand</button>
+          <button data-state="hand_detected">Detected</button>
+          <button data-state="target_off">Off target</button>
+          <button data-state="target_near">Good</button>
+        </div>
+
+        <button class="primary-cta bottom-cta" data-action="finish-routine">Finish routine</button>
+      </div>
+    </template>
+
+    <template id="recapTemplate">
+      <div class="screen-page recap-page">
+        <p class="small-label">Completion recap</p>
+        <h2>Routine complete</h2>
+        <p class="lead">This recap summarizes execution quality, not medical outcome.</p>
+
+        <div class="score-card">
+          <span class="score-number">92</span>
+          <span class="score-label">Coach score</span>
+          <p>Near target region with a steady hold.</p>
+        </div>
+
+        <div class="recap-metrics">
+          <div>
+            <span>Hold time</span>
+            <strong id="recapTime">30 seconds</strong>
+          </div>
+          <div>
+            <span>Position</span>
+            <strong>Near target</strong>
+          </div>
+          <div>
+            <span>Stability</span>
+            <strong>Steady</strong>
+          </div>
+        </div>
+
+        <section class="self-report">
+          <p class="small-label">How do you feel?</p>
+          <div>
+            <button data-report="better">A bit better</button>
+            <button data-report="same">No clear change</button>
+            <button data-report="worse">Worse</button>
+          </div>
+          <p id="reportText">Take a moment to rest and observe how you feel.</p>
+        </section>
+
+        <button class="primary-cta" data-action="restart-demo">Run again</button>
+        <button class="subtle-cta" data-action="back-home">Choose another routine</button>
+      </div>
+    </template>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
