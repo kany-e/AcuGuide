@@ -1,17 +1,31 @@
-<<<<<<< HEAD
+# --- OS ---
 .DS_Store
+
+# --- Node / Vite build ---
 node_modules
 dist
 dist-ssr
 *.local
-
 *.tsbuildinfo
-=======
+
+# --- Python analysis pipeline ---
 .venv/
+.venv-diag/
 __pycache__/
 *.pyc
-.DS_Store
+
+# --- Analysis outputs (not part of the apps) ---
 outputs/
 diagnostics/
 diagnostics/overlays/
->>>>>>> 5434261 (added code)
+
+# --- Archive: moved-aside scratch, raw data, and videos (do NOT commit) ---
+_archive/
+
+# --- Raw videos: never commit. (model.glb is intentionally NOT ignored — it's an app asset) ---
+*.mov
+*.MOV
+*.mp4
+*.webm
+TrainingVid/
+drive-download-*/

@@ -1,0 +1,281 @@
+:root {
+  --ink: #ece9e0;
+  --ink-2: #f4f2ea;
+  --gold: #9a7d44;
+  --gold-soft: #7c6531;
+  --jade: #5f8a63;
+  --parch: #2f332c;
+  --text: #33372f;
+  --text-dim: #767b6e;
+  --line: rgba(90, 80, 50, 0.22);
+
+  --ch-x: 0px;
+  --ch-y: 0px;
+  --ch-scale: 1;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #f6f4ed 0%, #ece9e0 55%, #e1dfd4 100%);
+  color: var(--text);
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+.atlas {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 18px clamp(12px, 3vw, 28px) 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; flex-direction: column; line-height: 1.1; }
+.brand-zh {
+  font-family: 'Noto Serif SC', serif; font-weight: 600;
+  font-size: 22px; letter-spacing: 4px; color: var(--parch);
+}
+.brand-en {
+  font-family: 'Cormorant Garamond', serif; font-style: italic;
+  font-size: 14px; color: var(--gold); letter-spacing: 1px; margin-top: 2px;
+}
+.top-controls { display: flex; align-items: center; gap: 10px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.seg button {
+  background: transparent; border: 0; color: var(--text-dim);
+  padding: 7px 14px; font-size: 13px; cursor: pointer; font-family: inherit;
+}
+.seg button.on { background: rgba(154,125,68,0.14); color: var(--gold-soft); }
+.lang-btn {
+  background: transparent; border: 1px solid var(--line); color: var(--gold);
+  border-radius: 999px; padding: 7px 14px; font-size: 13px; cursor: pointer;
+  font-family: 'Cormorant Garamond', serif;
+}
+
+/* ---------- layout ---------- */
+.stage {
+  flex: 1; display: grid; grid-template-columns: 1.45fr 0.8fr; gap: clamp(12px, 2vw, 26px);
+  padding: 22px 0;
+}
+.figure-col { display: flex; align-items: stretch; justify-content: center; }
+
+/* ---------- body + overlay ---------- */
+.body-wrap { position: relative; display: inline-block; }
+.body-wrap svg { filter: drop-shadow(0 0 26px rgba(201,168,106,0.12)); }
+
+.channels {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none;
+  transform: translate(var(--ch-x), var(--ch-y)) scale(var(--ch-scale));
+  mix-blend-mode: screen;
+}
+.channels path { filter: drop-shadow(0 0 3px currentColor); }
+
+/* hand hotspot */
+.hand-hotspot {
+  position: absolute; right: 7%; top: 48%;
+  background: transparent; border: 0; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+}
+.hand-hotspot .dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: radial-gradient(circle, #fff3d6 0%, var(--gold) 70%);
+  box-shadow: 0 0 12px var(--gold);
+}
+.hand-hotspot .pulse {
+  position: absolute; left: -6px; top: 50%; width: 26px; height: 26px;
+  margin-top: -13px; border-radius: 50%; border: 1.5px solid var(--gold);
+  animation: pulse 2.2s ease-out infinite;
+}
+@keyframes pulse {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+.hot-label {
+  font-family: 'Noto Serif SC', serif; color: var(--gold-soft);
+  font-size: 14px; text-shadow: 0 1px 4px #000;
+}
+
+/* ---------- hand view ---------- */
+.hand-view { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; }
+.hand-svg { width: min(40vh, 300px); height: auto; filter: drop-shadow(0 0 30px rgba(201,168,106,0.14)); }
+.acu-ring { animation: ring 2.4s ease-in-out infinite; transform-origin: center; }
+@keyframes ring { 0%,100% { opacity: 0.3; } 50% { opacity: 0.8; } }
+.hand-hint, .back-btn { font-size: 13px; color: var(--text-dim); }
+.back-btn { align-self: flex-start; }
+
+/* ---------- side column ---------- */
+.side-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.legend { border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 6px; background: rgba(255,255,255,0.5); }
+.legend-title { font-family: 'Noto Serif SC', serif; color: var(--gold); font-size: 14px; letter-spacing: 2px; margin-bottom: 8px; }
+.legend-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.legend-item {
+  display: flex; align-items: center; gap: 7px; background: transparent; border: 0;
+  color: var(--text-dim); padding: 5px 6px; border-radius: 7px; cursor: pointer;
+  font-family: inherit; text-align: left; font-size: 12px;
+}
+.legend-item:hover { background: rgba(154,125,68,0.08); }
+.legend-item.solo { background: rgba(154,125,68,0.16); color: var(--parch); }
+.swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.m-zh { font-family: 'Noto Serif SC', serif; }
+.m-en { display: none; color: var(--text-dim); font-size: 11px; }
+
+/* ---------- detail panel (scroll) ---------- */
+.detail {
+  position: relative; border: 1px solid var(--line); border-radius: 12px;
+  padding: 18px 18px 16px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0.3)),
+    rgba(246,244,237,0.7);
+  max-height: 52vh; overflow-y: auto;
+}
+.detail.empty { display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 13px; min-height: 120px; text-align: center; }
+.detail .close { position: absolute; right: 10px; top: 8px; }
+.detail-head { border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 12px; }
+.d-code { font-family: 'Cormorant Garamond', serif; font-size: 14px; letter-spacing: 2px; }
+.d-name { font-family: 'Noto Serif SC', serif; font-size: 26px; margin: 2px 0 2px; color: var(--parch); font-weight: 600; }
+.d-sub { color: var(--text-dim); font-size: 12px; }
+.field { margin-bottom: 12px; }
+.field-label { font-family: 'Noto Serif SC', serif; font-size: 12px; letter-spacing: 2px; color: var(--gold); margin-bottom: 3px; }
+.field-value { font-size: 13.5px; line-height: 1.65; color: var(--text); }
+.field.subtle .field-value { color: var(--text-dim); font-size: 12.5px; }
+
+.ghost-btn { background: transparent; border: 1px solid var(--line); color: var(--text-dim); border-radius: 8px; padding: 5px 10px; cursor: pointer; font-family: inherit; font-size: 13px; }
+.ghost-btn:hover { color: var(--gold-soft); }
+.detail .close { border: 0; font-size: 22px; line-height: 1; padding: 2px 8px; }
+
+/* ---------- disclaimer ---------- */
+.disclaimer {
+  border-top: 1px solid var(--line); padding: 12px 0 16px; margin-top: auto;
+  color: var(--text-dim); font-size: 11.5px; text-align: center;
+  font-family: 'Cormorant Garamond', 'Noto Sans SC', serif; letter-spacing: 0.4px;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 760px) {
+  .stage { grid-template-columns: 1fr; }
+  .legend-list { grid-template-columns: 1fr 1fr; }
+  .brand-zh { font-size: 18px; letter-spacing: 2px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hand-hotspot .pulse, .acu-ring { animation: none; }
+}
+
+/* ---------- 3D canvas + ink backdrop ---------- */
+.ink-bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.ink-bg .moon {
+  position: absolute; top: 7%; right: 16%; width: 130px; height: 130px; border-radius: 50%;
+  background: radial-gradient(circle at 42% 40%, #d8d2c2, #c3bda9 58%, transparent 72%);
+  opacity: 0.18; filter: blur(2px);
+}
+.ink-bg .mist {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(130% 80% at 50% 24%, rgba(150,165,150,0.20), transparent 58%),
+    radial-gradient(80% 55% at 50% 100%, rgba(120,130,112,0.18), transparent 62%);
+}
+.figure-col { flex-direction: column; }
+.canvas-wrap { width: 100%; height: min(74vh, 680px); position: relative; background: transparent; }
+.rotate-hint { color: var(--text-dim); font-size: 12px; text-align: center; margin-top: 8px; letter-spacing: 1px; }
+.loading3d { color: var(--gold); font-family: 'Noto Serif SC', serif; }
+.hot3d {
+  background: rgba(252,250,244,0.92); border: 1px solid var(--gold); color: var(--gold);
+  border-radius: 999px; padding: 4px 12px; font-family: 'Noto Serif SC', serif; font-size: 13px;
+  cursor: pointer; white-space: nowrap; box-shadow: 0 2px 10px rgba(90,80,50,0.18);
+}
+
+/* ---------- brush calligraphy labels (maobizi, vertical, box-less) ---------- */
+.brush-label {
+  font-family: 'Ma Shan Zheng', 'Noto Serif SC', serif;
+  writing-mode: vertical-rl; text-orientation: upright;
+  color: #3a4234; font-size: 22px; line-height: 1.05; letter-spacing: 2px;
+  cursor: pointer; user-select: none; background: none; border: 0; padding: 0;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+}
+.brush-label.sm { font-size: 19px; color: #4a5340; }
+.brush-label.soft { color: #7c8470; font-size: 17px; text-shadow: 0 1px 0 rgba(255,255,255,0.55); }
+.brush-label:hover { color: var(--gold-soft); }
+
+.ink-col {
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: center;
+  gap: 26px; min-width: 0; padding: 10px 6px 10px 0;
+}
+.ink-head { text-align: right; }
+.ink-title {
+  font-family: 'Ma Shan Zheng', 'Noto Serif SC', serif;
+  writing-mode: vertical-rl; text-orientation: upright;
+  font-size: clamp(30px, 3.4vw, 44px); color: var(--parch); line-height: 1; letter-spacing: 4px;
+  margin-left: auto; text-shadow: 0 1px 0 rgba(255,255,255,0.55);
+}
+.ink-sub {
+  margin-top: 8px; color: var(--text-dim); font-size: 11px; letter-spacing: 3px;
+  font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; writing-mode: vertical-rl;
+}
+/* vertical channel names, read right-to-left like an inscription */
+.mer-col {
+  display: flex; flex-direction: row-reverse; justify-content: flex-start;
+  gap: clamp(6px, 1vw, 16px); flex-wrap: wrap;
+}
+.mer-name {
+  font-family: 'Ma Shan Zheng', 'Noto Serif SC', serif;
+  writing-mode: vertical-rl; text-orientation: upright;
+  background: none; border: 0; padding: 0; cursor: pointer; user-select: none;
+  color: #6b7363; font-size: clamp(22px, 2.4vw, 30px); letter-spacing: 3px;
+  line-height: 1.04; transition: color .2s, transform .2s;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.55);
+}
+.mer-name:hover { color: #3a4234; transform: translateY(-2px); }
+.mer-name.on { color: var(--gold-soft); transform: translateY(-2px); text-shadow: 0 0 10px rgba(154,125,68,0.35); }
+
+/* box-less ink-on-paper acupoint detail */
+.detail-ink {
+  align-self: stretch; max-height: 50vh; overflow-y: auto;
+  border-top: 1px solid var(--line); padding: 14px 2px 4px; text-align: right;
+}
+.d-name-v {
+  font-family: 'Ma Shan Zheng', 'Noto Serif SC', serif;
+  font-size: 34px; color: var(--parch); line-height: 1.1; margin-bottom: 4px;
+}
+.d-meta { display: flex; gap: 12px; justify-content: flex-end; font-size: 12px;
+  color: var(--text-dim); font-family: 'Cormorant Garamond', serif; letter-spacing: 1px; margin-bottom: 12px; }
+.d-text { font-size: 13px; line-height: 1.7; color: var(--text); margin: 0 0 10px; text-align: left; }
+.d-text b { font-family: 'Noto Serif SC', serif; color: var(--gold-soft); font-weight: 500; }
+.d-text.subtle { color: var(--text-dim); font-size: 12px; }
+
+@media (max-width: 760px) {
+  .ink-col { align-items: center; }
+  .mer-col { justify-content: center; }
+  .detail-ink { text-align: center; }
+  .d-meta { justify-content: center; }
+}
+
+
+/* ---------- shanshuihua ink mountains (backdrop, behind everything) ---------- */
+.mountains {
+  position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 60%;
+  pointer-events: none;
+}
+.mtn-far  { fill: rgba(96,110,98,0.10); }
+.mtn-mid  { fill: rgba(78,92,80,0.13); }
+.mtn-near { fill: rgba(60,74,62,0.17); }
+
+/* ---------- part toggle (isolate arm / leg / torso) ---------- */
+.part-row { display: flex; flex-direction: row-reverse; gap: 10px; align-items: center; margin-bottom: 4px; }
+.part-tab {
+  font-family: 'Ma Shan Zheng', 'Noto Serif SC', serif;
+  background: none; border: 0; padding: 0 2px; cursor: pointer; user-select: none;
+  color: #8a917f; font-size: 22px; line-height: 1; transition: color .2s, transform .2s;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.55);
+}
+.part-tab:hover { color: #4a5340; }
+.part-tab.on { color: var(--gold-soft); transform: translateY(-1px); }

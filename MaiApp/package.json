@@ -1,0 +1,23 @@
+{
+  "name": "poetic-meridian-atlas",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "0.184.0",
+    "@react-three/fiber": "8.18.0",
+    "@react-three/drei": "9.122.0",
+    "@react-three/postprocessing": "2.19.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

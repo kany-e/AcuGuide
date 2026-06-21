@@ -24,7 +24,7 @@ export default function RecapPage() {
   const stats = locState?.stats ?? {
     holdTimeMs: 30000,
     stabilityPct: 85,
-    rhythmConsistency: 'steady' as const,
+    positionSteadiness: 'steady' as const,
   }
   const symptomId = locState?.symptomId
   const [feeling, setFeeling] = useState<FeelingOption | null>(null)
@@ -35,7 +35,7 @@ export default function RecapPage() {
     Math.round(stats.stabilityPct * 0.65 + Math.min(stats.holdTimeMs / 30000, 1) * 35),
   )
   const positionLabel = stats.stabilityPct >= 75 ? 'Near target' : 'Variable'
-  const stabilityLabel = stats.rhythmConsistency === 'steady' ? 'Steady' : 'Variable'
+  const stabilityLabel = stats.positionSteadiness === 'steady' ? 'Steady' : 'Variable'
   const scoreText =
     score >= 85
       ? 'Near target region with a steady hold.'

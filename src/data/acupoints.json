@@ -77,9 +77,11 @@
           {"landmark": 17, "weight": 0.40, "name": "PINKY_MCP"},
           {"landmark": 0, "weight": 0.15, "name": "WRIST"}
         ],
-        "tolerance_radius_xHandSize": 0.16,
+        "tolerance_radius_xHandSize": 0.52,
+        "tolerance_note": "INDICATIVE — calibrated on the re-shoot (validate_b_reshoot, position GO 0.86 LOCO, n=5). 0.52 is the correct-cluster spread (separates on-target from the off-target clip at 0.69); floor 0.16. Generous on purpose; tighten if the demo feels too lenient. Wrong-FACE is caught by the hand-face gate, not this radius.",
         "stability_threshold_xHandSize": 0.06,
         "press_finger_default": "THUMB_TIP(4) of the other hand",
+        "press_finger": "INDEX_TIP",
         "detection_notes": "Sits in the dorsal groove behind the ring/pinky knuckles; the wrist weight biases it slightly proximal into the depression. Dorsal and well tracked — good primary demo point and pregnancy-safe."
       },
       "technique": {

@@ -1,7 +1,8 @@
 import { useMemo, useRef } from 'react'
 import type { Acupoint, Landmark } from '../types'
-import { LANDMARKS } from '../utils/landmarks'
+import { resolvePressFinger } from '../utils/landmarks'
 import { euclidean, handSize, weightedTarget, offsetVariance } from '../utils/geometry'
+import { OneEuroPoint } from '../utils/oneEuro'
 
 const OFFSET_BUFFER_FRAMES = 15 // ~0.5s at 30fps
 
@@ -20,10 +21,12 @@ export function usePressDetection(
   acupoint: Acupoint
 ): PressResult {
   const offsetHistory = useRef<{ dx: number; dy: number }[]>([])
+  const smootherRef = useRef<OneEuroPoint | null>(null)
 
   return useMemo(() => {
     if (!targetHand) {
       offsetHistory.current = []
+      smootherRef.current?.reset()
       return { targetPoint: null, handSizeVal: 0, isOnTarget: false, isStable: false, hasTarget: false, hasPressing: false }
     }
 
@@ -37,12 +40,18 @@ export function usePressDetection(
       return { targetPoint: null, handSizeVal: hs, isOnTarget: false, isStable: false, hasTarget: true, hasPressing: !!pressingHand }
     }
 
-    const target = weightedTarget(targetHand, anchors)
+    // Smooth the target with a speed-adaptive One-Euro filter BEFORE hit-testing and
+    // drawing, so the ring stays put when the pressing finger occludes the knuckles but
+    // still tracks deliberate hand movement. (drawOverlay renders this same point.)
+    const rawTarget = weightedTarget(targetHand, anchors)
+    if (!smootherRef.current) smootherRef.current = new OneEuroPoint()
+    const target = smootherRef.current.filter(rawTarget, performance.now())
+
     const tolerance = acupoint.mediapipe_target.tolerance_radius_xHandSize * hs
     const stabilityThreshold = acupoint.mediapipe_target.stability_threshold_xHandSize * hs
 
     const pressingTip = pressingHand
-      ? pressingHand[LANDMARKS.THUMB_TIP]
+      ? pressingHand[resolvePressFinger(acupoint.mediapipe_target.press_finger)]
       : null
 
     let isOnTarget = false

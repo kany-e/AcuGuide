@@ -21,3 +21,17 @@ export const LANDMARKS = {
   PINKY_DIP: 19,
   PINKY_TIP: 20,
 } as const
+
+// Resolve a point's per-point `press_finger` (acupoints.json) to a landmark index.
+// TE3 uses INDEX_TIP (the separated index the re-shoot was captured with);
+// everything else defaults to THUMB_TIP.
+export function resolvePressFinger(name?: string): number {
+  switch (name) {
+    case 'INDEX_TIP':
+      return LANDMARKS.INDEX_TIP
+    case 'THUMB_TIP':
+      return LANDMARKS.THUMB_TIP
+    default:
+      return LANDMARKS.THUMB_TIP
+  }
+}

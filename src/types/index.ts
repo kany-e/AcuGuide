@@ -26,6 +26,10 @@ export interface MediapipeTarget {
   tolerance_radius_xHandSize: number
   stability_threshold_xHandSize: number
   press_finger_default: string
+  /** Per-point pressing fingertip landmark name (e.g. 'INDEX_TIP'); defaults to thumb. */
+  press_finger?: string
+  /** Provenance note for a calibrated/indicative tolerance. */
+  tolerance_note?: string
 }
 
 export interface CoachCopy {
@@ -58,7 +62,9 @@ export interface Acupoint {
 export interface SessionStats {
   holdTimeMs: number
   stabilityPct: number
-  rhythmConsistency: 'steady' | 'variable'
+  // Position-hold steadiness (offset variance), NOT press cadence. Cadence is NO-GO
+  // and is intentionally not estimated or shown this round.
+  positionSteadiness: 'steady' | 'variable'
 }
 
 export type FeelingOption = 'relief' | 'no_change' | 'worse'

@@ -19,7 +19,7 @@ const STEPS: Record<string, string[]> = {
   tension_headache: [
     'Back of your hand faces the camera.',
     'Find the highlighted groove just behind your ring and pinky knuckles.',
-    'Press gently with the opposite thumb.',
+    'Press with your opposite index finger, kept separate so the camera can see it.',
     'Hold steady for 30 seconds.',
     'Stop if symptoms feel sharp, unusual, or worse.',
   ],

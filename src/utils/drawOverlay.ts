@@ -1,6 +1,6 @@
 import type { Landmark, Acupoint, CoachingState } from '../types'
 import type { PressResult } from '../hooks/usePressDetection'
-import { LANDMARKS } from './landmarks'
+import { resolvePressFinger } from './landmarks'
 
 interface OverlayOptions {
   state: CoachingState
@@ -24,6 +24,7 @@ export function drawOverlay(
     return
   }
 
+  // Use the SMOOTHED target from usePressDetection so the ring matches the hit-test.
   const target = pressResult.targetPoint
   const tx = target.x * w
   const ty = target.y * h
@@ -44,9 +45,9 @@ export function drawOverlay(
   ctx.globalAlpha = 0.8
   ctx.fill()
 
-  // Pressing thumb tip marker
+  // Pressing fingertip marker (per-point finger: INDEX_TIP for TE3, thumb otherwise)
   if (opts.pressingHand) {
-    const tip = opts.pressingHand[LANDMARKS.THUMB_TIP]
+    const tip = opts.pressingHand[resolvePressFinger(acupoint.mediapipe_target.press_finger)]
     if (tip) {
       ctx.beginPath()
       ctx.arc(tip.x * w, tip.y * h, 8, 0, 2 * Math.PI)

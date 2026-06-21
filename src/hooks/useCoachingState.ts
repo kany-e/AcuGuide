@@ -29,7 +29,7 @@ export function useCoachingState(
   const [sessionStats, setSessionStats] = useState<SessionStats>({
     holdTimeMs: 0,
     stabilityPct: 85,
-    rhythmConsistency: 'steady',
+    positionSteadiness: 'steady',
   })
 
   const targetDurationMs = acupoint.technique.duration_s * 1000
@@ -112,7 +112,7 @@ export function useCoachingState(
 
     if (total >= targetDurationMs) {
       accumulatedHoldRef.current = targetDurationMs
-      setSessionStats({ holdTimeMs: targetDurationMs, stabilityPct: 90, rhythmConsistency: 'steady' })
+      setSessionStats({ holdTimeMs: targetDurationMs, stabilityPct: 90, positionSteadiness: 'steady' })
       setState('COMPLETE')
       return
     }
@@ -136,10 +136,16 @@ export function useCoachingState(
     acupoint.requires_hand_face === 'palm_to_camera'
       ? 'Turn your palm toward the camera'
       : 'Turn the back of your hand toward the camera'
+  // Capture coaching: receiving hand is present but no separated pressing finger yet.
+  // Never fall through to a position verdict in this case (the presser must be its own hand).
+  const searchingMsg =
+    press.hasTarget && !press.hasPressing
+      ? 'Bring your pressing finger into view'
+      : copy.drift
   const messages: Record<CoachingState, string> = {
     NO_HAND: 'Bring your hand into the frame',
     WRONG_FACE: wrongFaceMsg,
-    SEARCHING: copy.drift,
+    SEARCHING: searchingMsg,
     ON_TARGET_UNSTABLE: 'Hold it steady',
     HOLDING: copy.hold,
     PAUSED: copy.drift,
