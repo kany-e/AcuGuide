@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 .DS_Store
 node_modules
 dist
@@ -5,3 +6,12 @@ dist-ssr
 *.local
 
 *.tsbuildinfo
+=======
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+outputs/
+diagnostics/
+diagnostics/overlays/
+>>>>>>> 5434261 (added code)
