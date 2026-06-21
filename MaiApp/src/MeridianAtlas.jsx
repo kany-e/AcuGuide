@@ -42,8 +42,8 @@ export default function MeridianAtlas() {
 
       <header className="topbar">
         <div className="brand">
-          <span className="brand-zh">{lang === 'zh' ? '诗词山河 · 经络图谱' : 'Poetic Meridian Atlas'}</span>
-          <span className="brand-en">{lang === 'zh' ? 'Poetic Meridian Atlas' : '诗词山河 · 经络图谱'}</span>
+          <span className="brand-zh">{lang === 'zh' ? '诗词山河 · 经络图谱' : 'TCN Coach'}</span>
+          <span className="brand-en">{lang === 'zh' ? 'TCN Coach' : '诗词山河 · 经络图谱'}</span>
         </div>
         <div className="top-controls">
           <div className="seg">
@@ -81,17 +81,31 @@ export default function MeridianAtlas() {
 
           {/* vertical brush-calligraphy meridian names; click to isolate a channel */}
           {view === 'body' && (
-            <nav className="mer-col">
+            <nav className={`mer-col ${lang === 'en' ? 'en' : ''}`}>
               {majors.map((m) => (
                 <button key={m.id}
-                  className={`mer-name ${solo === m.id ? 'on' : ''}`}
+                  className={`mer-name ${lang === 'en' ? 'en' : ''} ${solo === m.id ? 'on' : ''}`}
                   style={solo === m.id ? { color: MERIDIAN_COLORS[m.id] } : undefined}
                   onClick={() => setSolo(solo === m.id ? null : m.id)}>
-                  {m.zh}
+                  {lang === 'zh' ? m.zh : m.en}
                 </button>
               ))}
             </nav>
           )}
+
+          {view === 'body' && solo && !selected && (() => {
+            const m = MERIDIANS.find((x) => x.id === solo);
+            return m ? (
+              <section className="detail-ink">
+                <div className="d-name-v">{lang === 'zh' ? m.zh : m.en}</div>
+                <div className="d-meta">
+                  <span style={{ color: MERIDIAN_COLORS[m.id] }}>{m.ab}</span>
+                  <span>{lang === 'zh' ? m.en : m.zh}</span>
+                </div>
+                <p className="d-text">{lang === 'zh' ? m.descZh : m.descEn}</p>
+              </section>
+            ) : null;
+          })()}
 
           {selected && (
             <section className="detail-ink">

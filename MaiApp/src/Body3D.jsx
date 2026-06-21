@@ -217,8 +217,8 @@ function GLBBody({ solo, onPick, lang, onEnterHand, part }) {
     <Channels defs={defs} solo={solo} onPick={onPick} part={part} />
     {handPos && <HandHotspot pos={handPos} lang={lang} onEnterHand={onEnterHand} />}
     {anchors.head && <RegionLabel pos={anchors.head} text={lang === 'zh' ? '头部' : 'Head'} dx={0.14} dy={0.03} />}
-    {anchors.chest && <RegionLabel pos={anchors.chest} text={lang === 'zh' ? '胸' : 'Chest'} dx={-0.2} dy={0.02} />}
-    {anchors.belly && <RegionLabel pos={anchors.belly} text={lang === 'zh' ? '腹' : 'Abdomen'} dx={-0.2} dy={0.0} />}
+    {anchors.chest && <RegionLabel pos={anchors.chest} text={lang === 'zh' ? '胸' : 'Chest'} dx={lang === 'zh' ? -0.2 : -0.3} dy={0.02} />}
+    {anchors.belly && <RegionLabel pos={anchors.belly} text={lang === 'zh' ? '腹' : 'Abdomen'} dx={lang === 'zh' ? -0.2 : 0.3} dy={lang === 'zh' ? 0.0 : 0.06} />}
     {anchors.arm && <RegionLabel pos={anchors.arm} text={lang === 'zh' ? '臂' : 'Arm'} dx={-0.1} dy={0.02} />}
     {anchors.leg && <RegionLabel pos={anchors.leg} text={lang === 'zh' ? '腿' : 'Leg'} dx={-0.12} dy={0.0} />}
     {anchors.foot && <RegionLabel pos={anchors.foot} text={lang === 'zh' ? '足' : 'Foot'} dx={-0.1} dy={-0.02} />}
