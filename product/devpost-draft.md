@@ -30,10 +30,9 @@ The hardest product challenge was scope control. A full TCM diagnosis app or AR 
 
 ## Accomplishments
 
-- Built a focused wellness product instead of a broad medical chatbot.
-- Created a hand-only demo flow that can show real-time execution feedback.
-- Designed safety guardrails around red flags and non-diagnostic language.
-- Structured the app so routine content is curated rather than hallucinated.
+We are proud that we kept the idea small enough to actually demo. Instead of trying to build a huge health AI product, we focused on one simple user pain point: people can read acupressure instructions online, but they still do not know if they are pressing in the right area.
+
+We are also proud of the workaround we found for the vision problem. Exact acupoint detection is hard, especially in a hackathon, so we used hand landmarks and rough target regions to make the guidance understandable enough for a working demo.
 
 ## What We Learned
 
@@ -52,4 +51,3 @@ Next steps would include expert review of the routine library, better hand-regio
 - [ ] Safety boundary included.
 - [ ] Tech stack listed.
 - [ ] No treatment or diagnosis claim.
-

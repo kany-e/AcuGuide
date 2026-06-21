@@ -48,11 +48,9 @@ The biggest engineering challenge was making the visual feedback stable and unde
 
 ## Accomplishments
 
-- Built a focused wellness product instead of a broad medical chatbot.
-- Designed a hand-only demo flow with real-time execution feedback.
-- Created a safety-first content strategy around curated routines.
-- Separated routine data, visual feedback, and AI coaching language.
-- Prepared a demo path that works even when live AI is unavailable.
+We are proud that we kept the idea small enough to actually demo. Instead of trying to build a huge health AI product, we focused on one simple user pain point: people can read acupressure instructions online, but they still do not know if they are pressing in the right area.
+
+We are also proud of the workaround we found for the vision problem. Exact acupoint detection is hard, especially in a hackathon, so we used hand landmarks and rough target regions to make the guidance understandable enough for a working demo.
 
 ## What We Learned
 
@@ -79,4 +77,3 @@ Replace with final stack:
 - [ ] Add screenshots.
 - [ ] Add video.
 - [ ] Confirm no treatment or diagnosis claims.
-
