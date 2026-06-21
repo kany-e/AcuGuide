@@ -47,12 +47,12 @@ export default function CameraPage() {
     p => p.id === pointId,
   )!
 
-  // State declarations first — facingMode is needed by useHandClassifier below
+  const facingMode = 'environment' as const
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [mediaPipeError, setMediaPipeError] = useState<string | null>(null)
-  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
   const { hands, initMediaPipe, isReady } = useMediaPipe(videoRef)
-  const { targetHand, pressingHand, wrongFaceDetected } = useHandClassifier(hands, acupoint)
+  const userHand = (sessionStorage.getItem('targetHandedness') ?? 'Left') as 'Left' | 'Right'
+  const { targetHand, pressingHand, wrongFaceDetected } = useHandClassifier(hands, acupoint, userHand, facingMode)
   const pressResult = usePressDetection(targetHand, pressingHand, acupoint)
   const { state, coachingMessage, sessionStats } = useCoachingState(
     pressResult,
@@ -107,12 +107,6 @@ export default function CameraPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  const flipCamera = useCallback(() => {
-    const next = facingMode === 'environment' ? 'user' : 'environment'
-    setFacingMode(next)
-    startStream(next)
-  }, [facingMode, startStream])
 
   const drawLoop = useCallback(() => {
     const canvas = canvasRef.current
@@ -203,7 +197,6 @@ export default function CameraPage() {
       <video
         ref={videoRef}
         className="absolute inset-0 w-full h-full object-cover"
-        style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
         playsInline
         muted
       />
@@ -212,7 +205,6 @@ export default function CameraPage() {
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full"
-        style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
       />
 
       {/* Loading indicator */}
@@ -240,32 +232,6 @@ export default function CameraPage() {
           strokeLinejoin="round"
         >
           <path d="M11 14L6 9l5-5" />
-        </svg>
-      </button>
-
-      {/* Flip camera button */}
-      <button
-        onClick={flipCamera}
-        className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-sm"
-        style={{ background: 'rgba(23,26,31,0.82)' }}
-        aria-label="Flip camera"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#f5f6f1"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M20 7h-3a2 2 0 0 1-2-2V2" />
-          <path d="M9 2H5a2 2 0 0 0-2 2v4" />
-          <path d="M4 17v2a2 2 0 0 0 2 2h3" />
-          <path d="M15 22h3a2 2 0 0 0 2-2v-3" />
-          <circle cx="12" cy="12" r="3" />
         </svg>
       </button>
 

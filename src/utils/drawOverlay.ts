@@ -1,6 +1,5 @@
 import type { Landmark, Acupoint, CoachingState } from '../types'
 import type { PressResult } from '../hooks/usePressDetection'
-import { weightedTarget } from './geometry'
 import { LANDMARKS } from './landmarks'
 
 interface OverlayOptions {
@@ -25,10 +24,7 @@ export function drawOverlay(
     return
   }
 
-  const anchors = acupoint.mediapipe_target.anchors
-  if (!anchors) return
-
-  const target = weightedTarget(targetHand, anchors)
+  const target = pressResult.targetPoint
   const tx = target.x * w
   const ty = target.y * h
   const radius = acupoint.mediapipe_target.tolerance_radius_xHandSize * pressResult.handSizeVal * w

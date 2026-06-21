@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import acupointsData from '../data/acupoints.json'
 import type { Acupoint, SymptomId } from '../types'
@@ -41,6 +42,7 @@ const STEPS: Record<string, string[]> = {
 export default function RoutinePage() {
   const { symptomId } = useParams<{ symptomId: SymptomId }>()
   const navigate = useNavigate()
+  const [targetHand, setTargetHand] = useState<'Left' | 'Right'>('Left')
 
   if (!sessionStorage.getItem('safetyAcknowledged')) {
     navigate(`/safety/${symptomId}`)
@@ -118,8 +120,32 @@ export default function RoutinePage() {
         ))}
       </div>
 
+      {/* Hand selector */}
+      <div className="mb-4">
+        <p className="text-soft text-[11px] font-black uppercase mb-2">Which hand will you press on?</p>
+        <div className="grid grid-cols-2 gap-2">
+          {(['Left', 'Right'] as const).map(hand => (
+            <button
+              key={hand}
+              onClick={() => setTargetHand(hand)}
+              className={`min-h-[44px] rounded-lg text-[14px] font-black transition-colors ${
+                targetHand === hand
+                  ? 'bg-lime text-surface'
+                  : 'bg-panel border border-white/10 text-muted'
+              }`}
+            >
+              {hand} hand
+            </button>
+          ))}
+        </div>
+      </div>
+
       <button
-        onClick={() => navigate(`/camera/${symptomId}`)}
+        onClick={() => {
+          window.speechSynthesis?.cancel()
+          sessionStorage.setItem('targetHandedness', targetHand)
+          navigate(`/camera/${symptomId}`)
+        }}
         className="w-full min-h-[52px] rounded-lg bg-lime text-surface font-black text-base mt-auto mb-4"
       >
         Open coach

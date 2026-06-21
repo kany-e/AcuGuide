@@ -9,57 +9,75 @@ export interface ClassifiedHands {
   wrongFaceDetected: boolean
 }
 
-function isDorsal(landmarks: Landmark[], handedness: 'Left' | 'Right'): boolean {
-  const thumb = landmarks[LANDMARKS.THUMB_TIP]
-  const pinky = landmarks[LANDMARKS.PINKY_MCP]
-  if (!thumb || !pinky) return false
-  // Empirically correct for both front and back cameras —
-  // MediaPipe's handedness label already accounts for camera perspective.
-  if (handedness === 'Left') return thumb.x > pinky.x
-  return thumb.x < pinky.x
+// 2D cross product of (WRIST→MIDDLE_MCP) and (INDEX_MCP→PINKY_MCP).
+// Back camera, left hand, dorsal facing camera  → cross < 0
+// Back camera, right hand, dorsal facing camera → cross > 0
+// Front camera raw frame has x-axis mirrored vs back camera → flip result.
+function isDorsalFacing(
+  landmarks: Landmark[],
+  userHand: 'Left' | 'Right',
+  facingMode: 'user' | 'environment',
+): boolean {
+  const ax = landmarks[LANDMARKS.MIDDLE_MCP].x - landmarks[LANDMARKS.WRIST].x
+  const ay = landmarks[LANDMARKS.MIDDLE_MCP].y - landmarks[LANDMARKS.WRIST].y
+  const bx = landmarks[LANDMARKS.PINKY_MCP].x - landmarks[LANDMARKS.INDEX_MCP].x
+  const by = landmarks[LANDMARKS.PINKY_MCP].y - landmarks[LANDMARKS.INDEX_MCP].y
+  const cross = ax * by - ay * bx
+  const dorsal = userHand === 'Left' ? cross < 0 : cross > 0
+  return facingMode === 'user' ? !dorsal : dorsal
 }
 
-function isPalmar(landmarks: Landmark[], handedness: 'Left' | 'Right'): boolean {
-  return !isDorsal(landmarks, handedness)
+function faceIsCorrect(
+  landmarks: Landmark[],
+  userHand: 'Left' | 'Right',
+  facingMode: 'user' | 'environment',
+  requires: string,
+): boolean {
+  const dorsal = isDorsalFacing(landmarks, userHand, facingMode)
+  if (requires === 'palm_to_camera') return !dorsal
+  // back_of_hand_to_camera or ulnar_edge_or_back_of_hand_to_camera
+  return dorsal
 }
 
 export function useHandClassifier(
   hands: HandResult[],
   acupoint: Acupoint,
+  userHand: 'Left' | 'Right',
+  facingMode: 'user' | 'environment',
 ): ClassifiedHands {
   return useMemo(() => {
     if (hands.length === 0) {
       return { targetHand: null, pressingHand: null, wrongFaceDetected: false }
     }
 
-    const requiresDorsal =
-      acupoint.requires_hand_face === 'back_of_hand_to_camera' ||
-      acupoint.requires_hand_face === 'ulnar_edge_or_back_of_hand_to_camera'
-    const requiresPalmar = acupoint.requires_hand_face === 'palm_to_camera'
-
-    const faceOk = (h: HandResult) => {
-      if (requiresDorsal) return isDorsal(h.landmarks, h.handedness)
-      if (requiresPalmar) return isPalmar(h.landmarks, h.handedness)
-      return true
-    }
-
     if (hands.length === 1) {
-      const hand = hands[0]
-      const correct = faceOk(hand)
+      const lm = hands[0].landmarks
+      const ok = faceIsCorrect(lm, userHand, facingMode, acupoint.requires_hand_face)
       return {
-        targetHand: correct ? hand.landmarks : null,
+        targetHand: ok ? lm : null,
         pressingHand: null,
-        wrongFaceDetected: !correct,
+        wrongFaceDetected: !ok,
       }
     }
 
-    // 2 hands: target = correct face, pressing = the other
-    const target = hands.find(faceOk)
-    const pressing = hands.find(h => h !== target)
+    // 2 hands: pick target by wrist x-position.
+    // Back camera: user's LEFT hand appears on the RIGHT side of the raw frame (larger x).
+    // Front camera: LEFT hand appears on the LEFT side (smaller x).
+    const targetExpectedOnRight =
+      (facingMode === 'environment' && userHand === 'Left') ||
+      (facingMode === 'user' && userHand === 'Right')
+
+    const [h0, h1] = hands
+    const w0 = h0.landmarks[LANDMARKS.WRIST].x
+    const w1 = h1.landmarks[LANDMARKS.WRIST].x
+    const target = targetExpectedOnRight ? (w0 > w1 ? h0 : h1) : (w0 < w1 ? h0 : h1)
+    const pressing = hands.find(h => h !== target)!
+
+    const ok = faceIsCorrect(target.landmarks, userHand, facingMode, acupoint.requires_hand_face)
     return {
-      targetHand: target?.landmarks ?? null,
-      pressingHand: pressing?.landmarks ?? null,
-      wrongFaceDetected: !target,
+      targetHand: ok ? target.landmarks : null,
+      pressingHand: ok ? pressing.landmarks : null,
+      wrongFaceDetected: !ok,
     }
-  }, [hands, acupoint])
+  }, [hands, acupoint, userHand, facingMode])
 }
