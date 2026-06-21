@@ -1,0 +1,426 @@
+{
+  "video_id": "3861",
+  "file": "IMG_3861.MOV",
+  "target": "A",
+  "region_hint": "arm",
+  "duration_sec": 7.6,
+  "source_fps": 30.0,
+  "process_fps": 15.0,
+  "sample_interval_sec": 0.5,
+  "manual_label": {
+    "position": "incorrect",
+    "frequency": null,
+    "issue": null
+  },
+  "quality": {
+    "target_region_visible": true,
+    "target_hand_detected_ratio": 1.0,
+    "pressing_hand_present": true,
+    "pressing_hand_landmark_present": false,
+    "pressing_motion_present": true,
+    "pressing_hand_detected_ratio": 0.0,
+    "finger_contact_sample_ratio": 0.0,
+    "pressing_hand_in_frame": null,
+    "pressing_hand_edge_touch_ratio": 0.0,
+    "frequency_reliable": true,
+    "frequency_source": "motion_proxy",
+    "strict_finger_frequency_reliable": false,
+    "orientation_issue_from_manual": false,
+    "orientation_score_heuristic": -0.01236,
+    "mean_motion_score": 0.3558,
+    "mean_contact_score": 0.3558,
+    "confidence": 0.9038
+  },
+  "coordinate_system": {
+    "type": "target_hand_local_2d",
+    "u_axis": "wrist_to_middle_mcp; positive toward fingers, negative toward forearm",
+    "v_axis": "index_mcp_to_pinky_mcp, orthogonalized to u_axis",
+    "scale": "max(distance(wrist,middle_mcp), distance(index_mcp,pinky_mcp)) per frame",
+    "units": "target-hand-scale-normalized"
+  },
+  "relative_location_samples": [
+    {
+      "time_sec": 0.0,
+      "u": null,
+      "v": null,
+      "contact_score": 0.0,
+      "contact_source": null,
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 0.5,
+      "u": 0.5987,
+      "v": 0.2081,
+      "contact_score": 0.425,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 1.0,
+      "u": 0.349,
+      "v": 0.1955,
+      "contact_score": 0.317,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 1.5,
+      "u": 0.4884,
+      "v": 0.2645,
+      "contact_score": 0.377,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 2.0,
+      "u": 0.5045,
+      "v": 0.3111,
+      "contact_score": 0.32,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 2.5,
+      "u": 0.3597,
+      "v": 0.2455,
+      "contact_score": 0.359,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 3.0,
+      "u": 0.5085,
+      "v": 0.2692,
+      "contact_score": 0.286,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 3.5,
+      "u": 0.731,
+      "v": 0.2765,
+      "contact_score": 0.344,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 4.0,
+      "u": 0.5837,
+      "v": 0.2897,
+      "contact_score": 0.392,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 4.5,
+      "u": 0.575,
+      "v": 0.3468,
+      "contact_score": 0.305,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 5.0,
+      "u": 0.56,
+      "v": 0.294,
+      "contact_score": 0.386,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 5.5,
+      "u": 0.6712,
+      "v": 0.3412,
+      "contact_score": 0.454,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 6.0,
+      "u": 0.6724,
+      "v": 0.3725,
+      "contact_score": 0.36,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 6.5,
+      "u": 0.37,
+      "v": -0.3608,
+      "contact_score": 0.323,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 7.0,
+      "u": 0.5643,
+      "v": 0.3382,
+      "contact_score": 0.332,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 7.5,
+      "u": 0.4842,
+      "v": 0.4648,
+      "contact_score": 0.249,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    }
+  ],
+  "press_or_rub_events": [
+    {
+      "time_sec": 0.333,
+      "u": 0.517,
+      "v": 0.3048,
+      "type": "cycle_peak",
+      "confidence": 0.711
+    },
+    {
+      "time_sec": 0.667,
+      "u": 0.6916,
+      "v": 0.3647,
+      "type": "cycle_peak",
+      "confidence": 0.734
+    },
+    {
+      "time_sec": 1.133,
+      "u": 0.4795,
+      "v": 0.4229,
+      "type": "cycle_peak",
+      "confidence": 0.689
+    },
+    {
+      "time_sec": 1.933,
+      "u": 0.5761,
+      "v": 0.3916,
+      "type": "cycle_peak",
+      "confidence": 0.591
+    },
+    {
+      "time_sec": 2.2,
+      "u": 0.4718,
+      "v": 0.3075,
+      "type": "cycle_peak",
+      "confidence": 0.585
+    },
+    {
+      "time_sec": 2.467,
+      "u": 0.5541,
+      "v": 0.3274,
+      "type": "cycle_peak",
+      "confidence": 0.622
+    },
+    {
+      "time_sec": 3.6,
+      "u": 0.6749,
+      "v": 0.4137,
+      "type": "cycle_peak",
+      "confidence": 0.626
+    },
+    {
+      "time_sec": 4.0,
+      "u": 0.5837,
+      "v": 0.2897,
+      "type": "cycle_peak",
+      "confidence": 0.632
+    },
+    {
+      "time_sec": 4.333,
+      "u": 0.6449,
+      "v": 0.4857,
+      "type": "cycle_peak",
+      "confidence": 0.649
+    },
+    {
+      "time_sec": 4.933,
+      "u": 0.7985,
+      "v": 0.4037,
+      "type": "cycle_peak",
+      "confidence": 0.639
+    },
+    {
+      "time_sec": 5.2,
+      "u": 0.6956,
+      "v": -0.3569,
+      "type": "cycle_peak",
+      "confidence": 0.67
+    },
+    {
+      "time_sec": 5.533,
+      "u": 0.6712,
+      "v": 0.3412,
+      "type": "cycle_peak",
+      "confidence": 0.699
+    },
+    {
+      "time_sec": 5.8,
+      "u": 0.5052,
+      "v": 0.3523,
+      "type": "cycle_peak",
+      "confidence": 0.817
+    },
+    {
+      "time_sec": 6.067,
+      "u": 0.5718,
+      "v": 0.3634,
+      "type": "cycle_peak",
+      "confidence": 0.681
+    },
+    {
+      "time_sec": 6.333,
+      "u": 0.2815,
+      "v": 0.2522,
+      "type": "cycle_peak",
+      "confidence": 0.671
+    },
+    {
+      "time_sec": 7.0,
+      "u": 0.5643,
+      "v": 0.3382,
+      "type": "cycle_peak",
+      "confidence": 0.646
+    },
+    {
+      "time_sec": 7.4,
+      "u": 0.3792,
+      "v": 0.2641,
+      "type": "cycle_peak",
+      "confidence": 0.551
+    }
+  ],
+  "frequency_curve": [
+    {
+      "time_sec": 0.5,
+      "hz": 2.5714,
+      "confidence": 0.607
+    },
+    {
+      "time_sec": 1.0,
+      "hz": 2.1429,
+      "confidence": 0.593
+    },
+    {
+      "time_sec": 1.5,
+      "hz": 2.9464,
+      "confidence": 0.6
+    },
+    {
+      "time_sec": 2.0,
+      "hz": 3.75,
+      "confidence": 0.576
+    },
+    {
+      "time_sec": 2.5,
+      "hz": 3.75,
+      "confidence": 0.533
+    },
+    {
+      "time_sec": 3.0,
+      "hz": 2.5,
+      "confidence": 0.535
+    },
+    {
+      "time_sec": 3.5,
+      "hz": 2.75,
+      "confidence": 0.546
+    },
+    {
+      "time_sec": 4.0,
+      "hz": 2.5,
+      "confidence": 0.546
+    },
+    {
+      "time_sec": 4.5,
+      "hz": 2.75,
+      "confidence": 0.583
+    },
+    {
+      "time_sec": 5.0,
+      "hz": 3.0,
+      "confidence": 0.618
+    },
+    {
+      "time_sec": 5.5,
+      "hz": 3.75,
+      "confidence": 0.617
+    },
+    {
+      "time_sec": 6.0,
+      "hz": 3.75,
+      "confidence": 0.61
+    },
+    {
+      "time_sec": 6.5,
+      "hz": 3.75,
+      "confidence": 0.593
+    },
+    {
+      "time_sec": 7.0,
+      "hz": 2.5,
+      "confidence": 0.551
+    },
+    {
+      "time_sec": 7.5,
+      "hz": 2.5,
+      "confidence": 0.525
+    }
+  ],
+  "summary": {
+    "mean_frequency_hz": 3.0,
+    "frequency_std_hz": 0.9732,
+    "cycle_count": 17,
+    "mean_u": 0.5113,
+    "mean_v": 0.2649,
+    "std_u": 0.142,
+    "std_v": 0.1698
+  }
+}

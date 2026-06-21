@@ -1,0 +1,389 @@
+{
+  "video_id": "3857",
+  "file": "IMG_3857.MOV",
+  "target": "A",
+  "region_hint": "arm",
+  "duration_sec": 7.4333,
+  "source_fps": 30.0,
+  "process_fps": 15.0,
+  "sample_interval_sec": 0.5,
+  "manual_label": {
+    "position": "incorrect",
+    "frequency": null,
+    "issue": "orientation_wrong"
+  },
+  "quality": {
+    "target_region_visible": true,
+    "target_hand_detected_ratio": 1.0,
+    "pressing_hand_present": true,
+    "pressing_hand_landmark_present": true,
+    "pressing_motion_present": true,
+    "pressing_hand_detected_ratio": 0.9018,
+    "finger_contact_sample_ratio": 0.9018,
+    "pressing_hand_in_frame": true,
+    "pressing_hand_edge_touch_ratio": 0.0,
+    "frequency_reliable": true,
+    "frequency_source": "pressing_finger_landmark",
+    "strict_finger_frequency_reliable": true,
+    "orientation_issue_from_manual": true,
+    "orientation_score_heuristic": 0.00634,
+    "mean_motion_score": 0.2514,
+    "mean_contact_score": 0.6685,
+    "confidence": 0.9733
+  },
+  "coordinate_system": {
+    "type": "target_hand_local_2d",
+    "u_axis": "wrist_to_middle_mcp; positive toward fingers, negative toward forearm",
+    "v_axis": "index_mcp_to_pinky_mcp, orthogonalized to u_axis",
+    "scale": "max(distance(wrist,middle_mcp), distance(index_mcp,pinky_mcp)) per frame",
+    "units": "target-hand-scale-normalized"
+  },
+  "relative_location_samples": [
+    {
+      "time_sec": 0.0,
+      "u": null,
+      "v": null,
+      "contact_score": 0.0,
+      "contact_source": null,
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 0.5,
+      "u": 0.6061,
+      "v": 0.1585,
+      "contact_score": 0.282,
+      "contact_source": "motion_centroid",
+      "finger_contact_detected": false,
+      "hand_count": 1,
+      "target_hand_detected": true,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 1.0,
+      "u": -0.4673,
+      "v": -0.0213,
+      "contact_score": 0.708,
+      "contact_source": "hand_0_tip_20+motion",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 1.5,
+      "u": -0.4621,
+      "v": 0.0449,
+      "contact_score": 0.726,
+      "contact_source": "hand_0_tip_8",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 2.0,
+      "u": -0.4279,
+      "v": 0.0891,
+      "contact_score": 0.727,
+      "contact_source": "hand_0_tip_8",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 2.5,
+      "u": -0.3164,
+      "v": -0.5986,
+      "contact_score": 0.709,
+      "contact_source": "hand_0_landmark_5",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 3.0,
+      "u": -0.3098,
+      "v": -0.5681,
+      "contact_score": 0.734,
+      "contact_source": "hand_0_landmark_5",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 3.5,
+      "u": -0.3462,
+      "v": -0.5809,
+      "contact_score": 0.71,
+      "contact_source": "hand_0_landmark_5",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 4.0,
+      "u": -0.6452,
+      "v": -0.1574,
+      "contact_score": 0.684,
+      "contact_source": "hand_0_tip_4",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 4.5,
+      "u": -0.3767,
+      "v": -0.5782,
+      "contact_score": 0.701,
+      "contact_source": "hand_0_landmark_5",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 5.0,
+      "u": -0.3227,
+      "v": -0.5877,
+      "contact_score": 0.716,
+      "contact_source": "hand_0_landmark_5",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 5.5,
+      "u": -0.4746,
+      "v": -0.0165,
+      "contact_score": 0.73,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 6.0,
+      "u": -0.3216,
+      "v": -0.6057,
+      "contact_score": 0.73,
+      "contact_source": "hand_0_landmark_5",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 6.5,
+      "u": -0.3584,
+      "v": -0.5899,
+      "contact_score": 0.705,
+      "contact_source": "hand_0_landmark_9",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 7.0,
+      "u": -0.376,
+      "v": -0.6246,
+      "contact_score": 0.689,
+      "contact_source": "hand_0_landmark_5",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    }
+  ],
+  "press_or_rub_events": [
+    {
+      "time_sec": 0.2,
+      "u": 0.1034,
+      "v": 0.501,
+      "type": "cycle_peak",
+      "confidence": 0.752
+    },
+    {
+      "time_sec": 0.933,
+      "u": -0.3219,
+      "v": -0.5796,
+      "type": "cycle_peak",
+      "confidence": 0.733
+    },
+    {
+      "time_sec": 1.333,
+      "u": -0.5967,
+      "v": -0.1436,
+      "type": "cycle_peak",
+      "confidence": 0.657
+    },
+    {
+      "time_sec": 2.0,
+      "u": -0.4279,
+      "v": 0.0891,
+      "type": "cycle_peak",
+      "confidence": 0.725
+    },
+    {
+      "time_sec": 2.267,
+      "u": -0.5134,
+      "v": -0.0122,
+      "type": "cycle_peak",
+      "confidence": 0.601
+    },
+    {
+      "time_sec": 2.6,
+      "u": -0.4667,
+      "v": 0.1195,
+      "type": "cycle_peak",
+      "confidence": 0.448
+    },
+    {
+      "time_sec": 2.933,
+      "u": -0.3293,
+      "v": -0.5941,
+      "type": "cycle_peak",
+      "confidence": 0.419
+    },
+    {
+      "time_sec": 3.6,
+      "u": -0.3645,
+      "v": -0.6011,
+      "type": "cycle_peak",
+      "confidence": 0.556
+    },
+    {
+      "time_sec": 4.4,
+      "u": -0.5123,
+      "v": -0.0728,
+      "type": "cycle_peak",
+      "confidence": 0.538
+    },
+    {
+      "time_sec": 5.0,
+      "u": -0.3227,
+      "v": -0.5877,
+      "type": "cycle_peak",
+      "confidence": 0.654
+    },
+    {
+      "time_sec": 5.467,
+      "u": -0.3079,
+      "v": -0.5874,
+      "type": "cycle_peak",
+      "confidence": 0.787
+    },
+    {
+      "time_sec": 5.8,
+      "u": -0.454,
+      "v": -0.0317,
+      "type": "cycle_peak",
+      "confidence": 0.542
+    },
+    {
+      "time_sec": 6.067,
+      "u": -0.3338,
+      "v": -0.5991,
+      "type": "cycle_peak",
+      "confidence": 0.438
+    },
+    {
+      "time_sec": 6.867,
+      "u": -0.6215,
+      "v": -0.1541,
+      "type": "cycle_peak",
+      "confidence": 0.812
+    }
+  ],
+  "frequency_curve": [
+    {
+      "time_sec": 0.5,
+      "hz": 1.9318,
+      "confidence": 0.59
+    },
+    {
+      "time_sec": 1.0,
+      "hz": 1.5,
+      "confidence": 0.573
+    },
+    {
+      "time_sec": 1.5,
+      "hz": 2.5,
+      "confidence": 0.576
+    },
+    {
+      "time_sec": 2.0,
+      "hz": 3.0,
+      "confidence": 0.501
+    },
+    {
+      "time_sec": 2.5,
+      "hz": 3.0,
+      "confidence": 0.435
+    },
+    {
+      "time_sec": 3.0,
+      "hz": 3.0,
+      "confidence": 0.427
+    },
+    {
+      "time_sec": 3.5,
+      "hz": 1.5,
+      "confidence": 0.39
+    },
+    {
+      "time_sec": 4.0,
+      "hz": 1.4583,
+      "confidence": 0.402
+    },
+    {
+      "time_sec": 4.5,
+      "hz": 1.6667,
+      "confidence": 0.469
+    },
+    {
+      "time_sec": 5.0,
+      "hz": 2.1429,
+      "confidence": 0.472
+    },
+    {
+      "time_sec": 5.5,
+      "hz": 3.0,
+      "confidence": 0.487
+    },
+    {
+      "time_sec": 6.0,
+      "hz": 2.5714,
+      "confidence": 0.555
+    },
+    {
+      "time_sec": 6.5,
+      "hz": 2.5,
+      "confidence": 0.498
+    },
+    {
+      "time_sec": 7.0,
+      "hz": 1.25,
+      "confidence": 0.497
+    }
+  ],
+  "summary": {
+    "mean_frequency_hz": 2.1429,
+    "frequency_std_hz": 0.8987,
+    "cycle_count": 14,
+    "mean_u": -0.3203,
+    "mean_v": -0.309,
+    "std_u": 0.2379,
+    "std_v": 0.3342
+  }
+}
