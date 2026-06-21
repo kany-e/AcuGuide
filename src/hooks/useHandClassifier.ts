@@ -60,24 +60,17 @@ export function useHandClassifier(
       }
     }
 
-    // 2 hands: pick target by wrist x-position.
-    // Back camera: user's LEFT hand appears on the RIGHT side of the raw frame (larger x).
-    // Front camera: LEFT hand appears on the LEFT side (smaller x).
-    const targetExpectedOnRight =
-      (facingMode === 'environment' && userHand === 'Left') ||
-      (facingMode === 'user' && userHand === 'Right')
+    // 2 hands: use face orientation to identify target rather than wrist position.
+    // The target hand must have the correct face toward camera; the pressing hand
+    // approaches from a different angle so its cross product sign will differ.
+    const target = hands.find(h =>
+      faceIsCorrect(h.landmarks, userHand, facingMode, acupoint.requires_hand_face)
+    )
+    const pressing = hands.find(h => h !== target) ?? null
 
-    const [h0, h1] = hands
-    const w0 = h0.landmarks[LANDMARKS.WRIST].x
-    const w1 = h1.landmarks[LANDMARKS.WRIST].x
-    const target = targetExpectedOnRight ? (w0 > w1 ? h0 : h1) : (w0 < w1 ? h0 : h1)
-    const pressing = hands.find(h => h !== target)!
-
-    const ok = faceIsCorrect(target.landmarks, userHand, facingMode, acupoint.requires_hand_face)
-    return {
-      targetHand: ok ? target.landmarks : null,
-      pressingHand: ok ? pressing.landmarks : null,
-      wrongFaceDetected: !ok,
+    if (!target) {
+      return { targetHand: null, pressingHand: null, wrongFaceDetected: true }
     }
+    return { targetHand: target.landmarks, pressingHand: pressing?.landmarks ?? null, wrongFaceDetected: false }
   }, [hands, acupoint, userHand, facingMode])
 }
