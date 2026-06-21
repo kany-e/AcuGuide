@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import HomePage from './pages/HomePage'
+import AboutPage from './pages/AboutPage'
+import AskPage from './pages/AskPage'
 import SafetyPage from './pages/SafetyPage'
 import RoutinePage from './pages/RoutinePage'
 import CameraPage from './pages/CameraPage'
@@ -10,6 +12,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/ask" element={<AskPage />} />
         <Route path="/safety/:symptomId" element={<SafetyPage />} />
         <Route path="/routine/:symptomId" element={<RoutinePage />} />
         <Route path="/camera/:symptomId" element={<CameraPage />} />

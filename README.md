@@ -1,96 +1,81 @@
-<<<<<<< HEAD
 # AcuGuide
 
-## Working Docs
+A camera-guided **hand-acupressure coach** for safe, non-diagnostic self-care. It shows you
+*where* to press an acupoint, confirms your hand is in view and facing the right way, checks
+your finger is on the target region, and times a steady hold — framed as wellness coaching,
+never medical diagnosis or treatment.
 
-- [Demo WebApp](./demo-app/README.md)
-- [Hackathon planning](./hackathon/README.md)
-- [Product owner workspace](./product/README.md)
+This repo currently holds **two live web apps** plus supporting docs and exploratory work.
 
-## Current Demo Thesis
+## The two live apps
 
-AcuGuide is a camera-guided hand acupressure coach. It helps users perform safe, non-diagnostic self-care routines by showing where to press, whether the hand is visible, whether the finger is near the target region, and whether the hold is steady long enough.
-=======
-# Acupoint Massage Video Extractor
-
-This project extracts numeric JSON features from short acupoint massage videos.
-It is the first-stage extractor only: it does not train the downstream neural
-network.
-
-## Inputs
-
-- Videos live in `drive-download-20260620T234210Z-3-001/`.
-- Metadata labels live in `data/labels.csv`.
-- Video names are `IMG_<id>.MOV`, matching the `video_id` in the label file.
-
-## Output
-
-Running the extractor creates one JSON per video in `outputs/json/` and an
-aggregate `outputs/json/index.csv`.
-
-Each JSON includes:
-
-- manual labels copied from `data/labels.csv`
-- quality flags for target hand visibility and heuristic fingertip/nail detection
-- `relative_location_samples` at 0.5 second intervals
-- cycle events and `frequency_curve`
-- summary fields: mean frequency, frequency std, cycle count, mean `u/v`
-
-The coordinate system is target-hand relative:
-
-- `u`: wrist to middle knuckle, positive toward fingers and negative toward the forearm
-- `v`: index knuckle to pinky knuckle, normalized by hand scale
-- units: normalized by target hand palm length/width, so different hand sizes are comparable
-
-## Setup
+### 1. Camera coach — repo root (`src/`)
+React + Vite + TypeScript + Tailwind, with **MediaPipe Hands** for live hand tracking.
+This is the camera feedback loop: target overlay on the acupoint, on-point + steady-hold
+detection, a wrong-hand-face gate, a forced safety screen, and a recap.
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+npm install
+npm run dev      # HTTPS dev server (mkcert) — needed for camera access
+npm run build
+npx tsc --noEmit # type-check
 ```
 
-## Run
-
-Run all videos:
+### 2. Poetic Meridian Atlas — `MaiApp/`
+React + three.js (react-three-fiber). A bilingual (中文 / English) **3D meridian atlas**:
+a rotatable body with glowing channels, tap the hand to drop into a 2D acupoint view.
+Ink-and-gold aesthetic; self-contained with its own dependencies.
 
 ```bash
-.venv/bin/python src/extract_acupoint_features.py
+cd MaiApp
+npm install
+npm run dev
 ```
 
-Run selected videos and write visual overlays:
+> The camera coaching (app 1) is being prepared to merge into the atlas (app 2); they are
+> still separate today.
 
-```bash
-.venv/bin/python src/extract_acupoint_features.py --video-id 3852 --video-id 3865 --write-overlays
+## Honest scope (what the coach actually does)
+We ship only what we validated. The camera coach gives **position + steady-hold** feedback on
+**TE3 (中渚)** — whether the pressing finger is on the point and held steadily — plus a
+hand-face gate. We **deliberately dropped press-rhythm / cadence**: our own testing showed the
+correct sustained-press technique has no reliably measurable rhythm, so we don't display a
+number we can't stand behind. The app makes **no medical or efficacy claims**.
+
+## Safety rules (non-negotiable)
+- No "treat / cure / heal / diagnose" language anywhere.
+- A safety screen with red-flag stop symptoms is **shown before the camera and cannot be skipped**.
+- "Felt worse" after a routine → advise stopping, never "continue".
+- The one pregnancy-contraindicated point (LI4) is excluded entirely — no risky screening.
+
+## Privacy & footprint
+All camera and hand-tracking runs **on the user's device** (in-browser MediaPipe) — video is
+never uploaded or stored, and there are no accounts or personal-data collection. We use a
+lightweight **pretrained** vision model + rule-based logic (no custom model training), keeping
+the compute footprint small.
+
+## Repository layout
+```
+AcuGuide/
+├── src/, index.html, package.json, vite.config.ts, …   # App 1: camera coach (React + MediaPipe)
+├── MaiApp/                                              # App 2: 3D meridian atlas (React + three.js)
+├── product/                                             # pitch, Devpost draft, demo script, safety copy
+├── hackathon/, "hackathon - md/"                        # planning & requirements docs
+├── claude-deliverables/                                 # CV research, validation reports, build specs
+├── underdevelopment/                                    # not in the live build (see below)
+│   ├── MaiApp-iOS/                                      #   native SwiftUI port (post-hackathon)
+│   └── demo-app/                                        #   early vanilla-JS prototype (superseded)
+├── _archive/                                            # analysis pipeline, training videos, labeled data
+├── CLAUDE.md                                            # repo working notes / key technical decisions
+└── README.md
 ```
 
-## Notes
+- **underdevelopment/** — code not part of the current live demo: the native iOS (Swift/ARKit)
+  starter, and the original vanilla-JS prototype that the React apps replaced.
+- **_archive/** — the Python CV analysis pipeline, raw training videos, and labeled JSON used to
+  validate the coaching logic. The live apps do not depend on anything here (it's gitignored).
 
-This is a baseline built with MediaPipe Hands and simple signal processing. It
-does not use custom training yet. The manual labels are kept in the JSON, but
-the numeric `u/v` and frequency values are measured by the extractor.
-
-The `orientation_score_heuristic` is only a weak geometric signal. For
-front/back hand orientation, the manual label remains the reliable source until
-we add a dedicated classifier or more labeled examples.
-
-If the target hand/region is not visible, the extractor marks
-`quality.frequency_reliable=false` and leaves frequency summary values as
-`null`.
-
-Frequency and `u/v` are computed from the same heuristic fingertip/nail point.
-MediaPipe is used to establish the target hand coordinate system; it is not used
-to pick the pressing hand fingertip. When the heuristic fingertip detector cannot
-find enough samples near the target region, the extractor leaves
-`mean_frequency_hz`, `frequency_std_hz`, `frequency_curve`, and cycle events
-empty/null. It does not use target-hand vibration, target-region motion, or
-background/camera motion as a fallback.
-
-The CSV/JSON field `frequency_source` makes this explicit:
-
-- `heuristic_fingertip`: frequency is based on the heuristic fingertip/nail
-  detector.
-- `null`: no reliable frequency was produced.
-
-Use `quality.frequency_reliable=true` when the downstream model requires a
-frequency value.
->>>>>>> 5434261 (added code)
+## Docs
+- Pitch / demo script / Devpost / judge Q&A — `product/`
+- Planning, requirements, team roles — `hackathon/`, `hackathon - md/`
+- CV validation, calibration reports, and build prompts — `claude-deliverables/`

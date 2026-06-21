@@ -301,7 +301,6 @@ function ShiftLeft({ amount = 0.32 }) {
 export default function Body3D({ lang, solo, onEnterHand, onPick, part }) {
   return (
     <div className="canvas-wrap">
-      <div style={{ position: 'absolute', top: 6, left: 9, fontSize: 11, letterSpacing: 1, color: '#b04a2f', zIndex: 99, fontFamily: 'monospace', pointerEvents: 'none' }}>B3D-31</div>
       <Canvas camera={{ position: [0, 1.05, 3.0], fov: 42 }} dpr={[1, 2]} gl={{ antialias: true, alpha: true }} style={{ background: 'transparent' }}>
         <fog attach="fog" args={['#e6e7df', 7, 13]} />
         <ambientLight intensity={0.9} />

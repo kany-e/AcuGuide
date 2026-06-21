@@ -46,7 +46,7 @@ export default function RecapPage() {
   return (
     <div className="min-h-screen flex flex-col px-5 py-4 max-w-md mx-auto">
       <p className="text-lime text-[11px] font-black uppercase mb-2">Completion recap</p>
-      <h2 className="text-[32px] font-black leading-tight text-[#f5f6f1] mb-2">
+      <h2 className="text-[32px] font-black leading-tight text-ink mb-2">
         Routine complete
       </h2>
       <p className="text-muted text-sm leading-relaxed mb-5">
@@ -55,10 +55,10 @@ export default function RecapPage() {
 
       {/* Score card */}
       <div
-        className="border border-white/10 rounded-xl p-5 text-center mb-4"
+        className="border border-line/25 rounded-xl p-5 text-center mb-4"
         style={{
           background:
-            'radial-gradient(circle at 50% 0%, rgba(200,255,61,0.14), transparent 44%), #171a1f',
+            'radial-gradient(circle at 50% 0%, rgba(154,125,68,0.14), transparent 44%), #f4f2ea',
         }}
       >
         <span
@@ -80,15 +80,15 @@ export default function RecapPage() {
           { label: 'Position', value: positionLabel },
           { label: 'Stability', value: stabilityLabel },
         ].map(m => (
-          <div key={m.label} className="border border-white/10 rounded-lg bg-panel p-3">
+          <div key={m.label} className="border border-line/25 rounded-lg bg-panel p-3">
             <span className="block text-soft text-[10px] font-black uppercase">{m.label}</span>
-            <strong className="block text-[#f5f6f1] text-[13px] mt-1.5">{m.value}</strong>
+            <strong className="block text-ink text-[13px] mt-1.5">{m.value}</strong>
           </div>
         ))}
       </div>
 
       {/* Self report */}
-      <div className="border border-white/10 rounded-xl bg-panel p-4 mb-5">
+      <div className="border border-line/25 rounded-xl bg-panel p-4 mb-5">
         <p className="text-lime text-[11px] font-black uppercase mb-3">How do you feel?</p>
         <div className="grid grid-cols-3 gap-[6px] mb-3">
           {FEELINGS.map(f => (

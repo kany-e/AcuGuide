@@ -29,9 +29,24 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen flex flex-col px-5 py-4 max-w-md mx-auto overflow-y-auto">
+      <div className="flex justify-end gap-2 mb-2">
+        <button
+          onClick={() => navigate('/about')}
+          className="rounded-full bg-gold/10 text-muted px-3 py-1.5 text-[12px] font-bold active:text-lime"
+        >
+          What it does
+        </button>
+        <button
+          onClick={() => navigate('/ask')}
+          className="rounded-full bg-lime text-paper2 px-3 py-1.5 text-[12px] font-black"
+        >
+          Ask AI
+        </button>
+      </div>
+
       <div className="mb-6">
         <p className="text-lime text-[11px] font-black uppercase mb-1.5">AcuGuide</p>
-        <h2 className="text-[32px] font-black leading-none text-[#f5f6f1]">
+        <h2 className="text-[32px] font-black leading-none text-ink">
           Today's hand coach
         </h2>
         <p className="text-muted text-sm mt-2">Choose a self-care routine to get started.</p>
@@ -42,10 +57,10 @@ export default function HomePage() {
           <button
             key={s.id}
             onClick={() => navigate(`/safety/${s.id}`)}
-            className="relative w-full min-h-[112px] p-4 pr-14 rounded-xl text-left border border-white/10 bg-panel active:border-lime/40 transition-colors"
+            className="relative w-full min-h-[112px] p-4 pr-14 rounded-xl text-left border border-line/25 bg-panel active:border-lime/40 transition-colors"
           >
             <p className="text-soft text-[11px] font-black uppercase mb-1">{s.short}</p>
-            <strong className="block text-[20px] font-black text-[#f5f6f1] mb-1.5">
+            <strong className="block text-[20px] font-black text-ink mb-1.5">
               {s.label}
             </strong>
             <p className="text-muted text-sm leading-snug">{s.description}</p>
@@ -53,7 +68,7 @@ export default function HomePage() {
               {TAGS.map(tag => (
                 <span
                   key={tag}
-                  className="rounded-full bg-white/[0.08] text-muted px-2 py-1 text-[11px] font-bold"
+                  className="rounded-full bg-gold/10 text-muted px-2 py-1 text-[11px] font-bold"
                 >
                   {tag}
                 </span>
@@ -65,7 +80,7 @@ export default function HomePage() {
                 style={{
                   borderTop: '5px solid transparent',
                   borderBottom: '5px solid transparent',
-                  borderLeft: '7px solid #101113',
+                  borderLeft: '7px solid #f4f2ea',
                   marginLeft: '2px',
                 }}
               />

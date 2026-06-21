@@ -53,7 +53,7 @@ export default function RoutinePage() {
   const point = (acupointsData as { acupoints: Acupoint[] }).acupoints.find(
     p => p.id === pointId,
   )
-  if (!point) return <div className="p-8 text-[#f5f6f1]">Point not found</div>
+  if (!point) return <div className="p-8 text-ink">Point not found</div>
 
   const steps = STEPS[symptomId ?? ''] ?? []
 
@@ -69,7 +69,7 @@ export default function RoutinePage() {
       <p className="text-lime text-[11px] font-black uppercase mb-2">
         {SYMPTOM_LABEL[symptomId ?? '']}
       </p>
-      <h2 className="text-[32px] font-black leading-tight text-[#f5f6f1] mb-3">
+      <h2 className="text-[32px] font-black leading-tight text-ink mb-3">
         {point.technique.duration_s}-Second Hand Pressure
       </h2>
       <p className="text-muted text-sm leading-relaxed mb-4">{point.coach_copy.align}</p>
@@ -81,9 +81,9 @@ export default function RoutinePage() {
           { label: 'Pressure', value: 'Gentle' },
           { label: 'Mode', value: 'Coach' },
         ].map(m => (
-          <div key={m.label} className="border border-white/10 rounded-lg bg-panel p-3">
+          <div key={m.label} className="border border-line/25 rounded-lg bg-panel p-3">
             <span className="block text-soft text-[10px] font-black uppercase">{m.label}</span>
-            <strong className="block text-[#f5f6f1] text-[13px] mt-1.5">{m.value}</strong>
+            <strong className="block text-ink text-[13px] mt-1.5">{m.value}</strong>
           </div>
         ))}
       </div>
@@ -93,16 +93,16 @@ export default function RoutinePage() {
         {steps.map((step, i) => (
           <div
             key={i}
-            className="border border-white/10 rounded-lg bg-panel p-[13px] text-sm leading-relaxed flex gap-3"
+            className="border border-line/25 rounded-lg bg-panel p-[13px] text-sm leading-relaxed flex gap-3"
           >
-            <strong className="text-[#f5f6f1] flex-shrink-0">{i + 1}</strong>
+            <strong className="text-ink flex-shrink-0">{i + 1}</strong>
             <span className="text-muted">{step}</span>
           </div>
         ))}
       </div>
 
       {/* Prep card */}
-      <div className="border border-white/10 rounded-lg overflow-hidden mt-1 mb-5">
+      <div className="border border-line/25 rounded-lg overflow-hidden mt-1 mb-5">
         {[
           { label: 'Placement', value: 'Target region' },
           { label: 'Hold', value: '30-second timer' },
@@ -110,12 +110,12 @@ export default function RoutinePage() {
         ].map((row, i) => (
           <div
             key={row.label}
-            className={`flex justify-between items-center px-[14px] py-3 bg-white/[0.035] ${
-              i > 0 ? 'border-t border-white/10' : ''
+            className={`flex justify-between items-center px-[14px] py-3 bg-gold/[0.06] ${
+              i > 0 ? 'border-t border-line/25' : ''
             }`}
           >
             <span className="text-soft text-[11px] font-black uppercase">{row.label}</span>
-            <strong className="text-[#f5f6f1] text-[13px]">{row.value}</strong>
+            <strong className="text-ink text-[13px]">{row.value}</strong>
           </div>
         ))}
       </div>
@@ -131,7 +131,7 @@ export default function RoutinePage() {
               className={`min-h-[44px] rounded-lg text-[14px] font-black transition-colors ${
                 targetHand === hand
                   ? 'bg-lime text-surface'
-                  : 'bg-panel border border-white/10 text-muted'
+                  : 'bg-panel border border-line/25 text-muted'
               }`}
             >
               {hand} hand

@@ -99,6 +99,8 @@ export const S = {
   notes: { zh: '注意事项', en: 'Notes' },
   fullBody: { zh: '全身图', en: 'Full Body' },
   hand: { zh: '手部', en: 'Hand' },
+  coach: { zh: '推拿', en: 'Coach' },
+  ask: { zh: '问询', en: 'Ask' },
   enterHand: { zh: '查看手部穴位', en: 'View hand points' },
   back: { zh: '返回全身', en: 'Back to body' },
   tapHand: { zh: '点按手部进入', en: 'Tap the hand to enter' },

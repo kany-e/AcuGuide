@@ -27,7 +27,7 @@ export default function SafetyPage() {
       </button>
 
       <p className="text-lime text-[11px] font-black uppercase mb-2">Before you start</p>
-      <h2 className="text-[32px] font-black leading-tight text-[#f5f6f1] mb-3">
+      <h2 className="text-[32px] font-black leading-tight text-ink mb-3">
         Safety boundary
       </h2>
       <p className="text-muted text-sm leading-relaxed mb-5">
@@ -39,7 +39,7 @@ export default function SafetyPage() {
         {SAFETY_ITEMS.map((item, i) => (
           <div
             key={i}
-            className="border border-white/10 rounded-lg bg-panel p-[13px] text-muted text-sm leading-relaxed"
+            className="border border-line/25 rounded-lg bg-panel p-[13px] text-muted text-sm leading-relaxed"
           >
             {item}
           </div>

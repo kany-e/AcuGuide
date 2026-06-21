@@ -11,8 +11,9 @@ html,
 body {
   min-height: 100%;
   margin: 0;
-  background: #101113;
-  color: #f5f6f1;
+  /* Atlas parchment ground with a soft ink wash, to match MaiApp. */
+  background: radial-gradient(120% 80% at 50% -10%, #f4f2ea 0%, #e9e5da 55%, #ddd8c9 100%) fixed;
+  color: #33372f;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     'SF Pro Display', 'Segoe UI', sans-serif;
   overscroll-behavior: none;

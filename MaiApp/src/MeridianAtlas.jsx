@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import Body3D from './Body3D.jsx';
 import HandView from './HandView.jsx';
+import Coach from './Coach.jsx';
+import Ask from './Ask.jsx';
 import { ACUPOINTS, MERIDIANS, MERIDIAN_COLORS, S } from './data';
 
 // channels drawn on the body, grouped by part so each can be isolated and fixed
@@ -23,10 +25,11 @@ export default function MeridianAtlas() {
   const selected = ACUPOINTS.find((p) => p.id === selectedId) || null;
   const ids = part ? PART_IDS[part] : ALL_IDS;
   const majors = MERIDIANS.filter((m) => ids.includes(m.id));
+  // Coach + Ask are full-width views; the right-hand ink meridian/part column is hidden for them.
+  const showInkCol = view === 'body' || view === 'hand';
 
   return (
     <div className="atlas">
-      <div style={{ position: 'fixed', bottom: 6, right: 9, fontSize: 11, letterSpacing: 1, color: '#b04a2f', zIndex: 99, fontFamily: 'monospace', pointerEvents: 'none' }}>BUILD-25</div>
       <div className="ink-bg" aria-hidden="true">
         <div className="moon" />
         <svg className="mountains" viewBox="0 0 1440 700" preserveAspectRatio="xMidYMax slice">
@@ -46,18 +49,22 @@ export default function MeridianAtlas() {
           <div className="seg">
             <button className={view === 'body' ? 'on' : ''} onClick={() => setView('body')}>{t('fullBody')}</button>
             <button className={view === 'hand' ? 'on' : ''} onClick={() => setView('hand')}>{t('hand')}</button>
+            <button className={view === 'coach' ? 'on' : ''} onClick={() => setView('coach')}>{t('coach')}</button>
+            <button className={view === 'ask' ? 'on' : ''} onClick={() => setView('ask')}>{t('ask')}</button>
           </div>
           <button className="lang-btn" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}>{lang === 'zh' ? 'EN' : '中文'}</button>
         </div>
       </header>
 
-      <div className="stage">
+      <div className={`stage${showInkCol ? '' : ' stage-wide'}`}>
         <main className="figure-col">
-          {view === 'body'
-            ? <Body3D lang={lang} solo={solo} part={part} onEnterHand={() => setView('hand')} onPick={(mer) => setSolo(solo === mer ? null : mer)} />
-            : <HandView lang={lang} onBack={() => setView('body')} selectedId={selectedId} onSelect={setSelectedId} />}
+          {view === 'body' && <Body3D lang={lang} solo={solo} part={part} onEnterHand={() => setView('hand')} onPick={(mer) => setSolo(solo === mer ? null : mer)} />}
+          {view === 'hand' && <HandView lang={lang} onBack={() => setView('body')} selectedId={selectedId} onSelect={setSelectedId} />}
+          {view === 'coach' && <Coach lang={lang} />}
+          {view === 'ask' && <Ask lang={lang} />}
         </main>
 
+        {showInkCol && (
         <aside className="ink-col">
           {/* part toggle: isolate arm / leg / torso so each can be inspected and fixed */}
           {view === 'body' && (
@@ -99,6 +106,7 @@ export default function MeridianAtlas() {
             </section>
           )}
         </aside>
+        )}
       </div>
 
       <footer className="disclaimer">{t('disclaimer')}</footer>

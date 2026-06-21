@@ -149,7 +149,7 @@ export default function CameraPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center bg-surface">
         <p className="text-lime text-[11px] font-black uppercase mb-3">Error</p>
-        <h2 className="text-[#f5f6f1] text-2xl font-black mb-2">Hand tracking failed</h2>
+        <h2 className="text-ink text-2xl font-black mb-2">Hand tracking failed</h2>
         <p className="text-muted text-sm mb-2">
           Could not load the AI model. Check your internet connection.
         </p>
@@ -168,7 +168,7 @@ export default function CameraPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center bg-surface">
         <p className="text-lime text-[11px] font-black uppercase mb-3">Camera needed</p>
-        <h2 className="text-[#f5f6f1] text-2xl font-black mb-2">Camera access needed</h2>
+        <h2 className="text-ink text-2xl font-black mb-2">Camera access needed</h2>
         <p className="text-muted text-sm mb-2">
           On iPhone: Settings → Safari → Camera → Allow
         </p>
@@ -208,8 +208,8 @@ export default function CameraPage() {
 
       {/* Loading indicator */}
       {!isReady && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-          <p className="text-[#f5f6f1] text-sm animate-pulse">Loading hand tracking…</p>
+        <div className="absolute inset-0 flex items-center justify-center bg-paper2/90 backdrop-blur-sm">
+          <p className="text-ink text-sm animate-pulse">Loading hand tracking…</p>
         </div>
       )}
 
@@ -237,14 +237,13 @@ export default function CameraPage() {
       {/* Feedback card */}
       <div className="absolute bottom-0 left-0 right-0 px-3 pb-4">
         <div
-          className="border border-white/10 rounded-2xl p-4 flex items-center gap-3 backdrop-blur-sm"
-          style={{ background: 'rgba(23,26,31,0.9)' }}
+          className="bg-paper2/90 border border-line/25 rounded-2xl p-4 flex items-center gap-3 backdrop-blur-sm"
         >
           <div className="flex-1 min-w-0">
             <p className="text-lime text-[11px] font-black uppercase mb-1.5">
               {STATE_LABELS[state]}
             </p>
-            <p className="text-[#f5f6f1] text-[19px] font-semibold leading-tight">
+            <p className="text-ink text-[19px] font-semibold leading-tight">
               {coachingMessage}
             </p>
           </div>
@@ -261,7 +260,7 @@ export default function CameraPage() {
                 cy="22"
                 r={r}
                 fill="none"
-                stroke="rgba(255,255,255,0.12)"
+                stroke="rgba(90,80,50,0.18)"
                 strokeWidth="4"
               />
               <circle
@@ -277,7 +276,7 @@ export default function CameraPage() {
                 style={{ transition: 'stroke-dashoffset 0.18s linear' }}
               />
             </svg>
-            <span className="absolute inset-0 flex items-center justify-center text-[13px] font-black text-[#f5f6f1]">
+            <span className="absolute inset-0 flex items-center justify-center text-[13px] font-black text-ink">
               {Math.round(progress * acupoint.technique.duration_s)}s
             </span>
           </div>
