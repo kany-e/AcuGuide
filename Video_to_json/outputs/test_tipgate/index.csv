@@ -1,0 +1,2 @@
+video_id,target,region_hint,manual_position,manual_frequency,manual_issue,mean_frequency_hz,frequency_std_hz,cycle_count,mean_u,mean_v,std_u,std_v,target_hand_detected_ratio,pressing_hand_detected_ratio,finger_contact_sample_ratio,pressing_hand_in_frame,frequency_source,frequency_reliable,confidence
+3859,A,arm,correct,fast,,,,0,0.0011,-0.6683,0.3422,0.2028,1.0,0.6641,0.3359,True,,False,0.6438

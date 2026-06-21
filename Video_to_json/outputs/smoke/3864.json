@@ -1,0 +1,121 @@
+{
+  "video_id": "3864",
+  "file": "IMG_3864.MOV",
+  "target": "A",
+  "region_hint": "arm",
+  "duration_sec": 3.2317,
+  "source_fps": 30.0155,
+  "process_fps": 10.0052,
+  "sample_interval_sec": 0.5,
+  "manual_label": {
+    "position": null,
+    "frequency": null,
+    "issue": "pressing_hand_absent"
+  },
+  "quality": {
+    "target_region_visible": false,
+    "target_hand_detected_ratio": 0.0,
+    "pressing_hand_present": false,
+    "pressing_hand_landmark_present": false,
+    "pressing_motion_present": false,
+    "pressing_hand_detected_ratio": 0.0,
+    "pressing_hand_in_frame": null,
+    "pressing_hand_edge_touch_ratio": 0.0,
+    "frequency_reliable": false,
+    "orientation_issue_from_manual": false,
+    "orientation_score_heuristic": null,
+    "mean_motion_score": 0.7618,
+    "mean_contact_score": 0.0,
+    "confidence": 0.5873
+  },
+  "coordinate_system": {
+    "type": "target_hand_local_2d",
+    "u_axis": "wrist_to_middle_mcp; positive toward fingers, negative toward forearm",
+    "v_axis": "index_mcp_to_pinky_mcp, orthogonalized to u_axis",
+    "scale": "max(distance(wrist,middle_mcp), distance(index_mcp,pinky_mcp)) per frame",
+    "units": "target-hand-scale-normalized"
+  },
+  "relative_location_samples": [
+    {
+      "time_sec": 0.0,
+      "u": null,
+      "v": null,
+      "contact_score": 0.0,
+      "contact_source": null,
+      "hand_count": 0,
+      "target_hand_detected": false,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 0.5,
+      "u": null,
+      "v": null,
+      "contact_score": 0.0,
+      "contact_source": "motion_centroid",
+      "hand_count": 0,
+      "target_hand_detected": false,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 1.0,
+      "u": null,
+      "v": null,
+      "contact_score": 0.0,
+      "contact_source": "motion_centroid",
+      "hand_count": 0,
+      "target_hand_detected": false,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 1.5,
+      "u": null,
+      "v": null,
+      "contact_score": 0.0,
+      "contact_source": "motion_centroid",
+      "hand_count": 0,
+      "target_hand_detected": false,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 2.0,
+      "u": null,
+      "v": null,
+      "contact_score": 0.0,
+      "contact_source": "motion_centroid",
+      "hand_count": 0,
+      "target_hand_detected": false,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 2.5,
+      "u": null,
+      "v": null,
+      "contact_score": 0.0,
+      "contact_source": "motion_centroid",
+      "hand_count": 0,
+      "target_hand_detected": false,
+      "pressing_hand_detected": false
+    },
+    {
+      "time_sec": 3.0,
+      "u": null,
+      "v": null,
+      "contact_score": 0.0,
+      "contact_source": "motion_centroid",
+      "hand_count": 0,
+      "target_hand_detected": false,
+      "pressing_hand_detected": false
+    }
+  ],
+  "press_or_rub_events": [],
+  "frequency_curve": [],
+  "summary": {
+    "mean_frequency_hz": null,
+    "frequency_std_hz": null,
+    "cycle_count": 0,
+    "mean_u": null,
+    "mean_v": null,
+    "std_u": null,
+    "std_v": null
+  }
+}

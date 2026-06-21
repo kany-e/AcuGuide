@@ -517,6 +517,100 @@ def compute_frequency(
     return curve, events, summary
 
 
+def prepare_frequency_records(
+    frame_records: List[Dict[str, Any]], process_fps: float
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    records = [dict(record) for record in frame_records]
+    if not records:
+        return records, {
+            "raw_valid_ratio": 0.0,
+            "filtered_valid_ratio": 0.0,
+            "filled_valid_ratio": 0.0,
+            "outlier_count": 0,
+            "interpolated_count": 0,
+        }
+
+    points = np.array(
+        [
+            [
+                record["u"] if record.get("u") is not None else np.nan,
+                record["v"] if record.get("v") is not None else np.nan,
+            ]
+            for record in records
+        ],
+        dtype=np.float32,
+    )
+    valid = np.array(
+        [
+            bool(record.get("finger_contact_detected"))
+            and record.get("u") is not None
+            and record.get("v") is not None
+            and np.all(np.isfinite(points[idx]))
+            for idx, record in enumerate(records)
+        ],
+        dtype=bool,
+    )
+    raw_valid_ratio = float(np.mean(valid)) if valid.size else 0.0
+    outlier_count = 0
+    interpolated_count = 0
+
+    valid_indices = np.flatnonzero(valid)
+    if valid_indices.size >= 4:
+        valid_points = points[valid]
+        center = np.median(valid_points, axis=0)
+        distances = np.linalg.norm(valid_points - center, axis=1)
+        median_distance = float(np.median(distances))
+        mad = float(np.median(np.abs(distances - median_distance)))
+        outlier_threshold = max(0.9, median_distance + 3.5 * max(mad, 0.03))
+        for idx, distance in zip(valid_indices, distances):
+            if float(distance) > outlier_threshold:
+                records[int(idx)]["u"] = None
+                records[int(idx)]["v"] = None
+                records[int(idx)]["contact_score"] = 0.0
+                records[int(idx)]["contact_source"] = None
+                records[int(idx)]["finger_contact_detected"] = False
+                valid[int(idx)] = False
+                outlier_count += 1
+
+    filtered_valid_ratio = float(np.mean(valid)) if valid.size else 0.0
+    valid_indices = np.flatnonzero(valid)
+    max_gap_frames = max(1, int(round(process_fps * 2.0)))
+    for left, right in zip(valid_indices[:-1], valid_indices[1:]):
+        gap = int(right - left)
+        if gap <= 1 or gap > max_gap_frames:
+            continue
+        left_point = points[int(left)]
+        right_point = points[int(right)]
+        if not np.all(np.isfinite(left_point)) or not np.all(np.isfinite(right_point)):
+            continue
+        for idx in range(int(left) + 1, int(right)):
+            alpha = float(idx - left) / float(gap)
+            point = left_point * (1.0 - alpha) + right_point * alpha
+            records[idx]["u"] = float(point[0])
+            records[idx]["v"] = float(point[1])
+            records[idx]["contact_score"] = max(float(records[idx].get("contact_score") or 0.0), 0.35)
+            records[idx]["contact_source"] = "heuristic_interpolated"
+            records[idx]["finger_contact_detected"] = True
+            interpolated_count += 1
+
+    filled_valid = np.array(
+        [
+            bool(record.get("finger_contact_detected"))
+            and record.get("u") is not None
+            and record.get("v") is not None
+            for record in records
+        ],
+        dtype=bool,
+    )
+    return records, {
+        "raw_valid_ratio": raw_valid_ratio,
+        "filtered_valid_ratio": filtered_valid_ratio,
+        "filled_valid_ratio": float(np.mean(filled_valid)) if filled_valid.size else 0.0,
+        "outlier_count": outlier_count,
+        "interpolated_count": interpolated_count,
+    }
+
+
 def downscale_for_processing(frame: np.ndarray, max_width: int) -> np.ndarray:
     h, w = frame.shape[:2]
     if w <= max_width:
@@ -616,6 +710,10 @@ def extract_video(
         if target is not None:
             basis = hand_local_basis(target)
             allowed_bboxes = [hands[i].bbox for i in other_indices]
+            if other_indices:
+                allowed_tip_points = np.vstack([hands[i].landmarks[TIP_IDS, :2] for i in other_indices])
+            else:
+                allowed_tip_points = np.empty((0, 2), dtype=np.float32)
             contact_point, landmark_conf, contact_source = find_heuristic_fingertip(
                 frame_small,
                 target,
@@ -623,6 +721,7 @@ def extract_video(
                 strict_target_band=False,
                 person_mask=person_mask,
                 allowed_bboxes=allowed_bboxes,
+                allowed_tip_points=allowed_tip_points,
             )
             # Heuristic only: z separation between palm center and fingertips tends
             # to change when the visible side flips. Keep it as a score, not a verdict.
@@ -678,19 +777,21 @@ def extract_video(
 
     cap.release()
 
+    frequency_records, trajectory_stats = prepare_frequency_records(frame_records, actual_process_fps)
     frequency_curve, events, freq_summary = compute_frequency(
-        frame_records, duration_sec, actual_process_fps
+        frequency_records, duration_sec, actual_process_fps
     )
 
     target_ratio = float(np.mean(target_detected)) if target_detected else 0.0
     other_ratio = float(np.mean(other_hand_detected)) if other_hand_detected else 0.0
     other_edge_ratio = float(np.mean(other_hand_edge_touch)) if other_hand_edge_touch else 0.0
     contact_mean = finite_mean([r.get("contact_score") for r in frame_records]) or 0.0
-    finger_contact_ratio = (
+    raw_finger_contact_ratio = (
         float(np.mean([bool(r.get("finger_contact_detected")) for r in frame_records]))
         if frame_records
         else 0.0
     )
+    finger_contact_ratio = float(trajectory_stats["filled_valid_ratio"])
 
     target_visible = target_ratio >= 0.50
     landmark_pressing_present = other_ratio >= 0.18
@@ -714,12 +815,18 @@ def extract_video(
             "cycle_count": 0,
         }
 
-    frequency_source = "heuristic_fingertip" if frequency_reliable else None
+    frequency_source = None
+    if frequency_reliable:
+        frequency_source = (
+            "heuristic_fingertip_interpolated"
+            if trajectory_stats["interpolated_count"]
+            else "heuristic_fingertip"
+        )
 
-    mean_u = finite_mean([r.get("u") for r in frame_records])
-    mean_v = finite_mean([r.get("v") for r in frame_records])
-    std_u = finite_std([r.get("u") for r in frame_records])
-    std_v = finite_std([r.get("v") for r in frame_records])
+    mean_u = finite_mean([r.get("u") for r in frequency_records])
+    mean_v = finite_mean([r.get("v") for r in frequency_records])
+    std_u = finite_std([r.get("u") for r in frequency_records])
+    std_v = finite_std([r.get("v") for r in frequency_records])
 
     result: Dict[str, Any] = {
         "video_id": row.video_id,
@@ -741,7 +848,11 @@ def extract_video(
             "pressing_hand_present": bool(pressing_present),
             "pressing_hand_landmark_present": bool(landmark_pressing_present),
             "pressing_hand_detected_ratio": round(other_ratio, 4),
+            "finger_contact_raw_ratio": round(raw_finger_contact_ratio, 4),
             "finger_contact_sample_ratio": round(finger_contact_ratio, 4),
+            "finger_contact_filtered_ratio": round(float(trajectory_stats["filtered_valid_ratio"]), 4),
+            "finger_contact_interpolated_count": int(trajectory_stats["interpolated_count"]),
+            "finger_contact_outlier_count": int(trajectory_stats["outlier_count"]),
             "pressing_hand_in_frame": pressing_in_frame,
             "pressing_hand_edge_touch_ratio": round(other_edge_ratio, 4),
             "frequency_reliable": bool(frequency_reliable),

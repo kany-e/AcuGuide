@@ -1,0 +1,533 @@
+{
+  "video_id": "3868",
+  "file": "IMG_3868.MOV",
+  "target": "B",
+  "region_hint": "palm",
+  "duration_sec": 9.0667,
+  "source_fps": 30.0,
+  "process_fps": 15.0,
+  "sample_interval_sec": 0.5,
+  "manual_label": {
+    "position": "incorrect",
+    "frequency": null,
+    "issue": null
+  },
+  "quality": {
+    "target_region_visible": true,
+    "target_hand_detected_ratio": 1.0,
+    "pressing_hand_present": true,
+    "pressing_hand_landmark_present": true,
+    "pressing_hand_detected_ratio": 1.0,
+    "finger_contact_sample_ratio": 1.0,
+    "pressing_hand_in_frame": true,
+    "pressing_hand_edge_touch_ratio": 0.0,
+    "frequency_reliable": true,
+    "frequency_source": "pressing_finger_landmark",
+    "orientation_issue_from_manual": false,
+    "orientation_score_heuristic": 0.0061,
+    "mean_contact_score": 0.4665,
+    "confidence": 0.8666
+  },
+  "coordinate_system": {
+    "type": "target_hand_local_2d",
+    "u_axis": "wrist_to_middle_mcp; positive toward fingers, negative toward forearm",
+    "v_axis": "index_mcp_to_pinky_mcp, orthogonalized to u_axis",
+    "scale": "max(distance(wrist,middle_mcp), distance(index_mcp,pinky_mcp)) per frame",
+    "units": "target-hand-scale-normalized"
+  },
+  "relative_location_samples": [
+    {
+      "time_sec": 0.0,
+      "u": 2.6816,
+      "v": 0.4016,
+      "z": 0.0262,
+      "contact_score": 0.445,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 0.5,
+      "u": 2.438,
+      "v": 0.4017,
+      "z": 0.0158,
+      "contact_score": 0.437,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 1.0,
+      "u": 2.5186,
+      "v": 0.5394,
+      "z": -0.0359,
+      "contact_score": 0.433,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 1.5,
+      "u": 2.4474,
+      "v": 0.5109,
+      "z": -0.0085,
+      "contact_score": 0.451,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 2.0,
+      "u": 2.4186,
+      "v": 0.428,
+      "z": -0.0005,
+      "contact_score": 0.459,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 2.5,
+      "u": 2.3618,
+      "v": 0.3981,
+      "z": 0.019,
+      "contact_score": 0.47,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 3.0,
+      "u": 2.3975,
+      "v": 0.4167,
+      "z": 0.0124,
+      "contact_score": 0.469,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 3.5,
+      "u": 2.3545,
+      "v": 0.3398,
+      "z": 0.0184,
+      "contact_score": 0.478,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 4.0,
+      "u": 2.4384,
+      "v": 0.2963,
+      "z": 0.0198,
+      "contact_score": 0.47,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 4.5,
+      "u": 2.3807,
+      "v": 0.3032,
+      "z": 0.0171,
+      "contact_score": 0.485,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 5.0,
+      "u": 2.4298,
+      "v": 0.3592,
+      "z": -0.0045,
+      "contact_score": 0.475,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 5.5,
+      "u": 2.4824,
+      "v": 0.3491,
+      "z": 0.0164,
+      "contact_score": 0.479,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 6.0,
+      "u": 2.4637,
+      "v": 0.426,
+      "z": 0.0087,
+      "contact_score": 0.483,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 6.5,
+      "u": 2.5218,
+      "v": 0.402,
+      "z": -0.0062,
+      "contact_score": 0.448,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 7.0,
+      "u": 2.5002,
+      "v": 0.427,
+      "z": 0.0334,
+      "contact_score": 0.5,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 7.5,
+      "u": 2.4464,
+      "v": 0.3706,
+      "z": 0.0117,
+      "contact_score": 0.491,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 8.0,
+      "u": 2.4048,
+      "v": 0.3819,
+      "z": 0.0202,
+      "contact_score": 0.492,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 8.5,
+      "u": 2.3701,
+      "v": 0.3349,
+      "z": 0.0277,
+      "contact_score": 0.497,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    },
+    {
+      "time_sec": 9.0,
+      "u": 2.3578,
+      "v": 0.2984,
+      "z": 0.0249,
+      "contact_score": 0.51,
+      "contact_source": "hand_0_tip_20",
+      "finger_contact_detected": true,
+      "hand_count": 2,
+      "target_hand_detected": true,
+      "pressing_hand_detected": true
+    }
+  ],
+  "press_or_rub_events": [
+    {
+      "time_sec": 0.133,
+      "u": 2.4965,
+      "v": 0.502,
+      "z": -0.0018,
+      "type": "cycle_peak",
+      "confidence": 0.749
+    },
+    {
+      "time_sec": 0.6,
+      "u": 2.4595,
+      "v": 0.3686,
+      "z": 0.0129,
+      "type": "cycle_peak",
+      "confidence": 0.608
+    },
+    {
+      "time_sec": 0.933,
+      "u": 2.5258,
+      "v": 0.5835,
+      "z": -0.0341,
+      "type": "cycle_peak",
+      "confidence": 0.694
+    },
+    {
+      "time_sec": 1.733,
+      "u": 2.4496,
+      "v": 0.45,
+      "z": 0.0114,
+      "type": "cycle_peak",
+      "confidence": 0.401
+    },
+    {
+      "time_sec": 2.0,
+      "u": 2.4186,
+      "v": 0.428,
+      "z": -0.0005,
+      "type": "cycle_peak",
+      "confidence": 0.46
+    },
+    {
+      "time_sec": 2.333,
+      "u": 2.4269,
+      "v": 0.4272,
+      "z": 0.0066,
+      "type": "cycle_peak",
+      "confidence": 0.403
+    },
+    {
+      "time_sec": 2.6,
+      "u": 2.402,
+      "v": 0.4504,
+      "z": 0.0164,
+      "type": "cycle_peak",
+      "confidence": 0.452
+    },
+    {
+      "time_sec": 3.2,
+      "u": 2.2867,
+      "v": 0.2751,
+      "z": 0.0079,
+      "type": "cycle_peak",
+      "confidence": 0.726
+    },
+    {
+      "time_sec": 3.467,
+      "u": 2.4218,
+      "v": 0.3941,
+      "z": 0.0329,
+      "type": "cycle_peak",
+      "confidence": 0.487
+    },
+    {
+      "time_sec": 4.067,
+      "u": 2.3721,
+      "v": 0.3177,
+      "z": 0.0179,
+      "type": "cycle_peak",
+      "confidence": 0.566
+    },
+    {
+      "time_sec": 4.333,
+      "u": 2.4582,
+      "v": 0.2839,
+      "z": 0.0291,
+      "type": "cycle_peak",
+      "confidence": 0.632
+    },
+    {
+      "time_sec": 4.933,
+      "u": 2.409,
+      "v": 0.2861,
+      "z": 0.0032,
+      "type": "cycle_peak",
+      "confidence": 0.725
+    },
+    {
+      "time_sec": 5.8,
+      "u": 2.4953,
+      "v": 0.4862,
+      "z": -0.0058,
+      "type": "cycle_peak",
+      "confidence": 0.51
+    },
+    {
+      "time_sec": 6.133,
+      "u": 2.4494,
+      "v": 0.3916,
+      "z": 0.0016,
+      "type": "cycle_peak",
+      "confidence": 0.499
+    },
+    {
+      "time_sec": 6.533,
+      "u": 2.5218,
+      "v": 0.402,
+      "z": -0.0062,
+      "type": "cycle_peak",
+      "confidence": 0.495
+    },
+    {
+      "time_sec": 6.867,
+      "u": 2.4406,
+      "v": 0.3536,
+      "z": 0.0224,
+      "type": "cycle_peak",
+      "confidence": 0.616
+    },
+    {
+      "time_sec": 7.333,
+      "u": 2.5035,
+      "v": 0.4181,
+      "z": -0.0059,
+      "type": "cycle_peak",
+      "confidence": 0.543
+    },
+    {
+      "time_sec": 7.6,
+      "u": 2.4177,
+      "v": 0.3172,
+      "z": 0.0205,
+      "type": "cycle_peak",
+      "confidence": 0.629
+    },
+    {
+      "time_sec": 8.133,
+      "u": 2.4172,
+      "v": 0.354,
+      "z": 0.0201,
+      "type": "cycle_peak",
+      "confidence": 0.412
+    },
+    {
+      "time_sec": 8.733,
+      "u": 2.4939,
+      "v": 0.4545,
+      "z": 0.0069,
+      "type": "cycle_peak",
+      "confidence": 0.825
+    }
+  ],
+  "frequency_curve": [
+    {
+      "time_sec": 0.5,
+      "hz": 2.5714,
+      "confidence": 0.437
+    },
+    {
+      "time_sec": 1.0,
+      "hz": 2.5714,
+      "confidence": 0.416
+    },
+    {
+      "time_sec": 1.5,
+      "hz": 3.0,
+      "confidence": 0.382
+    },
+    {
+      "time_sec": 2.0,
+      "hz": 3.75,
+      "confidence": 0.343
+    },
+    {
+      "time_sec": 2.5,
+      "hz": 3.75,
+      "confidence": 0.399
+    },
+    {
+      "time_sec": 3.0,
+      "hz": 3.375,
+      "confidence": 0.413
+    },
+    {
+      "time_sec": 3.5,
+      "hz": 2.7083,
+      "confidence": 0.452
+    },
+    {
+      "time_sec": 4.0,
+      "hz": 2.7083,
+      "confidence": 0.508
+    },
+    {
+      "time_sec": 4.5,
+      "hz": 2.7083,
+      "confidence": 0.461
+    },
+    {
+      "time_sec": 5.0,
+      "hz": 1.6667,
+      "confidence": 0.456
+    },
+    {
+      "time_sec": 5.5,
+      "hz": 2.0769,
+      "confidence": 0.433
+    },
+    {
+      "time_sec": 6.0,
+      "hz": 3.0,
+      "confidence": 0.413
+    },
+    {
+      "time_sec": 6.5,
+      "hz": 2.75,
+      "confidence": 0.423
+    },
+    {
+      "time_sec": 7.0,
+      "hz": 2.75,
+      "confidence": 0.447
+    },
+    {
+      "time_sec": 7.5,
+      "hz": 2.5714,
+      "confidence": 0.432
+    },
+    {
+      "time_sec": 8.0,
+      "hz": 1.875,
+      "confidence": 0.472
+    },
+    {
+      "time_sec": 8.5,
+      "hz": 1.7708,
+      "confidence": 0.482
+    },
+    {
+      "time_sec": 9.0,
+      "hz": 1.6667,
+      "confidence": 0.477
+    }
+  ],
+  "summary": {
+    "mean_frequency_hz": 2.5,
+    "frequency_std_hz": 0.905,
+    "cycle_count": 20,
+    "mean_u": 2.4521,
+    "mean_v": 0.4067,
+    "mean_z": 0.0059,
+    "std_u": 0.0531,
+    "std_v": 0.0681,
+    "std_z": 0.0166
+  }
+}

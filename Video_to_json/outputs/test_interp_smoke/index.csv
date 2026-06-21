@@ -1,0 +1,4 @@
+video_id,target,region_hint,manual_position,manual_frequency,manual_issue,mean_frequency_hz,frequency_std_hz,cycle_count,mean_u,mean_v,std_u,std_v,target_hand_detected_ratio,pressing_hand_detected_ratio,finger_contact_sample_ratio,pressing_hand_in_frame,frequency_source,frequency_reliable,confidence
+3852,A,arm,correct,correct,,1.2503,0.3564,6,-0.4491,-0.0564,0.038,0.155,1.0,0.7,0.9375,True,heuristic_fingertip_interpolated,True,0.8608
+3859,A,arm,correct,fast,,1.875,0.7647,12,-0.0547,-0.6752,0.0909,0.125,1.0,0.6641,0.7891,True,heuristic_fingertip_interpolated,True,0.7571
+3865,B,palm,correct,correct,,1.3636,1.1729,11,-0.8364,0.6588,0.1676,0.1839,1.0,1.0,0.9853,True,heuristic_fingertip_interpolated,True,0.5967
