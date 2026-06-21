@@ -51,8 +51,7 @@ export default function CameraPage() {
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [mediaPipeError, setMediaPipeError] = useState<string | null>(null)
   const { hands, initMediaPipe, isReady } = useMediaPipe(videoRef)
-  const userHand = (sessionStorage.getItem('targetHandedness') ?? 'Left') as 'Left' | 'Right'
-  const { targetHand, pressingHand, wrongFaceDetected } = useHandClassifier(hands, acupoint, userHand, facingMode)
+  const { targetHand, pressingHand, wrongFaceDetected } = useHandClassifier(hands, acupoint, facingMode)
   const pressResult = usePressDetection(targetHand, pressingHand, acupoint)
   const { state, coachingMessage, sessionStats } = useCoachingState(
     pressResult,

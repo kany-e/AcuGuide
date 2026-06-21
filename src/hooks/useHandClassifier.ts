@@ -42,7 +42,6 @@ function faceIsCorrect(
 export function useHandClassifier(
   hands: HandResult[],
   acupoint: Acupoint,
-  userHand: 'Left' | 'Right',
   facingMode: 'user' | 'environment',
 ): ClassifiedHands {
   return useMemo(() => {
@@ -51,20 +50,19 @@ export function useHandClassifier(
     }
 
     if (hands.length === 1) {
-      const lm = hands[0].landmarks
-      const ok = faceIsCorrect(lm, userHand, facingMode, acupoint.requires_hand_face)
+      const h = hands[0]
+      const ok = faceIsCorrect(h.landmarks, h.handedness, facingMode, acupoint.requires_hand_face)
       return {
-        targetHand: ok ? lm : null,
+        targetHand: ok ? h.landmarks : null,
         pressingHand: null,
         wrongFaceDetected: !ok,
       }
     }
 
-    // 2 hands: use face orientation to identify target rather than wrist position.
-    // The target hand must have the correct face toward camera; the pressing hand
-    // approaches from a different angle so its cross product sign will differ.
+    // 2 hands: use each hand's own MediaPipe handedness for the cross-product sign.
+    // Target hand = the one whose face orientation matches what the acupoint requires.
     const target = hands.find(h =>
-      faceIsCorrect(h.landmarks, userHand, facingMode, acupoint.requires_hand_face)
+      faceIsCorrect(h.landmarks, h.handedness, facingMode, acupoint.requires_hand_face)
     )
     const pressing = hands.find(h => h !== target) ?? null
 
@@ -72,5 +70,5 @@ export function useHandClassifier(
       return { targetHand: null, pressingHand: null, wrongFaceDetected: true }
     }
     return { targetHand: target.landmarks, pressingHand: pressing?.landmarks ?? null, wrongFaceDetected: false }
-  }, [hands, acupoint, userHand, facingMode])
+  }, [hands, acupoint, facingMode])
 }
