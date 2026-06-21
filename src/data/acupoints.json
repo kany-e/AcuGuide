@@ -1,0 +1,338 @@
+{
+  "schema_version": "0.2",
+  "product": "AcuGuide Hand Coach",
+  "purpose": "Wellness self-care acupressure coaching dataset for hand/wrist points. NOT a medical or diagnostic dataset. Drives camera-based target-region overlay + real-time feedback using MediaPipe Hands.",
+  "disclaimer": "Educational wellness self-care only. No diagnosis, no treatment claims. Stop on red-flag symptoms and seek professional care.",
+  "pregnancy_design_note": "v0.2: LI4 (Hegu) removed from all active routines because it is contraindicated in pregnancy. The product now uses ZERO pregnancy-contraindicated points, so there is no pregnancy screening and the topic is avoided entirely. Tension-headache hero point is now TE3 (Zhongzhu).",
+
+  "mediapipe_landmark_reference": {
+    "model": "MediaPipe Hands (21 landmarks)",
+    "indices": {
+      "0": "WRIST",
+      "1": "THUMB_CMC", "2": "THUMB_MCP", "3": "THUMB_IP", "4": "THUMB_TIP",
+      "5": "INDEX_MCP", "6": "INDEX_PIP", "7": "INDEX_DIP", "8": "INDEX_TIP",
+      "9": "MIDDLE_MCP", "10": "MIDDLE_PIP", "11": "MIDDLE_DIP", "12": "MIDDLE_TIP",
+      "13": "RING_MCP", "14": "RING_PIP", "15": "RING_DIP", "16": "RING_TIP",
+      "17": "PINKY_MCP", "18": "PINKY_PIP", "19": "PINKY_DIP", "20": "PINKY_TIP"
+    },
+    "coordinate_space": "x,y normalized to [0,1] in image space; z is depth relative to wrist. Use 2D (x,y) for overlay + hit-testing.",
+    "scale_reference": {
+      "name": "handSize",
+      "definition": "euclidean_distance(landmark[0], landmark[9])  // wrist -> middle-finger MCP",
+      "why": "Roughly invariant to finger spread; use as the unit for all tolerance radii and forearm extrapolation so feedback is distance-independent."
+    },
+    "handedness_note": "MediaPipe returns handedness (Left/Right) and whether palm or dorsum faces camera must be inferred (e.g. from thumb position relative to pinky + handedness). Palmar points (PC6, PC8, HT7) require palm-up; dorsal points (SI3, TE5, TE3) require back-of-hand-up. Gate the routine on correct hand face."
+  },
+
+  "geometry_conventions": {
+    "target_point_formula": "Weighted sum of named landmarks (weights sum to 1.0). For off-model wrist/forearm points, an extrapolation vector is added.",
+    "hit_test": "User finger considered 'on target' when the pressing fingertip landmark (default THUMB_TIP=4 of the pressing hand) is within tolerance_radius_xHandSize * handSize of the target point.",
+    "stability": "Track target-relative offset over a sliding window (~0.5s). 'stable' = offset variance below stability_threshold; jitter/drift pauses the timer.",
+    "off_model_handling": "PC6 and TE5 sit ~2 cun proximal to the wrist crease, BEYOND landmark 0 onto the forearm, which MediaPipe Hands does NOT track. Estimate by extrapolating from the wrist along the forearm axis = normalize(landmark[0] - landmark[9]); point = landmark[0] + k * handSize * forearmAxis. Confidence is lower; render a softer/larger guide ring and rely more on a fixed on-screen anchor than on precise tracking."
+  },
+
+  "symptom_entries": [
+    {
+      "id": "tension_headache",
+      "label_zh": "紧张性头痛",
+      "label_en": "Tension headache",
+      "demo_priority": 1,
+      "rationale": "Best demo: low safety risk, dorsal hand point is clearly visible to the camera, target is well tracked by MediaPipe. Uses TE3 (pregnancy-safe) as the hero point; LI4 is intentionally NOT used because it is contraindicated in pregnancy.",
+      "primary_point": "TE3",
+      "secondary_points": ["SI3", "TE5"]
+    },
+    {
+      "id": "neck_shoulder_tension",
+      "label_zh": "肩颈紧张",
+      "label_en": "Neck & shoulder tension",
+      "demo_priority": 2,
+      "rationale": "Broad need for sedentary users; SI3 on the ulnar hand border is camera-visible.",
+      "primary_point": "SI3",
+      "secondary_points": ["TE5", "TE3"]
+    },
+    {
+      "id": "menstrual_discomfort",
+      "label_zh": "经期不适",
+      "label_en": "Menstrual discomfort",
+      "demo_priority": 3,
+      "rationale": "Uses only pregnancy-safe points (PC6 for cramps/queasiness, HT7 for calming). LI4 is intentionally excluded product-wide for pregnancy safety, so no pregnancy screening is needed. SP6 (the most classic menstrual point) is on the leg and out of the hand-only MVP scope.",
+      "primary_point": "PC6",
+      "secondary_points": ["HT7"]
+    }
+  ],
+
+  "acupoints": [
+    {
+      "id": "TE3",
+      "pinyin": "Zhongzhu",
+      "tcm_name": "中渚",
+      "meridian": "Triple Energizer",
+      "surface": "dorsal",
+      "requires_hand_face": "back_of_hand_to_camera",
+      "anatomy": "On the back of the hand, between the 4th and 5th metacarpals, in the depression just proximal to the ring/pinky knuckles (more obvious with a loose fist). Pregnancy-safe — the hero point for the tension-headache routine.",
+      "trackable_by_mediapipe": "good",
+      "mediapipe_target": {
+        "anchors": [
+          {"landmark": 13, "weight": 0.45, "name": "RING_MCP"},
+          {"landmark": 17, "weight": 0.40, "name": "PINKY_MCP"},
+          {"landmark": 0, "weight": 0.15, "name": "WRIST"}
+        ],
+        "tolerance_radius_xHandSize": 0.16,
+        "stability_threshold_xHandSize": 0.06,
+        "press_finger_default": "THUMB_TIP(4) of the other hand",
+        "detection_notes": "Sits in the dorsal groove behind the ring/pinky knuckles; the wrist weight biases it slightly proximal into the depression. Dorsal and well tracked — good primary demo point and pregnancy-safe."
+      },
+      "technique": {
+        "contact": "thumb pad / fingertip",
+        "pressure": "firm, ~5-6/10",
+        "duration_s": 30,
+        "rhythm": "steady hold or small circles ~1Hz",
+        "side": "either hand"
+      },
+      "indications_wellness": ["tension/temporal headache", "neck & shoulder tension", "eye/ear strain"],
+      "contraindications": [],
+      "safety_flags": [],
+      "coach_copy": {
+        "align": "Back of the hand up, loose fist. Find the groove just behind your ring and pinky knuckles — press into the dip.",
+        "drift": "Slide toward the gap between the last two knuckles.",
+        "hold": "Good — firm, steady pressure with slow breathing."
+      }
+    },
+    {
+      "id": "PC6",
+      "pinyin": "Neiguan",
+      "tcm_name": "内关",
+      "meridian": "Pericardium",
+      "surface": "palmar",
+      "requires_hand_face": "palm_to_camera",
+      "anatomy": "On the inner forearm, ~2 cun (about 3 finger-widths) proximal to the wrist crease, between the two central tendons (palmaris longus & flexor carpi radialis).",
+      "trackable_by_mediapipe": "partial_extrapolated",
+      "mediapipe_target": {
+        "base_landmark": 0,
+        "extrapolation": {
+          "axis": "normalize(landmark[0] - landmark[9])",
+          "k_xHandSize": 1.1,
+          "lateral_centering": "centered between radial/ulnar edges; use x of landmark[0]"
+        },
+        "tolerance_radius_xHandSize": 0.22,
+        "stability_threshold_xHandSize": 0.08,
+        "press_finger_default": "THUMB_TIP(4) or INDEX_TIP(8) of the other hand",
+        "detection_notes": "OFF-MODEL: this point is on the forearm beyond the wrist landmark, which MediaPipe does not track. Use extrapolation + a larger, softer guide ring; prefer a fixed on-screen anchor and confirm hand is palm-up and the wrist is in frame. Lower confidence than dorsal points."
+      },
+      "technique": {
+        "contact": "thumb pad",
+        "pressure": "moderate, ~5/10",
+        "duration_s": 30,
+        "rhythm": "steady hold or gentle circular",
+        "side": "either forearm"
+      },
+      "indications_wellness": ["nausea", "queasiness", "stress", "menstrual discomfort", "calming"],
+      "contraindications": [],
+      "safety_flags": [],
+      "coach_copy": {
+        "align": "Turn your palm up. Place three fingers at your wrist crease — the spot just past them, in the middle, is your target.",
+        "drift": "Move a little toward the center of your forearm.",
+        "hold": "Good. Gentle, steady pressure — let your shoulders drop as you breathe."
+      }
+    },
+    {
+      "id": "HT7",
+      "pinyin": "Shenmen",
+      "tcm_name": "神门",
+      "meridian": "Heart",
+      "surface": "palmar",
+      "requires_hand_face": "palm_to_camera",
+      "anatomy": "At the wrist crease on the palm side, on the pinky (ulnar) edge, in the depression at the end of the crease.",
+      "trackable_by_mediapipe": "moderate",
+      "mediapipe_target": {
+        "anchors": [
+          {"landmark": 0, "weight": 0.70, "name": "WRIST"},
+          {"landmark": 17, "weight": 0.30, "name": "PINKY_MCP"}
+        ],
+        "tolerance_radius_xHandSize": 0.14,
+        "stability_threshold_xHandSize": 0.06,
+        "press_finger_default": "THUMB_TIP(4) of the other hand",
+        "detection_notes": "Sits right at the wrist crease near the ulnar edge; bias toward landmark 0. Keep the wrist clearly in frame."
+      },
+      "technique": {
+        "contact": "thumb pad / fingertip",
+        "pressure": "light-moderate, ~4/10",
+        "duration_s": 30,
+        "rhythm": "steady hold",
+        "side": "either wrist"
+      },
+      "indications_wellness": ["stress", "anxiety", "restlessness", "calming", "menstrual-related tension"],
+      "contraindications": [],
+      "safety_flags": [],
+      "coach_copy": {
+        "align": "Palm up. Follow the wrist crease out to the pinky side — settle into the little dip there.",
+        "drift": "Slide toward the pinky edge of your wrist.",
+        "hold": "Lovely — light, steady pressure. Slow breath in, slow breath out."
+      }
+    },
+    {
+      "id": "PC8",
+      "pinyin": "Laogong",
+      "tcm_name": "劳宫",
+      "meridian": "Pericardium",
+      "surface": "palmar",
+      "requires_hand_face": "palm_to_camera",
+      "anatomy": "Center of the palm, where the tip of the middle finger lands when the hand is loosely closed into a fist.",
+      "trackable_by_mediapipe": "good",
+      "mediapipe_target": {
+        "anchors": [
+          {"landmark": 0, "weight": 0.45, "name": "WRIST"},
+          {"landmark": 9, "weight": 0.55, "name": "MIDDLE_MCP"}
+        ],
+        "tolerance_radius_xHandSize": 0.16,
+        "stability_threshold_xHandSize": 0.06,
+        "press_finger_default": "THUMB_TIP(4) of the other hand",
+        "detection_notes": "Palm center is well bracketed by wrist and middle MCP. Good fallback/secondary calming point."
+      },
+      "technique": {
+        "contact": "thumb pad",
+        "pressure": "moderate, ~5/10",
+        "duration_s": 30,
+        "rhythm": "slow circular ~1Hz",
+        "side": "either palm"
+      },
+      "indications_wellness": ["stress", "calming", "warming/relaxation"],
+      "contraindications": [],
+      "safety_flags": [],
+      "coach_copy": {
+        "align": "Open your palm to the camera and aim for the very center.",
+        "drift": "Move toward the middle of your palm.",
+        "hold": "Great — small, slow circles with steady pressure."
+      }
+    },
+    {
+      "id": "SI3",
+      "pinyin": "Houxi",
+      "tcm_name": "后溪",
+      "meridian": "Small Intestine",
+      "surface": "dorsal_ulnar",
+      "requires_hand_face": "ulnar_edge_or_back_of_hand_to_camera",
+      "anatomy": "On the ulnar (pinky) border of the hand, in the depression just proximal to the 5th metacarpophalangeal joint; the crease that appears at the edge of the palm when making a loose fist.",
+      "trackable_by_mediapipe": "good",
+      "mediapipe_target": {
+        "anchors": [
+          {"landmark": 17, "weight": 0.75, "name": "PINKY_MCP"},
+          {"landmark": 0, "weight": 0.25, "name": "WRIST"}
+        ],
+        "offset_outward_xHandSize": 0.05,
+        "offset_direction": "perpendicular to the (0->17) axis, toward the ulnar edge",
+        "tolerance_radius_xHandSize": 0.14,
+        "stability_threshold_xHandSize": 0.06,
+        "press_finger_default": "THUMB_TIP(4) of the other hand",
+        "detection_notes": "Just proximal to landmark 17 along the hand edge. Encouraging a loose fist makes the crease (and the point) more pronounced and the edge more visible to the camera."
+      },
+      "technique": {
+        "contact": "thumb pad / fingertip",
+        "pressure": "firm, ~6/10",
+        "duration_s": 30,
+        "rhythm": "steady hold; optional gentle neck turns while pressing",
+        "side": "either hand"
+      },
+      "indications_wellness": ["neck stiffness", "shoulder/upper-back tension", "occipital tightness"],
+      "contraindications": [],
+      "safety_flags": [],
+      "coach_copy": {
+        "align": "Make a loose fist. On the pinky edge of your hand, find the crease that pops up — press just below it.",
+        "drift": "Move toward the outer edge of your hand, just below the knuckle.",
+        "hold": "Good pressure — you can slowly turn your head side to side as you hold."
+      }
+    },
+    {
+      "id": "TE5",
+      "pinyin": "Waiguan",
+      "tcm_name": "外关",
+      "meridian": "Triple Energizer",
+      "surface": "dorsal",
+      "requires_hand_face": "back_of_hand_to_camera",
+      "anatomy": "On the back of the forearm, ~2 cun proximal to the dorsal wrist crease, midway between the two forearm bones — directly opposite PC6.",
+      "trackable_by_mediapipe": "partial_extrapolated",
+      "mediapipe_target": {
+        "base_landmark": 0,
+        "extrapolation": {
+          "axis": "normalize(landmark[0] - landmark[9])",
+          "k_xHandSize": 1.1,
+          "lateral_centering": "centered on the dorsal midline; use x of landmark[0]"
+        },
+        "tolerance_radius_xHandSize": 0.22,
+        "stability_threshold_xHandSize": 0.08,
+        "press_finger_default": "THUMB_TIP(4) of the other hand",
+        "detection_notes": "OFF-MODEL like PC6 but on the dorsal side. Same extrapolation strategy; larger, softer guide ring; keep wrist in frame, back of hand up."
+      },
+      "technique": {
+        "contact": "thumb pad",
+        "pressure": "moderate, ~5/10",
+        "duration_s": 30,
+        "rhythm": "steady hold or gentle circular",
+        "side": "either forearm"
+      },
+      "indications_wellness": ["neck/shoulder tension", "wrist/arm tightness", "general tension"],
+      "contraindications": [],
+      "safety_flags": [],
+      "coach_copy": {
+        "align": "Back of the hand up. Three fingers above the wrist crease, in the middle of your forearm — that's the spot.",
+        "drift": "Center it on the back of your forearm.",
+        "hold": "Steady, comfortable pressure — ease your shoulders down as you breathe."
+      }
+    },
+    {
+      "id": "LI4",
+      "status": "EXCLUDED_FROM_PRODUCT",
+      "exclusion_reason": "Contraindicated in pregnancy. To avoid any pregnancy-related risk or screening, LI4 is not used in any routine. Retained here for reference only.",
+      "pinyin": "Hegu",
+      "tcm_name": "合谷",
+      "meridian": "Large Intestine",
+      "surface": "dorsal",
+      "requires_hand_face": "back_of_hand_to_camera",
+      "anatomy": "On the back of the hand between the 1st and 2nd metacarpals, at the midpoint of the 2nd metacarpal, on the highest muscle bulge that rises when thumb and index are brought together.",
+      "contraindications": ["pregnancy (may stimulate uterine contractions)"],
+      "safety_flags": ["excluded_for_pregnancy_safety"]
+    }
+  ],
+
+  "feedback_state_machine": {
+    "states": [
+      {"state": "NO_HAND", "enter_when": "no hand detected for >0.5s", "copy": "Bring your hand into the frame."},
+      {"state": "WRONG_FACE", "enter_when": "hand detected but wrong side facing camera", "copy": "Turn your {palm|the back of your hand} toward the camera."},
+      {"state": "SEARCHING", "enter_when": "hand+face correct, fingertip outside tolerance", "copy": "drift cue from the active point's coach_copy"},
+      {"state": "ON_TARGET_UNSTABLE", "enter_when": "fingertip within tolerance but offset variance high", "copy": "Hold it steady."},
+      {"state": "HOLDING", "enter_when": "within tolerance AND stable", "action": "run/advance the timer ring", "copy": "hold cue from coach_copy"},
+      {"state": "PAUSED", "enter_when": "left tolerance or became unstable during HOLDING", "action": "pause timer (do not reset)", "copy": "drift cue"},
+      {"state": "COMPLETE", "enter_when": "accumulated hold time >= duration_s", "action": "go to recap"}
+    ],
+    "timing": {"target_duration_s": 30, "pause_grace_s": 1.5, "min_stable_window_s": 0.5}
+  },
+
+  "recap_metrics": {
+    "position_stability_pct": "share of HOLDING frames where offset < 0.5*tolerance",
+    "hold_time_s": "accumulated time in HOLDING",
+    "rhythm_consistency": "qualitative: steady / variable, from offset-variance over time",
+    "safety_reminder": "Always shown; never claims a treatment effect."
+  },
+
+  "safety_layer": {
+    "non_diagnostic": true,
+    "red_flag_stop_symptoms": [
+      "sudden severe headache", "vision changes", "numbness or weakness",
+      "dizziness/vertigo", "worsening symptoms", "fainting"
+    ],
+    "pregnancy_policy": {
+      "approach": "Avoid the topic entirely. The product uses NO points that are contraindicated in pregnancy (LI4 is excluded), so there is no pregnancy screening and no per-user gating.",
+      "disclaimer": "A single passive line in the general safety notice: 'This is general wellness self-care. If you are pregnant or have a medical condition, please check with a healthcare professional before use.' No questions asked, no data collected."
+    },
+    "post_routine_check": {
+      "options": ["felt some relief", "no clear change", "felt worse"],
+      "felt_worse_behavior": "Do NOT recommend more pressing. Advise stopping, and suggest professional help for severe or persistent symptoms."
+    }
+  },
+
+  "sources": [
+    "MediaPipe Hands landmark spec (Google AI Edge)",
+    "Me & Qi / Evidence Based Acupuncture / Morningside Acupuncture / AcuSport point references for PC6, HT7, SI3, TE5, TE3",
+    "Locations are simplified for wellness self-care, not clinical needling accuracy."
+  ]
+}
