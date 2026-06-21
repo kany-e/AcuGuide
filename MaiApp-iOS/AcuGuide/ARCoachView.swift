@@ -1,0 +1,117 @@
+import SwiftUI
+
+// The AR coaching window: forced safety gate -> live camera + acupoint overlay -> recap.
+// Demo point = TE3 (the validated one). Safety gate is the immutable rule (no skip).
+struct ARCoachView: View {
+    let acupoint: Acupoint
+    @StateObject private var engine = CoachEngine()
+    @StateObject private var camera: CameraCoach
+    @State private var acknowledged = false
+    @State private var feeling: String? = nil
+
+    init(acupoint: Acupoint) {
+        self.acupoint = acupoint
+        let eng = CoachEngine()
+        _engine = StateObject(wrappedValue: eng)
+        _camera = StateObject(wrappedValue: CameraCoach(engine: eng, acupoint: acupoint))
+    }
+
+    var body: some View {
+        ZStack {
+            Ink.parch.ignoresSafeArea()
+            if !acknowledged {
+                SafetyGate { acknowledged = true; camera.start() }
+            } else if engine.phase == .complete || feeling != nil {
+                recap
+            } else {
+                coachLayer
+            }
+        }
+        .onDisappear { camera.stop() }
+    }
+
+    private var coachLayer: some View {
+        GeometryReader { geo in
+            ZStack {
+                CameraPreview(session: camera.session, mirrored: true).ignoresSafeArea()
+
+                // Target ring + inner dot (smoothed center from the engine).
+                if let c = engine.ringCenter {
+                    let p = CGPoint(x: c.x * geo.size.width, y: c.y * geo.size.height)
+                    let r = engine.ringRadius * geo.size.width
+                    Circle().stroke(engine.color, lineWidth: 3)
+                        .frame(width: r * 2, height: r * 2).position(p)
+                    Circle().fill(engine.color).frame(width: 8, height: 8).position(p)
+                }
+                if let t = engine.pressTip {
+                    Circle().stroke(.white, lineWidth: 2).frame(width: 16, height: 16)
+                        .position(x: t.x * geo.size.width, y: t.y * geo.size.height)
+                }
+
+                VStack {
+                    Spacer()
+                    feedbackCard
+                }
+            }
+        }
+    }
+
+    private var feedbackCard: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle().stroke(Ink.line, lineWidth: 5).frame(width: 46, height: 46)
+                Circle().trim(from: 0, to: engine.progress)
+                    .stroke(engine.color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .rotationEffect(.degrees(-90)).frame(width: 46, height: 46)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(acupoint.id + " · " + acupoint.zh).font(.caption).foregroundStyle(Ink.gold)
+                Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
+            }
+            Spacer()
+        }
+        .padding(14).panel().padding()
+    }
+
+    private var recap: some View {
+        VStack(spacing: 20) {
+            Text("Nicely held").font(.title2).foregroundStyle(Ink.gold)
+            Text("You stayed on \(acupoint.id) (\(acupoint.zh)) steadily.")
+                .foregroundStyle(Ink.paper).multilineTextAlignment(.center)
+            Text("How do you feel?").font(.headline).foregroundStyle(Ink.paper)
+            HStack {
+                ForEach(["Some relief", "No change", "Felt worse"], id: \.self) { f in
+                    Button(f) { feeling = f }.buttonStyle(GoldButtonStyle())
+                }
+            }
+            if feeling == "Felt worse" {
+                Text("Please stop for now. If symptoms are severe or persistent, consider seeing a professional.")
+                    .font(.footnote).foregroundStyle(Ink.terracotta).multilineTextAlignment(.center).padding()
+            }
+            Text("Wellness self-care only — not medical advice.")
+                .font(.caption2).foregroundStyle(Ink.textDim)
+        }
+        .padding(28)
+    }
+}
+
+// Immutable safety gate — forced acknowledgement, no skip, no treat/cure/heal/diagnose copy.
+struct SafetyGate: View {
+    let onAcknowledge: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Before you begin").font(.title2).foregroundStyle(Ink.gold)
+            Text("This is wellness self-care, not a medical tool. Stop and seek care if you notice:")
+                .foregroundStyle(Ink.paper)
+            ForEach(["sudden severe pain", "numbness or weakness", "dizziness", "worsening symptoms"], id: \.self) {
+                Label($0, systemImage: "exclamationmark.triangle").foregroundStyle(Ink.paper).font(.subheadline)
+            }
+            Text("If you are pregnant or have a medical condition, check with a professional first.")
+                .font(.footnote).foregroundStyle(Ink.textDim)
+            Spacer().frame(height: 8)
+            Button("I understand", action: onAcknowledge)
+                .buttonStyle(GoldButtonStyle()).frame(maxWidth: .infinity)
+        }
+        .padding(28)
+    }
+}
