@@ -1,0 +1,61 @@
+name: AcuGuide
+# Reproducible project generation — run `xcodegen generate` (or `make`) to (re)create
+# AcuGuide.xcodeproj from this spec. No more hand-assembling the project in Xcode.
+options:
+  bundleIdPrefix: app.acuguide
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    # Device build is signed by the developer's team; CLI `generic/platform=iOS`
+    # builds with signing disabled so CI / `xcodebuild` works without a team.
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  AcuGuide:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: AcuGuide
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.acuguide.ios
+        GENERATE_INFOPLIST_FILE: YES
+        # Camera usage string (forced safety gate runs before this is ever needed).
+        INFOPLIST_KEY_NSCameraUsageDescription: "AcuGuide uses the camera to guide your acupressure press."
+        # Portrait-locked: the overlay coordinate mapping is derived for portrait, and
+        # the Vision orientation is still computed from the capture connection (not assumed).
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1"
+
+  AcuGuideTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: AcuGuideTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.acuguide.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: AcuGuide
+
+schemes:
+  AcuGuide:
+    build:
+      targets:
+        AcuGuide: all
+        AcuGuideTests: [test]
+    test:
+      targets:
+        - AcuGuideTests

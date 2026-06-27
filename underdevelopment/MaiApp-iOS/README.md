@@ -4,9 +4,10 @@ A native port of MaiApp (the 诗词山河 meridian atlas) with three things adde
 **a 3D body atlas**, an **AR coaching window** (Vision hand-pose → TE3 overlay, porting the
 validated web logic), and a **themed AI chatbot** — all in the same ink-and-gold palette.
 
-> Status: **starter scaffold, post-hackathon track.** It was authored on Windows and **not
-> compiled** (Xcode is macOS-only), so budget a little fix-up time in Xcode. The structure,
-> theme, and the AR coaching logic are complete and faithful to the web app.
+> Status: **builds & runs (Phase 0 done).** Originally authored on Windows and never compiled;
+> it is now a reproducible Xcode project generated from `project.yml` (XcodeGen), with an asset
+> catalog, camera usage string, and a wired unit-test target. `xcodebuild build` and
+> `xcodebuild test` both pass. The structure, theme, and AR coaching logic are faithful to the web app.
 
 ## Files (all under `AcuGuide/`)
 | File | Role |
@@ -24,15 +25,27 @@ validated web logic), and a **themed AI chatbot** — all in the same ink-and-go
 | `ChatView.swift` | Themed bilingual coach chat + `ChatService` (plug in your LLM key). |
 
 ## Setup (Xcode, on your Mac)
-1. **New project** → iOS → App → SwiftUI → name it `AcuGuide`. **Deployment target: iOS 16+.**
-2. Delete the default `ContentView.swift`/`*App.swift`, then **drag in all the `AcuGuide/*.swift` files**.
-3. **Camera permission:** in the target's Info, add `NSCameraUsageDescription` =
-   "AcuGuide uses the camera to guide your acupressure press."
-4. **3D model (optional):** convert your `MaiApp/model.glb` → `body.usdz` with **Reality Converter**
-   (free) or `usdzconvert`, and add it to the app bundle as `body.usdz`. Without it you get the
-   glowing placeholder body.
-5. **Chatbot:** open `ChatView.swift` → set `apiKey` (and `endpoint`/`model`) in `ChatService`.
-   Leave it empty to use the offline canned reply. **Do not commit the key.**
+The project is **generated from `project.yml`** — no hand-assembly. You need
+[XcodeGen](https://github.com/yonaskolb/XcodeGen): `brew install xcodegen`.
+
+1. **Generate + open:**
+   ```bash
+   cd underdevelopment/MaiApp-iOS
+   make project          # = xcodegen generate  → AcuGuide.xcodeproj (git-ignored)
+   open AcuGuide.xcodeproj
+   ```
+   Bundle id `app.acuguide.ios`, deployment target **iOS 16.0**, SwiftUI lifecycle,
+   portrait-locked. The camera usage string and `AccentColor`/`AppIcon` assets are baked in.
+2. **Build / test from the CLI** (no Xcode UI needed):
+   ```bash
+   make build            # xcodebuild build for a generic iOS device (signing off)
+   make test             # xcodebuild test on the iPhone 17 simulator
+   ```
+3. **Signing:** set your team on the `AcuGuide` target to run on a physical device.
+4. **3D model (optional):** convert `MaiApp/model.glb` → `body.usdz` (**Reality Converter** or
+   `usdzconvert`) and add it to the bundle. Without it you get the glowing placeholder body.
+5. **Chatbot:** key is read from `Secrets.xcconfig` / Keychain (git-ignored), **never committed**.
+   Absent → offline canned reply. *(Wiring lands in Phase 2.)*
 6. **Run on a real device** (camera + Vision hand-pose don't work in the Simulator).
 
 ## Notes / things to tune on-device
