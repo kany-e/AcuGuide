@@ -4,13 +4,17 @@ import SwiftUI
 // Demo point = TE3 (the validated one). Safety gate is the immutable rule (no skip).
 struct ARCoachView: View {
     let acupoint: Acupoint
-    @StateObject private var engine = CoachEngine()
+    @StateObject private var engine: CoachEngine
     @StateObject private var camera: CameraCoach
     @State private var acknowledged = false
     @State private var feeling: String? = nil
+    @State private var showDebug = false
+    @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
 
     init(acupoint: Acupoint) {
         self.acupoint = acupoint
+        // Build the engine first, then hand the SAME instance to the camera (assign-before-use,
+        // no redundant default StateObject).
         let eng = CoachEngine()
         _engine = StateObject(wrappedValue: eng)
         _camera = StateObject(wrappedValue: CameraCoach(engine: eng, acupoint: acupoint))
@@ -33,7 +37,7 @@ struct ARCoachView: View {
     private var coachLayer: some View {
         GeometryReader { geo in
             ZStack {
-                CameraPreview(session: camera.session, mirrored: true).ignoresSafeArea()
+                CameraPreview(session: camera.session, mirrored: camera.mirrored).ignoresSafeArea()
 
                 // Target ring + inner dot (smoothed center from the engine).
                 if let c = engine.ringCenter {
@@ -49,11 +53,33 @@ struct ARCoachView: View {
                 }
 
                 VStack {
+                    debugBar
                     Spacer()
                     feedbackCard
                 }
             }
         }
+    }
+
+    // On-device field-calibration toggles (Phase 1): flip the mirror or invert the
+    // face gate in one place if they fire backwards on a given device.
+    private var debugBar: some View {
+        HStack {
+            Spacer()
+            Menu {
+                Toggle("Mirror preview", isOn: Binding(
+                    get: { camera.mirrorFlip }, set: { camera.mirrorFlip = $0 }))
+                Toggle("Dorsal = signed > 0", isOn: Binding(
+                    get: { dorsalPositive },
+                    set: { dorsalPositive = $0; HandCalibration.dorsalWhenSignedPositive = $0 }))
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.callout).foregroundStyle(Ink.paper.opacity(0.8))
+                    .padding(8).background(Circle().fill(.black.opacity(0.35)))
+            }
+            .accessibilityLabel("Calibration")
+        }
+        .padding(.horizontal).padding(.top, 8)
     }
 
     private var feedbackCard: some View {

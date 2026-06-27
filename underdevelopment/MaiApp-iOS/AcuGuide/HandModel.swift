@@ -52,12 +52,23 @@ struct Hand {
     // Ported from the web app's CALIBRATED, mirror-invariant test: dorsal <=> signed > 0.
     // (`signed` = cross for a right hand, -cross for a left hand; horizontal mirroring
     //  negates cross and swaps chirality, which cancel — so it holds for front/rear camera.)
+    //
+    // The comparison is gated behind ONE flag (`HandCalibration.dorsalWhenSignedPositive`) so
+    // that, if WRONG_FACE fires backwards on a device, it can be inverted in a single place
+    // (a debug toggle in the coach view) rather than hunting through the geometry.
     var isDorsal: Bool {
         guard let w = p(.wrist), let i = p(.indexMCP), let pk = p(.pinkyMCP) else { return true }
         let cross = (i.x - w.x) * (pk.y - w.y) - (i.y - w.y) * (pk.x - w.x)
         let signed = (chirality == .right) ? cross : -cross
-        return signed > 0
+        return HandCalibration.dorsalWhenSignedPositive ? signed > 0 : signed < 0
     }
+}
+
+// On-device calibration knobs, surfaced as debug toggles in the coach view so field
+// calibration happens in one place.
+enum HandCalibration {
+    // dorsal <=> signed > 0 (validated default). Flip if WRONG_FACE fires backwards.
+    static var dorsalWhenSignedPositive = true
 }
 
 func dist(_ a: CGPoint, _ b: CGPoint) -> CGFloat { hypot(a.x - b.x, a.y - b.y) }
