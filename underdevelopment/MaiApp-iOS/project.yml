@@ -43,6 +43,18 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - path: AcuGuideTests
+      # Ground-truth replay fixtures, referenced READ-ONLY from the repo (not copied/modified)
+      # and bundled into the test target so CoachStateMachine can be driven frame-by-frame.
+      - path: ../../claude-deliverables/fixtures/fixture_1_te3_correct_good_rhythm.json
+        buildPhase: resources
+      - path: ../../claude-deliverables/fixtures/fixture_2_te3_wrong_position.json
+        buildPhase: resources
+      - path: ../../claude-deliverables/fixtures/fixture_3_pc6_correct_too_fast.json
+        buildPhase: resources
+      - path: ../../claude-deliverables/fixtures/fixture_4_no_hand_then_partial.json
+        buildPhase: resources
+      - path: ../../claude-deliverables/fixtures/fixture_5_te3_full_flow.json
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.acuguide.ios.tests
