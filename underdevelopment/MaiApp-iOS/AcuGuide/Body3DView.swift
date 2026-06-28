@@ -50,12 +50,13 @@ struct SceneKitBody: UIViewRepresentable {
     func makeUIView(context: Context) -> SpinSCNView {
         let view = SpinSCNView()
         view.backgroundColor = .clear
-        view.allowsCameraControl = true            // user can orbit/zoom
+        // allowsCameraControl synthesizes a camera that AUTO-FRAMES the scene content — an
+        // explicit fixed camera failed to frame it. Default lighting guarantees the body is lit.
+        view.allowsCameraControl = true
+        view.autoenablesDefaultLighting = true
         view.antialiasingMode = .multisampling4X
 
         let scene = SCNScene()
-        addLights(to: scene)
-        addCamera(to: scene, on: view)
 
         // Everything spins on a container node so the gentle auto-rotation and the user's drag
         // don't fight: dragging moves the CAMERA (allowsCameraControl), and the container's spin
@@ -77,12 +78,24 @@ struct SceneKitBody: UIViewRepresentable {
                 guard status == .complete, let asset = maybeAsset else { return }
                 let gltfScene = SCNScene(gltfAsset: asset)
                 DispatchQueue.main.async {
+                    // GLTFKit2 imports this rigged GLB with a skinner that collapses the mesh to a
+                    // point (degenerate post-conversion — flattenedClone bounds are zero), so render
+                    // the static bind-pose geometry directly. It is authored Z-up (lying down), so a
+                    // -90° X rotation stands it upright; the camera controller frames the result.
+                    var found: SCNGeometry? = nil
+                    gltfScene.rootNode.enumerateHierarchy { n, _ in if found == nil { found = n.geometry } }
+                    guard let found else { return }         // keep the capsule if there's no mesh
                     capsule.removeFromParentNode()
-                    let model = SCNNode()
-                    for child in gltfScene.rootNode.childNodes { model.addChildNode(child) }
-                    applySageMaterial(to: model)
-                    centerAndScale(model, targetHeight: 2.2)
-                    spin.addChildNode(model)
+                    // COPY the geometry — the shared GLTFKit2 geometry ignores a replaced materials
+                    // array (its appearance is driven by GLTFKit2 shader modifiers); a copy takes ours.
+                    let geometry = found.copy() as! SCNGeometry
+                    geometry.materials = [sageMaterial()]
+                    let mesh = SCNNode(geometry: geometry)
+                    let pose = SCNNode()
+                    pose.addChildNode(mesh)
+                    pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)   // stand the Z-up mesh upright
+                    spin.addChildNode(pose)
+                    view.defaultCameraController.frameNodes([pose])
                 }
             }
         }
@@ -93,74 +106,16 @@ struct SceneKitBody: UIViewRepresentable {
 
 // MARK: - Scene helpers (match Body3D.jsx's feel)
 
-private func addCamera(to scene: SCNScene, on view: SCNView) {
-    let cam = SCNNode()
-    cam.camera = SCNCamera()
-    cam.camera?.fieldOfView = 42                  // matches the web Canvas fov
-    cam.camera?.zNear = 0.01
-    cam.position = SCNVector3(0, 0, 3.2)
-    cam.look(at: SCNVector3(0, 0, 0))
-    scene.rootNode.addChildNode(cam)
-    view.pointOfView = cam
-}
-
-private func addLights(to scene: SCNScene) {
-    func light(_ type: SCNLight.LightType, _ intensity: CGFloat, _ hex: String) -> SCNLight {
-        let l = SCNLight(); l.type = type; l.intensity = intensity; l.color = UIColor(Color(hex: hex)); return l
-    }
-    let ambient = SCNNode(); ambient.light = light(.ambient, 520, "#cdd2c4")
-    scene.rootNode.addChildNode(ambient)
-
-    let key = SCNNode(); key.light = light(.directional, 760, "#fffaf0")
-    key.position = SCNVector3(2.5, 4, 3); key.look(at: SCNVector3(0, 0, 0))
-    scene.rootNode.addChildNode(key)
-
-    let fill = SCNNode(); fill.light = light(.directional, 300, "#dfe6ea")
-    fill.position = SCNVector3(-2.5, 2, -1.5); fill.look(at: SCNVector3(0, 0, 0))
-    scene.rootNode.addChildNode(fill)
-}
-
-// Override every mesh to the sage-green material from Body3D.jsx (#aebd9d, slight emissive).
-private func applySageMaterial(to node: SCNNode) {
+// The sage-green material from Body3D.jsx (#aebd9d, slight emissive). Uses .blinn (not
+// .physicallyBased) — PBR washes to white without an environment map, while blinn renders the
+// diffuse color directly under the default lighting.
+private func sageMaterial() -> SCNMaterial {
     let mat = SCNMaterial()
-    mat.lightingModel = .physicallyBased
+    mat.lightingModel = .blinn
     mat.diffuse.contents = UIColor(Color(hex: "#aebd9d"))
-    mat.roughness.contents = 0.85
-    mat.metalness.contents = 0.0
-    mat.emission.contents = UIColor(Color(hex: "#2c3626")).withAlphaComponent(0.12)
-    node.enumerateHierarchy { n, _ in
-        if let geo = n.geometry { geo.materials = geo.materials.map { _ in mat } }
-    }
-}
-
-// Center the model at the origin and scale it to a target height (in scene units).
-private func centerAndScale(_ node: SCNNode, targetHeight: Float) {
-    guard let (minB, maxB) = worldBoundingBox(of: node) else { return }
-    let size = SCNVector3(maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z)
-    let height = max(size.y, 0.0001)
-    let scale = targetHeight / height
-    node.scale = SCNVector3(scale, scale, scale)
-    let center = SCNVector3((minB.x + maxB.x) / 2, (minB.y + maxB.y) / 2, (minB.z + maxB.z) / 2)
-    node.position = SCNVector3(-center.x * scale, -center.y * scale, -center.z * scale)
-}
-
-// Bounding box of the POSED figure. The model is a skinned/rigged mesh: SCNNode.boundingBox
-// returns the static BIND-pose geometry (for this GLB a Blender Z-up rest layout with a tiny Y
-// extent), so scaling to it grossly mis-sizes and off-centers the body. The skeleton JOINT nodes
-// carry the display-pose transforms, so we measure the union of every node's origin in root space
-// — that tracks the posed figure the user actually sees.
-private func worldBoundingBox(of root: SCNNode) -> (SCNVector3, SCNVector3)? {
-    var pts: [SCNVector3] = []
-    root.enumerateHierarchy { n, _ in
-        pts.append(root.convertPosition(SCNVector3Zero, from: n))
-    }
-    guard let first = pts.first, pts.count >= 2 else { return nil }
-    var mn = first, mx = first
-    for p in pts {
-        mn = SCNVector3(min(mn.x, p.x), min(mn.y, p.y), min(mn.z, p.z))
-        mx = SCNVector3(max(mx.x, p.x), max(mx.y, p.y), max(mx.z, p.z))
-    }
-    return (mn, mx)
+    mat.specular.contents = UIColor(white: 1, alpha: 0.15)
+    mat.emission.contents = UIColor(Color(hex: "#2c3626")).withAlphaComponent(0.25)
+    return mat
 }
 
 private func makeCapsule() -> SCNNode {
