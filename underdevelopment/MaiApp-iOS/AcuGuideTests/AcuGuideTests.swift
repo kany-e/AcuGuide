@@ -14,4 +14,18 @@ final class AcuGuideTests: XCTestCase {
         XCTAssertFalse(Acupoint.all.contains { $0.id == "LI4" },
                        "LI4 is pregnancy-contraindicated and must never appear.")
     }
+
+    // The immutable rule: no treat / cure / heal / diagnose anywhere in user-facing copy.
+    // Scans the whole bilingual atlas (the dataset most likely to drift on edits).
+    func testNoForbiddenMedicalClaims() {
+        let banned = ["treat", "cure", "heal", "diagnos"]
+        for p in Acupoint.all {
+            let blob = [p.locationEn, p.indicationsEn, p.coachAlign, p.coachHold,
+                        p.locationZh, p.indicationsZh].joined(separator: " ").lowercased()
+            for term in banned {
+                XCTAssertFalse(blob.contains(term),
+                               "\(p.id) copy contains forbidden term '\(term)'")
+            }
+        }
+    }
 }

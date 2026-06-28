@@ -42,21 +42,27 @@ The project is **generated from `project.yml`** — no hand-assembly. You need
    make test             # xcodebuild test on the iPhone 17 simulator
    ```
 3. **Signing:** set your team on the `AcuGuide` target to run on a physical device.
-4. **3D model (optional):** convert `MaiApp/model.glb` → `body.usdz` (**Reality Converter** or
-   `usdzconvert`) and add it to the bundle. Without it you get the glowing placeholder body.
-5. **Chatbot:** key is read from `Secrets.xcconfig` / Keychain (git-ignored), **never committed**.
-   Absent → offline canned reply. *(Wiring lands in Phase 2.)*
+4. **3D model (optional):** SceneKit can't import glTF, so convert `MaiApp/model.glb` → `body.usdz`
+   manually with **Reality Converter** (free, macOS) or `usdzconvert`, then add `body.usdz` to the
+   bundle. Without it you get the glowing capsule placeholder (auto-rotates, pauses while you drag).
+5. **Chatbot:** fully **offline** — a local bilingual wellness helper over the acupoint atlas. No
+   API key, no network, no accounts, nothing to secure. Red-flag symptoms → stop-and-seek-care.
 6. **Run on a real device** (camera + Vision hand-pose don't work in the Simulator).
 
+## Native features (Phase 2)
+- **Voice cues** (`AVSpeechSynthesizer`) on phase change only; bilingual by device locale; mute
+  toggle (speaker button); `.ambient` audio session (respects the silent switch).
+- **Haptics** (`CoreHaptics`, `UIFeedbackGenerator` fallback): a tick on first entering the target,
+  a success pattern at COMPLETE; nothing during NO_HAND / WRONG_FACE.
+- **Atlas:** TE3 + PC6 / SJ5 / PC8 / HT7 / SI3 with bilingual labels, location, and traditional-use
+  text from `MaiApp/src/data.js`. **TE3 is the only AR-coached point**; LI4 is excluded.
+
 ## Notes / things to tune on-device
-- **Front camera** is used (selfie); the preview is mirrored and landmark x is flipped to match.
-  If the overlay sits on the wrong side, flip `usingFront`/the mirror in `CameraCoach.swift`.
-- **Face gate sign:** `HandModel.isDorsal` uses the empirically-calibrated rule `dorsal ⇔ signed > 0`
-  (mirror-invariant). If WRONG_FACE fires backwards on your device, invert that one comparison.
-- **Vision orientation:** the request uses `.up`; if landmarks look rotated, adjust the
-  `VNImageRequestHandler` orientation for the device orientation.
-- **Scope this build ships:** TE3 camera coaching (validated). PC6/SI3 are atlas-only (no AR),
-  matching the web app's honest scope — **no cadence/BPM**, position + hold + steadiness only.
+- **Mirror / face gate:** a calibration menu (slider icon) in the coach view flips the preview
+  mirror and inverts the face gate at runtime, so no code edit is needed for field calibration.
+- **Vision orientation:** derived from the capture connection (portrait-locked), not hardcoded.
+- **Scope this build ships:** TE3 camera coaching (validated). Every other point is atlas-only
+  (no AR), matching the web app's honest scope — **no cadence/BPM**, position + hold + steadiness.
 
 ## Safety (immutable, same as web)
 No treat/cure/heal/diagnose copy anywhere; the safety gate before the camera is **not skippable**;

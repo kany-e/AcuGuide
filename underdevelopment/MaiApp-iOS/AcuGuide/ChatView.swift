@@ -3,41 +3,50 @@ import SwiftUI
 struct ChatMessage: Identifiable { let id = UUID(); let role: Role; let text: String
     enum Role { case user, coach } }
 
-// Themed bilingual acupressure coach. Plug your endpoint + key in ChatService.
-// Safety guardrail is in the system prompt: wellness coaching only, never diagnosis.
+// Fully OFFLINE bilingual acupressure helper. No network, no API key, no accounts, no
+// telemetry — nothing to secure or leak. Replies are generated locally from the acupoint atlas.
+// The wellness-only safety posture is enforced directly here: it never diagnoses/treats/cures,
+// and red-flag symptoms always route to a stop-and-seek-care reply (matching the web app).
 final class ChatService {
-    // TODO: set these (e.g. OpenAI-compatible). Leave key empty to use the offline stub.
-    private let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
-    private let apiKey = ""   // <- paste key; keep out of git
-    private let model = "gpt-4o-mini"
-
-    private let system = """
-    You are AcuGuide, a warm, concise acupressure wellness coach. You explain hand/wrist
-    acupoints (e.g. TE3 中渚) and how to press them as self-care. You are bilingual (中文 / English)
-    and answer in the user's language. You NEVER diagnose, treat, cure, or heal; you never claim
-    medical effects. If a user describes red-flag symptoms (severe pain, numbness, dizziness,
-    worsening), gently suggest they stop and consider professional care.
-    """
-
     func reply(to user: String, history: [ChatMessage]) async -> String {
-        guard !apiKey.isEmpty else {
-            return "(offline) For \(user.isEmpty ? "TE3" : "that"): press the point on the back of the hand, in the groove behind the ring and pinky knuckles — firm, steady pressure with slow breathing. Add your API key in ChatService to enable live answers."
+        let raw = user
+        let q = user.lowercased()
+        if mentionsRedFlag(raw: raw, lowered: q) { return redFlagReply() }
+        if let point = matchPoint(raw: raw, lowered: q) { return pointReply(point) }
+        return generalReply()
+    }
+
+    // Red-flag symptoms → advise stopping; never "continue". (EN + ZH keywords.)
+    private func mentionsRedFlag(raw: String, lowered: String) -> Bool {
+        let en = ["severe", "numb", "dizzy", "dizziness", "weakness", "worse", "worsening", "chest pain"]
+        let zh = ["剧痛", "剧烈", "麻木", "头晕", "无力", "加重", "恶化", "胸痛"]
+        return en.contains { lowered.contains($0) } || zh.contains { raw.contains($0) }
+    }
+    private func redFlagReply() -> String {
+        AppLocale.pick(
+            "如果出现剧烈或突然的疼痛、麻木或无力、头晕，或症状在加重，请停止并考虑就医。本应用仅供养生自我保养参考。",
+            "If you notice severe or sudden pain, numbness or weakness, dizziness, or symptoms that are getting worse, please stop and consider seeing a professional. This is wellness self-care only.")
+    }
+
+    // Match a point by id / Chinese name / romanized name in the query.
+    private func matchPoint(raw: String, lowered: String) -> Acupoint? {
+        Acupoint.all.first { p in
+            lowered.contains(p.id.lowercased()) || raw.contains(p.zh) || lowered.contains(p.en.lowercased())
         }
-        var msgs: [[String: String]] = [["role": "system", "content": system]]
-        for m in history.suffix(8) { msgs.append(["role": m.role == .user ? "user" : "assistant", "content": m.text]) }
-        msgs.append(["role": "user", "content": user])
-        var req = URLRequest(url: endpoint)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["model": model, "messages": msgs, "temperature": 0.6])
-        do {
-            let (data, _) = try await URLSession.shared.data(for: req)
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let choices = json?["choices"] as? [[String: Any]]
-            let message = choices?.first?["message"] as? [String: Any]
-            return (message?["content"] as? String) ?? "Sorry, I couldn't reach the coach."
-        } catch { return "Network error — try again." }
+    }
+    private func pointReply(_ p: Acupoint) -> String {
+        let practice = p.mediapipeTarget != nil
+            ? AppLocale.pick(" 你也可以在「引导」中用相机练习。", " You can also practice it with the camera in the Coach tab.")
+            : ""
+        return AppLocale.pick(
+            "\(p.id) · \(p.zh)（\(p.en)）。定位：\(p.locationZh) 传统用途：\(p.indicationsZh) 作为自我保养：放松手部，找到该处，用稳定的力度配合缓慢呼吸按压，约30秒；如有不适请停止。\(practice) 仅供养生自我保养参考。",
+            "\(p.id) · \(p.en) (\(p.zh)). Location: \(p.locationEn) Traditional uses: \(p.indicationsEn) As self-care: relax the hand, find the spot, and apply firm, steady pressure with slow breathing for about 30 seconds; stop if it’s uncomfortable.\(practice) Wellness self-care only.")
+    }
+
+    private func generalReply() -> String {
+        AppLocale.pick(
+            "你好 — 我可以介绍手部穴位（如 中渚 TE3、内关 PC6、后溪 SI3、神门 HT7）以及如何作为自我保养来按压。可按名称询问任意穴位。仅供养生自我保养参考。",
+            "Hi — I can explain hand acupoints (like TE3 中渚, PC6 内关, SI3 后溪, HT7 神门) and how to press them as self-care. Ask about any point by name. Wellness self-care only.")
     }
 }
 

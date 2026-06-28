@@ -42,22 +42,37 @@ struct HandAtlasView: View {
     private var handShape: some Shape { RoundedRectangle(cornerRadius: 60, style: .continuous) }
 
     private func detailPanel(_ s: Acupoint) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
                 Text("\(s.id) · \(s.zh)").font(.headline).foregroundStyle(Ink.gold)
-                Text(s.pinyin).font(.subheadline).foregroundStyle(Ink.textDim)
+                Text("\(s.en) · \(s.pinyin)").font(.subheadline).foregroundStyle(Ink.textDim)
                 Spacer()
             }
-            Text(s.coachAlign).font(.subheadline).foregroundStyle(Ink.text)
+            // Meridian chip in its channel color.
+            HStack(spacing: 6) {
+                Circle().fill(MeridianColors.color(s.meridian)).frame(width: 9, height: 9)
+                Text(s.meridianName).font(.caption).foregroundStyle(Ink.text)
+            }
+            labeled(AppLocale.pick("定位", "Location"), s.location)
+            labeled(AppLocale.pick("传统用途", "Traditional uses"), s.indications)
+
             if s.mediapipeTarget != nil {
-                Button("Practice with camera") { startCoach = s }
+                Button(AppLocale.pick("用相机练习", "Practice with camera")) { startCoach = s }
                     .buttonStyle(GoldButtonStyle())
             } else {
-                Text("Camera coaching available for TE3 in this build.")
+                Text(AppLocale.pick("本版本仅 TE3 提供相机引导。",
+                                    "Camera coaching is available for TE3 in this build."))
                     .font(.caption).foregroundStyle(Ink.textDim)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding().panel().padding()
+    }
+
+    private func labeled(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.caption2).foregroundStyle(Ink.gold).textCase(.uppercase)
+            Text(value).font(.subheadline).foregroundStyle(Ink.text).fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

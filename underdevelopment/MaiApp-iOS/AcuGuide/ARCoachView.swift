@@ -6,9 +6,12 @@ struct ARCoachView: View {
     let acupoint: Acupoint
     @StateObject private var engine: CoachEngine
     @StateObject private var camera: CameraCoach
+    @StateObject private var voice = CoachVoice()
+    @StateObject private var haptics = CoachHaptics()
     @State private var acknowledged = false
     @State private var feeling: String? = nil
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
+    @State private var prevPhase: CoachPhase = .noHand
 
     init(acupoint: Acupoint) {
         self.acupoint = acupoint
@@ -30,10 +33,24 @@ struct ARCoachView: View {
                 coachLayer
             }
         }
-        // Stop the camera as soon as the routine completes (recap is up) — not only on disappear —
-        // so the session and per-frame engine updates don't keep running behind the recap.
-        .onChange(of: engine.phase) { if $0 == .complete { camera.stop() } }
-        .onDisappear { camera.stop() }
+        // Drive voice + haptics off phase TRANSITIONS only (debounced by the engine), and stop the
+        // camera as soon as the routine completes so nothing keeps running behind the recap.
+        .onChange(of: engine.phase) { handlePhaseChange(to: $0) }
+        .onDisappear { camera.stop(); voice.reset() }
+    }
+
+    private func handlePhaseChange(to phase: CoachPhase) {
+        voice.update(phase: phase, requiresDorsal: acupoint.requiresDorsal)
+
+        // Haptics: a light tick the first time the finger enters the target zone (not on every
+        // unstable wobble), and a success pattern at COMPLETE. Nothing on NO_HAND / WRONG_FACE.
+        let wasOnTarget = prevPhase == .onTargetUnstable || prevPhase == .holding
+        let isOnTarget = phase == .onTargetUnstable || phase == .holding
+        if isOnTarget && !wasOnTarget { haptics.enterTick() }
+        if phase == .complete && prevPhase != .complete { haptics.complete() }
+
+        if phase == .complete { camera.stop() }
+        prevPhase = phase
     }
 
     private var coachLayer: some View {
@@ -66,8 +83,14 @@ struct ARCoachView: View {
     // On-device field-calibration toggles (Phase 1): flip the mirror or invert the
     // face gate in one place if they fire backwards on a given device.
     private var debugBar: some View {
-        HStack {
+        HStack(spacing: 10) {
             Spacer()
+            Button { voice.muted.toggle() } label: {
+                Image(systemName: voice.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
+                    .padding(8).background(Circle().fill(.black.opacity(0.35)))
+            }
+            .accessibilityLabel(voice.muted ? "Unmute voice cues" : "Mute voice cues")
             Menu {
                 Toggle("Mirror preview", isOn: Binding(
                     get: { camera.mirrorFlip }, set: { camera.mirrorFlip = $0 }))
