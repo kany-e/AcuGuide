@@ -13,11 +13,11 @@ validated web logic), and a **themed AI chatbot** — all in the same ink-and-go
 | File | Role |
 |---|---|
 | `AcuGuideApp.swift` | App entry. |
-| `RootView.swift` | Tab nav: **Atlas · Hand · Coach · Coach AI**; launches the AR coach. |
+| `RootView.swift` | Tab nav: **Atlas · Coach · Coach AI**; Atlas drills body → hand → back; launches the AR coach. |
 | `Theme.swift` | Ink-and-gold palette (1:1 with MaiApp's `styles.css` tokens) + panel/button styles. |
-| `Acupoints.swift` | Data model + TE3 (validated AR point) + examples + meridian colors. Paste the full `data.js` list here. |
-| `Body3DView.swift` | SceneKit rotatable 3D body (loads `body.usdz`, glowing placeholder otherwise). |
-| `HandAtlasView.swift` | 2D tappable hand acupoint map. |
+| `Acupoints.swift` | Full bilingual hand atlas from `data.js` (TE3 + PC6/SJ5/PC8/HT7/SI3; TE3 only AR; no LI4). |
+| `Body3DView.swift` | SceneKit body — loads `model.glb` via **GLTFKit2** (sage material), capsule fallback; pulsing hand hotspot. |
+| `HandAtlasView.swift` | Hand acupoint map — real `HAND_PTS` Catmull-Rom silhouette + radial skin gradient + tendon hints. |
 | `HandModel.swift` | Vision joints + geometry: `weightedTarget`, `handSize`, **calibrated dorsal/palmar test**. |
 | `Coach.swift` | `CoachEngine` — position + hold + steadiness state machine (no cadence; correct technique). |
 | `CameraCoach.swift` | AVCapture + `VNDetectHumanHandPoseRequest` → drives `CoachEngine`; camera preview. |
@@ -42,9 +42,10 @@ The project is **generated from `project.yml`** — no hand-assembly. You need
    make test             # xcodebuild test on the iPhone 17 simulator
    ```
 3. **Signing:** set your team on the `AcuGuide` target to run on a physical device.
-4. **3D model (optional):** SceneKit can't import glTF, so convert `MaiApp/model.glb` → `body.usdz`
-   manually with **Reality Converter** (free, macOS) or `usdzconvert`, then add `body.usdz` to the
-   bundle. Without it you get the glowing capsule placeholder (auto-rotates, pauses while you drag).
+4. **3D model:** loaded at runtime from the bundled `AcuGuide/Resources/model.glb` (a copy of
+   `MaiApp/model.glb`) via the **GLTFKit2** Swift package — no usdz conversion, same asset as the
+   web app. `make project` resolves the package (network needed once). Capsule shows only if the
+   asset is missing. The body auto-rotates and pauses while you drag.
 5. **Chatbot:** fully **offline** — a local bilingual wellness helper over the acupoint atlas. No
    API key, no network, no accounts, nothing to secure. Red-flag symptoms → stop-and-seek-care.
 6. **Run on a real device** (camera + Vision hand-pose don't work in the Simulator).

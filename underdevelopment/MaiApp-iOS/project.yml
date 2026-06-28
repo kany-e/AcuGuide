@@ -16,6 +16,13 @@ settings:
     # builds with signing disabled so CI / `xcodebuild` works without a team.
     CODE_SIGN_STYLE: Automatic
 
+packages:
+  # Loads MaiApp/model.glb at runtime (no usdz conversion) — same asset as the web app.
+  # Binary xcframework, pinned for reproducibility.
+  GLTFKit2:
+    url: https://github.com/warrenm/GLTFKit2
+    revision: be89e833aa85bde67bd27d4ecff3b7816c58ce56
+
 targets:
   AcuGuide:
     type: application
@@ -23,6 +30,8 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - path: AcuGuide
+    dependencies:
+      - package: GLTFKit2
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.acuguide.ios

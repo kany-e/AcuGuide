@@ -4,12 +4,10 @@ struct RootView: View {
     @State private var startCoach: Acupoint? = nil
 
     var body: some View {
+        // No separate "Hand" tab — the hand is a drill-down from the 3D body (web parity).
         TabView {
-            Body3DView()
+            AtlasTab(startCoach: $startCoach)
                 .tabItem { Label("Atlas", systemImage: "figure.stand") }
-
-            HandAtlasView(startCoach: $startCoach)
-                .tabItem { Label("Hand", systemImage: "hand.raised") }
 
             ARCoachLauncher(startCoach: $startCoach)
                 .tabItem { Label("Coach", systemImage: "camera.viewfinder") }
@@ -26,6 +24,26 @@ struct RootView: View {
                         Button("Close") { startCoach = nil }.tint(Ink.gold)
                     } }
             }
+        }
+    }
+}
+
+// Atlas tab: the 3D body → tap the hand hotspot → hand acupoint map → back (mirrors the web
+// onEnterHand / onBack). The body fills the screen (nav bar hidden); the hand view shows a
+// back button + title.
+struct AtlasTab: View {
+    @Binding var startCoach: Acupoint?
+    @State private var showHand = false
+
+    var body: some View {
+        NavigationStack {
+            Body3DView(onEnterHand: { showHand = true })
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(isPresented: $showHand) {
+                    HandAtlasView(startCoach: $startCoach)
+                        .navigationTitle(AppLocale.pick("手部穴位", "Hand points"))
+                        .navigationBarTitleDisplayMode(.inline)
+                }
         }
     }
 }
