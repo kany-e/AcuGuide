@@ -54,11 +54,11 @@ struct ARCoachLauncher: View {
     private var te3: Acupoint { Acupoint.all.first { $0.id == "TE3" } ?? Acupoint.all[0] }
     var body: some View {
         ZStack {
-            Ink.parch.ignoresSafeArea()
+            ShanshuiBackground()
             VStack(spacing: 18) {
                 Text("Tension-headache routine").font(.title3).foregroundStyle(Ink.gold)
                 Text("TE3 · 中渚 — press the groove behind your ring and pinky knuckles, on the back of the hand.")
-                    .foregroundStyle(Ink.paper).multilineTextAlignment(.center).padding(.horizontal)
+                    .foregroundStyle(Ink.text).multilineTextAlignment(.center).padding(.horizontal)
                 Button("Start camera coach") { startCoach = te3 }.buttonStyle(GoldButtonStyle())
                 Text("Wellness self-care only — not medical advice.")
                     .font(.caption2).foregroundStyle(Ink.textDim)

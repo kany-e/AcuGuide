@@ -51,7 +51,7 @@ struct HandAtlasView: View {
             }
             if let s = selected { detailPanel(s) }
         }
-        .background(Ink.paper.ignoresSafeArea())
+        .background(ShanshuiBackground())
     }
 
     private func detailPanel(_ s: Acupoint) -> some View {

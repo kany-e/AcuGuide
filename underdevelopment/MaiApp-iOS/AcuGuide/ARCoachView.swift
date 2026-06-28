@@ -24,7 +24,7 @@ struct ARCoachView: View {
 
     var body: some View {
         ZStack {
-            Ink.parch.ignoresSafeArea()
+            ShanshuiBackground()
             if !acknowledged {
                 SafetyGate { acknowledged = true; camera.start() }
             } else if engine.phase == .complete || feeling != nil {
@@ -142,8 +142,8 @@ struct ARCoachView: View {
         VStack(spacing: 20) {
             Text("Nicely held").font(.title2).foregroundStyle(Ink.gold)
             Text("You stayed on \(acupoint.id) (\(acupoint.zh)) steadily.")
-                .foregroundStyle(Ink.paper).multilineTextAlignment(.center)
-            Text("How do you feel?").font(.headline).foregroundStyle(Ink.paper)
+                .foregroundStyle(Ink.text).multilineTextAlignment(.center)
+            Text("How do you feel?").font(.headline).foregroundStyle(Ink.text)
             HStack {
                 ForEach(["Some relief", "No change", "Felt worse"], id: \.self) { f in
                     Button(f) { feeling = f }.buttonStyle(GoldButtonStyle())
@@ -168,9 +168,9 @@ struct SafetyGate: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Before you begin").font(.title2).foregroundStyle(Ink.gold)
             Text("This is wellness self-care, not a medical tool. Stop and seek care if you notice:")
-                .foregroundStyle(Ink.paper)
+                .foregroundStyle(Ink.text)
             ForEach(["sudden severe pain", "numbness or weakness", "dizziness", "worsening symptoms"], id: \.self) {
-                Label($0, systemImage: "exclamationmark.triangle").foregroundStyle(Ink.paper).font(.subheadline)
+                Label($0, systemImage: "exclamationmark.triangle").foregroundStyle(Ink.text).font(.subheadline)
             }
             Text("If you are pregnant or have a medical condition, check with a professional first.")
                 .font(.footnote).foregroundStyle(Ink.textDim)

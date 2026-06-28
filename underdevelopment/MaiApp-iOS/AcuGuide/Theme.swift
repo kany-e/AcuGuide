@@ -70,3 +70,45 @@ struct GoldButtonStyle: ButtonStyle {
             )
     }
 }
+
+// MARK: - Shanshui (山水) light theme — matched 1:1 to MaiApp styles.css.
+// Every page sits on this light parchment ground (see ShanshuiBackground); foreground text
+// uses Ink.text. Ink.parch is retired as a page background — there is no dark page anymore.
+extension Ink {
+    // Page ground: parchment radial gradient (styles.css `body`).
+    static let groundTop  = Color(hex: "#f6f4ed")   // 0%
+    static let groundMid  = Color(hex: "#ece9e0")   // 55%  (== Ink.paper / --ink)
+    static let groundEdge = Color(hex: "#e1dfd4")   // 100%
+    static var ground: EllipticalGradient {         // ≈ radial 120% 90% at 50% 0%
+        EllipticalGradient(
+            stops: [
+                .init(color: groundTop,  location: 0.00),
+                .init(color: groundMid,  location: 0.55),
+                .init(color: groundEdge, location: 1.00),
+            ],
+            center: .top,                 // "at 50% 0%"
+            startRadiusFraction: 0.0,
+            endRadiusFraction: 1.0)
+    }
+
+    // Moon (.ink-bg .moon): radial #d8d2c2 → #c3bda9 58% → clear 72%.
+    static let moonCore = Color(hex: "#d8d2c2")
+    static let moonEdge = Color(hex: "#c3bda9")
+
+    // Shanshui ink mountains (.mtn-far/mid/near) — alpha baked in.
+    static let mtnFar  = Color(hex: "#606e62").opacity(0.10)   // rgba(96,110,98,.10)
+    static let mtnMid  = Color(hex: "#4e5c50").opacity(0.13)   // rgba(78,92,80,.13)
+    static let mtnNear = Color(hex: "#3c4a3e").opacity(0.17)   // rgba(60,74,62,.17)
+
+    // Mist (.ink-bg .mist), two soft washes.
+    static let mist1 = Color(hex: "#96a596").opacity(0.20)     // rgba(150,165,150,.20)
+    static let mist2 = Color(hex: "#788270").opacity(0.18)     // rgba(120,130,112,.18)
+
+    // Ink brush region labels (.brush-label / .sm / .soft).
+    static let brush     = Color(hex: "#3a4234")
+    static let brushSoft = Color(hex: "#4a5340")
+
+    // 3D body material (Body3D.jsx: sage diffuse + low emissive).
+    static let bodySage     = Color(hex: "#aebd9d")
+    static let bodyEmission = Color(hex: "#2c3626")
+}

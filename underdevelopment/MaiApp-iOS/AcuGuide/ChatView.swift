@@ -100,7 +100,7 @@ struct ChatView: View {
                     .accessibilityLabel("Send message")
             }.padding()
         }
-        .background(Ink.paper.ignoresSafeArea())
+        .background(ShanshuiBackground())
     }
 
     private func bubble(_ m: ChatMessage) -> some View {
