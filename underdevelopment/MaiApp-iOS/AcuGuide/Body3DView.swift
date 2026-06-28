@@ -15,6 +15,7 @@ struct Body3DView: View {
         ZStack {
             Ink.parch.ignoresSafeArea()
             SceneKitBody().ignoresSafeArea()
+                .accessibilityHidden(true)   // 3D canvas isn't VoiceOver-inspectable; hotspot is the control
 
             // Pulsing gold hand hotspot, anchored over the model's hand region. Tapping drills
             // into the hand map (the body→hand drill-down, not a peer tab).

@@ -37,8 +37,13 @@ struct HandAtlasView: View {
                                    height: selected?.id == pt.id ? 18 : 12)
                             .overlay(Circle().stroke(Ink.paperLight, lineWidth: 2))
                             .shadow(color: MeridianColors.color(pt.meridian).opacity(0.7), radius: 6)
+                            // Larger invisible hit/VoiceOver target than the small dot.
+                            .contentShape(Circle().size(width: 44, height: 44))
                             .position(x: ox + pt.x * scale, y: oy + pt.y * scale)
                             .onTapGesture { selected = pt }
+                            .accessibilityLabel("\(pt.id) \(pt.zh), \(pt.meridianName)")
+                            .accessibilityHint("Shows the point details")
+                            .accessibilityAddTraits(selected?.id == pt.id ? [.isButton, .isSelected] : .isButton)
                     }
                 }
             }

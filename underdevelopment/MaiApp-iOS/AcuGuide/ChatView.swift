@@ -87,6 +87,7 @@ struct ChatView: View {
                     .textFieldStyle(.plain).padding(10).panel()
                 Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
                     .tint(Ink.gold).disabled(sending || input.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .accessibilityLabel("Send message")
             }.padding()
         }
         .background(Ink.paper.ignoresSafeArea())
@@ -97,6 +98,8 @@ struct ChatView: View {
             if m.role == .coach { coachText(m.text); Spacer(minLength: 40) }
             else { Spacer(minLength: 40); userText(m.text) }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel((m.role == .coach ? "Coach" : "You") + ": " + m.text)
     }
     private func coachText(_ t: String) -> some View {
         Text(t).padding(12).foregroundStyle(Ink.text)

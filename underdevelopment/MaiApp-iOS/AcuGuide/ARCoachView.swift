@@ -56,20 +56,25 @@ struct ARCoachView: View {
     private var coachLayer: some View {
         GeometryReader { geo in
             ZStack {
-                CameraPreview(session: camera.session, mirrored: camera.mirrored).ignoresSafeArea()
+                CameraPreview(session: camera.session, mirrored: camera.mirrored)
+                    .ignoresSafeArea().accessibilityHidden(true)
 
-                // Target ring + inner dot (smoothed center from the engine).
-                if let c = engine.ringCenter {
-                    let p = CGPoint(x: c.x * geo.size.width, y: c.y * geo.size.height)
-                    let r = engine.ringRadius * geo.size.width
-                    Circle().stroke(engine.color, lineWidth: 3)
-                        .frame(width: r * 2, height: r * 2).position(p)
-                    Circle().fill(engine.color).frame(width: 8, height: 8).position(p)
+                // Target ring + inner dot (smoothed center from the engine). Purely visual — the
+                // feedback card below is the VoiceOver-announced source of truth.
+                Group {
+                    if let c = engine.ringCenter {
+                        let p = CGPoint(x: c.x * geo.size.width, y: c.y * geo.size.height)
+                        let r = engine.ringRadius * geo.size.width
+                        Circle().stroke(engine.color, lineWidth: 3)
+                            .frame(width: r * 2, height: r * 2).position(p)
+                        Circle().fill(engine.color).frame(width: 8, height: 8).position(p)
+                    }
+                    if let t = engine.pressTip {
+                        Circle().stroke(.white, lineWidth: 2).frame(width: 16, height: 16)
+                            .position(x: t.x * geo.size.width, y: t.y * geo.size.height)
+                    }
                 }
-                if let t = engine.pressTip {
-                    Circle().stroke(.white, lineWidth: 2).frame(width: 16, height: 16)
-                        .position(x: t.x * geo.size.width, y: t.y * geo.size.height)
-                }
+                .accessibilityHidden(true)
 
                 VStack {
                     debugBar
@@ -78,6 +83,9 @@ struct ARCoachView: View {
                 }
             }
         }
+        // Cap growth so the largest accessibility sizes can't break the camera overlay layout,
+        // while still honoring Dynamic Type up to that bound.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
     }
 
     // On-device field-calibration toggles (Phase 1): flip the mirror or invert the
@@ -118,10 +126,16 @@ struct ARCoachView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(acupoint.id + " · " + acupoint.zh).font(.caption).foregroundStyle(Ink.gold)
                 Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
+                    .lineLimit(3).minimumScaleFactor(0.7)
             }
             Spacer()
         }
         .padding(14).panel().padding()
+        // One VoiceOver element that re-announces the cue + hold progress as the phase changes.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(acupoint.id) \(acupoint.zh). \(engine.cue)")
+        .accessibilityValue("\(Int(engine.progress * 100)) percent held")
+        .accessibilityAddTraits(.updatesFrequently)
     }
 
     private var recap: some View {
@@ -133,6 +147,7 @@ struct ARCoachView: View {
             HStack {
                 ForEach(["Some relief", "No change", "Felt worse"], id: \.self) { f in
                     Button(f) { feeling = f }.buttonStyle(GoldButtonStyle())
+                        .accessibilityHint("Records how you feel after the routine")
                 }
             }
             if feeling == "Felt worse" {
