@@ -37,8 +37,10 @@ struct HandAtlasView: View {
                                    height: selected?.id == pt.id ? 18 : 12)
                             .overlay(Circle().stroke(Ink.paperLight, lineWidth: 2))
                             .shadow(color: MeridianColors.color(pt.meridian).opacity(0.7), radius: 6)
-                            // Larger invisible hit/VoiceOver target than the small dot.
-                            .contentShape(Circle().size(width: 44, height: 44))
+                            // Center the small dot in a 44pt box → a centered 44pt tap / VoiceOver
+                            // target (Shape.size is origin-anchored, so a framed box is used instead).
+                            .frame(width: 44, height: 44)
+                            .contentShape(Circle())
                             .position(x: ox + pt.x * scale, y: oy + pt.y * scale)
                             .onTapGesture { selected = pt }
                             .accessibilityLabel("\(pt.id) \(pt.zh), \(pt.meridianName)")

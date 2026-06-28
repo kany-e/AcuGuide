@@ -15,33 +15,28 @@ struct Body3DView: View {
         ZStack {
             Ink.parch.ignoresSafeArea()
             SceneKitBody().ignoresSafeArea()
-                .accessibilityHidden(true)   // 3D canvas isn't VoiceOver-inspectable; hotspot is the control
+                .accessibilityHidden(true)   // 3D canvas isn't VoiceOver-inspectable; the pill is the control
 
-            // Pulsing gold hand hotspot, anchored over the model's hand region. Tapping drills
-            // into the hand map (the body→hand drill-down, not a peer tab).
-            GeometryReader { geo in
-                Button(action: onEnterHand) {
-                    VStack(spacing: 6) {
-                        ZStack {
-                            Circle().fill(Ink.gold.opacity(0.22))
-                                .frame(width: 46, height: 46).scaleEffect(pulse ? 1.15 : 0.85)
-                            Circle().stroke(Ink.gold, lineWidth: 1.5).frame(width: 30, height: 30)
-                            Circle().fill(Ink.gold).frame(width: 14, height: 14)
-                        }
-                        Text(AppLocale.pick("手部", "Hand"))
-                            .font(.caption).bold().foregroundStyle(Ink.paperLight)
-                            .padding(.horizontal, 9).padding(.vertical, 3)
-                            .background(Capsule().fill(Ink.gold.opacity(0.85)))
-                    }
-                }
-                .accessibilityLabel(AppLocale.pick("查看手部穴位", "View hand acupoints"))
-                .position(x: geo.size.width * 0.72, y: geo.size.height * 0.60)
-            }
-
+            // A pulsing gold "enter hand" control. It's a labeled control (not a marker pinned to
+            // the hand), so the body's auto-rotation can't leave it stranded over empty space.
             VStack {
                 Spacer()
-                Text(AppLocale.pick("拖动旋转 · 点按手部查看穴位",
-                                    "Drag to rotate · tap the hand to view acupoints"))
+                Button(action: onEnterHand) {
+                    HStack(spacing: 8) {
+                        Circle().fill(Ink.gold).frame(width: 14, height: 14)
+                            .scaleEffect(pulse ? 1.2 : 0.85)
+                        Text(AppLocale.pick("查看手部穴位", "View hand points"))
+                            .font(.subheadline).bold()
+                        Image(systemName: "chevron.right").font(.caption.bold())
+                    }
+                    .foregroundStyle(Ink.paperLight)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Capsule().fill(Ink.gold.opacity(0.92)))
+                }
+                .accessibilityLabel(AppLocale.pick("查看手部穴位", "View hand acupoints"))
+                .padding(.bottom, 6)
+
+                Text(AppLocale.pick("拖动旋转身体", "Drag to rotate the body"))
                     .font(.caption).foregroundStyle(Ink.paper.opacity(0.7)).padding(.bottom, 24)
             }
         }
@@ -149,28 +144,23 @@ private func centerAndScale(_ node: SCNNode, targetHeight: Float) {
     node.position = SCNVector3(-center.x * scale, -center.y * scale, -center.z * scale)
 }
 
-// Robust bounding box over a hierarchy (SCNNode.boundingBox covers only the node's own geometry).
+// Bounding box of the POSED figure. The model is a skinned/rigged mesh: SCNNode.boundingBox
+// returns the static BIND-pose geometry (for this GLB a Blender Z-up rest layout with a tiny Y
+// extent), so scaling to it grossly mis-sizes and off-centers the body. The skeleton JOINT nodes
+// carry the display-pose transforms, so we measure the union of every node's origin in root space
+// — that tracks the posed figure the user actually sees.
 private func worldBoundingBox(of root: SCNNode) -> (SCNVector3, SCNVector3)? {
-    var has = false
-    var mn = SCNVector3(Float.greatestFiniteMagnitude, .greatestFiniteMagnitude, .greatestFiniteMagnitude)
-    var mx = SCNVector3(-Float.greatestFiniteMagnitude, -.greatestFiniteMagnitude, -.greatestFiniteMagnitude)
+    var pts: [SCNVector3] = []
     root.enumerateHierarchy { n, _ in
-        guard n.geometry != nil else { return }
-        let (lo, hi) = n.boundingBox
-        let corners = [
-            SCNVector3(lo.x, lo.y, lo.z), SCNVector3(hi.x, lo.y, lo.z),
-            SCNVector3(lo.x, hi.y, lo.z), SCNVector3(hi.x, hi.y, lo.z),
-            SCNVector3(lo.x, lo.y, hi.z), SCNVector3(hi.x, lo.y, hi.z),
-            SCNVector3(lo.x, hi.y, hi.z), SCNVector3(hi.x, hi.y, hi.z),
-        ]
-        for c in corners {
-            let w = root.convertPosition(c, from: n)
-            mn = SCNVector3(min(mn.x, w.x), min(mn.y, w.y), min(mn.z, w.z))
-            mx = SCNVector3(max(mx.x, w.x), max(mx.y, w.y), max(mx.z, w.z))
-            has = true
-        }
+        pts.append(root.convertPosition(SCNVector3Zero, from: n))
     }
-    return has ? (mn, mx) : nil
+    guard let first = pts.first, pts.count >= 2 else { return nil }
+    var mn = first, mx = first
+    for p in pts {
+        mn = SCNVector3(min(mn.x, p.x), min(mn.y, p.y), min(mn.z, p.z))
+        mx = SCNVector3(max(mx.x, p.x), max(mx.y, p.y), max(mx.z, p.z))
+    }
+    return (mn, mx)
 }
 
 private func makeCapsule() -> SCNNode {

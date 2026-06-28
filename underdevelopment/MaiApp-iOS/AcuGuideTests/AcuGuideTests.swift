@@ -46,4 +46,11 @@ final class AcuGuideTests: XCTestCase {
         XCTAssertFalse(reply.contains("Location:"),
                        "embedded Chinese substring must not yield a point detail reply; got: \(reply)")
     }
+
+    // "number" contains "numb" — whole-word matching must NOT trip the red-flag screen.
+    func testChatBenignWordIsNotRedFlag() async {
+        let reply = await ChatService().reply(to: "What is the number for TE3?", history: [])
+        XCTAssertFalse(reply.lowercased().contains("seeing a professional"),
+                       "a benign word must not route to the red-flag reply; got: \(reply)")
+    }
 }

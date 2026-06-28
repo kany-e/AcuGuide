@@ -20,14 +20,24 @@ final class ChatService {
     // app's RED_FLAGS (severe pain, numbness, dizziness, worsening, pregnancy, bleeding/blood
     // thinners, pacemaker, trouble breathing, broken skin / infection / swelling / injury).
     private func mentionsRedFlag(raw: String, lowered: String) -> Bool {
-        let en = ["severe", "numb", "dizzy", "dizziness", "weakness", "worse", "worsening",
-                  "chest pain", "pregnan", "bleeding", "blood thinner", "pacemaker",
-                  "trouble breathing", "can't breathe", "cannot breathe", "shortness of breath",
-                  "broken skin", "wound", "infection", "swelling", "injury", "fracture"]
+        // Multi-word phrases — substring is fine (low collision).
+        let phrases = ["chest pain", "trouble breathing", "can't breathe", "cannot breathe",
+                       "shortness of breath", "broken skin", "blood thinner"]
+        if phrases.contains(where: { lowered.contains($0) }) { return true }
+        // Single-word cues matched as WHOLE WORDS, so "numb" doesn't fire on "number" and the
+        // "wound" homograph ("wound up") doesn't trip it. (Covered by injury/伤口 instead.)
+        let words: Set<String> = [
+            "severe", "numb", "numbness", "dizzy", "dizziness", "weak", "weakness",
+            "worse", "worsening", "pregnant", "pregnancy", "bleeding", "pacemaker",
+            "infection", "infected", "swelling", "swollen", "injury", "injured", "fracture", "fractured",
+        ]
+        let tokens = lowered.split { !$0.isLetter }.map(String.init)
+        if tokens.contains(where: { words.contains($0) }) { return true }
+        // Chinese cues — specific medical terms; substring is safe (and matchPoint guards prose).
         let zh = ["剧痛", "剧烈", "麻木", "头晕", "无力", "加重", "恶化", "胸痛",
                   "怀孕", "妊娠", "出血", "起搏器", "呼吸困难", "喘不过气",
                   "破损", "伤口", "感染", "肿胀", "受伤", "骨折"]
-        return en.contains { lowered.contains($0) } || zh.contains { raw.contains($0) }
+        return zh.contains { raw.contains($0) }
     }
     private func redFlagReply() -> String {
         AppLocale.pick(
