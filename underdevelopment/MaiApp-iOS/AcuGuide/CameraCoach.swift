@@ -12,11 +12,20 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     // The selfie (front) camera is used; the preview is mirrored so it feels natural.
     private let usingFront = true
 
-    // SINGLE SOURCE OF TRUTH for mirroring. `mirrored` drives BOTH the preview connection
-    // and the landmark x-flip, so they can never disagree. `mirrorFlip` is a runtime debug
-    // toggle (a switch in the coach view) to invert it on-device for field calibration.
-    @Published var mirrorFlip = false
-    var mirrored: Bool { usingFront != mirrorFlip }   // XOR
+    // SINGLE SOURCE OF TRUTH for mirroring. `mirrored` (main thread) drives the preview
+    // connection; `queueMirrored` is the capture-queue-confined copy that drives the landmark
+    // x-flip — so the flag is never read across threads (no data race). Flipping the debug
+    // toggle updates the queue copy and resets the One-Euro smoother (negating every landmark
+    // x is a full-frame coordinate jump that would otherwise spike the filter's velocity).
+    @Published var mirrorFlip = false {
+        didSet {
+            let m = mirrored
+            queue.async { [weak self] in self?.queueMirrored = m }
+            engine.smootherReset()
+        }
+    }
+    var mirrored: Bool { usingFront != mirrorFlip }   // XOR — main thread / preview
+    private var queueMirrored = true                  // capture queue only
 
     private let queue = DispatchQueue(label: "camera.coach")
     private let request: VNDetectHumanHandPoseRequest = {
@@ -30,7 +39,11 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         self.engine = engine
         self.acupoint = acupoint
         super.init()
-        configure()
+        queueMirrored = mirrored
+        // Configure off the main thread: device discovery + session (re)configuration is slow
+        // and must not block the SwiftUI transition into the coach. The serial queue guarantees
+        // configure() completes before start() (also queued) runs.
+        queue.async { [weak self] in self?.configure() }
     }
 
     private func configure() {
@@ -49,33 +62,20 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
         if let conn = output.connection(with: .video) {
             videoConnection = conn
-            // Deliver portrait-upright buffers so landmark coords share the portrait
-            // overlay's normalized space (the app is portrait-locked).
-            applyPortrait(to: conn)
-            // Data output stays UN-mirrored; the PREVIEW does the mirroring and buildHand
-            // flips landmark x. This keeps `mirrored` the one knob that controls both.
-            if conn.isVideoMirroringSupported {
-                conn.automaticallyAdjustsVideoMirroring = false
-                conn.isVideoMirrored = false
-            }
+            // Deliver portrait-upright buffers so landmark coords share the portrait overlay's
+            // normalized space (the app is portrait-locked). Data output stays UN-mirrored; the
+            // PREVIEW does the mirroring and buildHand flips landmark x to match.
+            conn.forcePortrait()
+            conn.setMirrored(false)
         }
         session.commitConfiguration()
     }
 
-    private func applyPortrait(to conn: AVCaptureConnection) {
-        if #available(iOS 17.0, *) {
-            let portrait: CGFloat = 90
-            if conn.isVideoRotationAngleSupported(portrait) { conn.videoRotationAngle = portrait }
-        } else {
-            if conn.isVideoOrientationSupported { conn.videoOrientation = .portrait }
-        }
-    }
-
     // Derive the Vision orientation from the capture connection (NOT a hardcoded `.up`),
     // handling the iOS 16 (`videoOrientation`) vs iOS 17+ (`videoRotationAngle`) API split.
-    // The connection is configured portrait + un-mirrored, so the upright orientation is
-    // `.up`; we still confirm it from the connection so a platform that ignored the portrait
-    // request is rotated correctly rather than silently wrong.
+    // The connection is configured portrait + un-mirrored, so the upright orientation is `.up`;
+    // we still confirm it from the connection so a platform that ignored the portrait request is
+    // rotated correctly rather than silently wrong.
     private func visionOrientation() -> CGImagePropertyOrientation {
         guard let conn = videoConnection else { return .up }
         if #available(iOS 17.0, *) {
@@ -111,9 +111,13 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     }
 
     private func buildHand(_ obs: VNHumanHandPoseObservation) -> Hand? {
+        // Usable-hand gate == engine.js MIN_CONFIDENCE (0.5): reject low-confidence detections
+        // so the live path matches the validated fixture path (which gates presence at 0.5).
+        guard obs.confidence >= Float(CoachConst.minConfidence) else { return nil }
+
         let joints: [HandJoint] = [.wrist, .thumbTip, .indexTip, .middleTip, .ringTip, .pinkyTip,
                                    .indexMCP, .middleMCP, .ringMCP, .pinkyMCP]
-        let flipX = mirrored   // single source of truth (matches the mirrored preview)
+        let flipX = queueMirrored   // capture-queue-confined; matches the mirrored preview
         var pts: [HandJoint: CGPoint] = [:]
         for j in joints {
             guard let rp = try? obs.recognizedPoint(j.vision), rp.confidence > 0.3 else { continue }
@@ -129,7 +133,25 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     }
 }
 
-// Live camera preview layer. `mirrored` is updated live (debug toggle) via updateUIView.
+// Shared connection policy so the data output and the preview can't drift out of sync.
+extension AVCaptureConnection {
+    func setMirrored(_ on: Bool) {
+        guard isVideoMirroringSupported else { return }
+        automaticallyAdjustsVideoMirroring = false
+        isVideoMirrored = on
+    }
+    func forcePortrait() {
+        if #available(iOS 17.0, *) {
+            if isVideoRotationAngleSupported(90) { videoRotationAngle = 90 }
+        } else {
+            if isVideoOrientationSupported { videoOrientation = .portrait }
+        }
+    }
+}
+
+// Live camera preview layer. `mirrored` is updated live (debug toggle) via updateUIView, and the
+// preview connection is forced to the same portrait orientation as the data output so the video
+// and the normalized landmark overlay share one coordinate space.
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     let mirrored: Bool
@@ -138,17 +160,15 @@ struct CameraPreview: UIViewRepresentable {
         let v = PreviewView()
         v.videoLayer.session = session
         v.videoLayer.videoGravity = .resizeAspectFill
-        applyMirror(v)
+        apply(v)
         return v
     }
-    func updateUIView(_ uiView: PreviewView, context: Context) { applyMirror(uiView) }
+    func updateUIView(_ uiView: PreviewView, context: Context) { apply(uiView) }
 
-    private func applyMirror(_ v: PreviewView) {
+    private func apply(_ v: PreviewView) {
         guard let conn = v.videoLayer.connection else { return }
-        if conn.isVideoMirroringSupported {
-            conn.automaticallyAdjustsVideoMirroring = false
-            conn.isVideoMirrored = mirrored
-        }
+        conn.forcePortrait()
+        conn.setMirrored(mirrored)
     }
 
     final class PreviewView: UIView {

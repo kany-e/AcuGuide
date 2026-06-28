@@ -16,6 +16,11 @@ enum CoachConst {
     static let holdTargetS           = 30.0   // accumulated HOLDING seconds to COMPLETE
     static let exitRadiusMult        = 1.6    // exit radius = 1.6x the enter radius (hysteresis)
     static let swapConfirmFrames     = 6      // role reassignment must be "wrong" this many frames
+    static let minConfidence         = 0.5    // == engine.js MIN_CONFIDENCE: usable-hand gate
+    // Live-path safeguard beyond engine.js: the recorded fixtures have steady ~33ms deltas, but
+    // a camera stall / app backgrounding can produce a multi-second gap. Clamp dt so a single
+    // jumbo frame can't credit seconds of hold/steadiness at once (matches the old min(_,0.1)).
+    static let maxFrameDtS           = 0.1
 }
 
 // Per-frame temporal input — the native equivalent of engine.js FrameState.contact, so
@@ -57,7 +62,7 @@ final class CoachStateMachine {
 
     private func dt(_ t: Double) -> Double {
         defer { prevT = t }
-        if let p = prevT, t - p > 0 { return t - p }
+        if let p = prevT, t - p > 0 { return min(t - p, CoachConst.maxFrameDtS) }
         return 1.0 / 30.0   // first frame / duplicate timestamp (engine.js uses 1/fps)
     }
 
@@ -76,8 +81,13 @@ final class CoachStateMachine {
         if engaged {
             if holdingNow {
                 phase = .holding
-                holdTime += d
-                lastHoldT = f.t
+                // Credit hold / refresh the grace anchor ONLY on a frame with a real offset
+                // measurement. The occlusion path keeps engagement alive (dropout debounce) while
+                // stepping with offset nil; it must not advance the timer on unverifiable geometry.
+                if f.offsetXHandSize != nil {
+                    holdTime += d
+                    lastHoldT = f.t
+                }
             } else {
                 phase = .onTargetUnstable
             }
@@ -106,9 +116,11 @@ final class CoachStateMachine {
     private func updateStability(_ f: CoachFrameInput, _ d: Double) {
         if let off = f.offsetXHandSize {
             offsetWindow.append((f.t, off))
-            let cutoff = f.t - CoachConst.stabilityWindowS
-            while let first = offsetWindow.first, first.t < cutoff { offsetWindow.removeFirst() }
         }
+        // Age out stale samples EVERY frame (even one with no offset), so a sustained occlusion
+        // drops steadiness instead of looking steady on samples from before the dropout.
+        let cutoff = f.t - CoachConst.stabilityWindowS
+        while let first = offsetWindow.first, first.t < cutoff { offsetWindow.removeFirst() }
         let steady = engaged && offsetWindow.count >= 2 &&
             std(offsetWindow.map { $0.off }) < CoachConst.stabilityStdThreshold
         stableRun = steady ? stableRun + d : 0
@@ -150,6 +162,15 @@ final class CoachEngine: ObservableObject {
     private var lastPresserWrist: CGPoint? = nil
     private var swapVotes = 0
 
+    // Last face verdict that we could actually compute — reused when a frame can't verify the
+    // face (a required MCP landmark dropped) so a brief occlusion doesn't flip to WRONG_FACE
+    // and reset the steadiness run.
+    private var lastFaceCorrect = false
+
+    // Reset the target smoother (called on a confirmed role swap or a mirror flip — both are
+    // coordinate discontinuities that would otherwise spike the One-Euro velocity estimate).
+    func smootherReset() { smoother.reset() }
+
     var color: Color {
         switch phase {
         case .holding, .complete:   return Ink.good
@@ -161,6 +182,7 @@ final class CoachEngine: ObservableObject {
 
     func reset() {
         machine.reset(); smoother.reset(); roleReset()
+        lastFaceCorrect = false
         phase = .noHand; ringCenter = nil; pressTip = nil; progress = 0
         cue = "Bring your hand into the frame."
     }
@@ -173,7 +195,8 @@ final class CoachEngine: ObservableObject {
 
         // 1) No usable hand.
         guard !hands.isEmpty else {
-            smoother.reset(); roleReset(); ringCenter = nil; pressTip = nil
+            smoother.reset(); roleReset(); lastFaceCorrect = false
+            ringCenter = nil; pressTip = nil
             apply(machine.step(noHandInput(now)), point: point, hasPresser: false)
             return
         }
@@ -181,11 +204,19 @@ final class CoachEngine: ObservableObject {
         // 2) Assign receiver / presser with stickiness.
         let (receiver, presser) = assignRoles(hands, target: target)
 
-        // 3) Geometry. If we can't trust the target geometry, treat as no usable hand.
+        // 3) Geometry. The receiving hand IS present but a target anchor may be momentarily
+        // unresolvable (e.g. the pressing finger occludes the ring/pinky knuckles — the exact
+        // case smoothing exists for). Treat that as present-but-no-contact so a brief occlusion
+        // PAUSES within grace (via the dropout debounce) instead of flashing NO_HAND and wiping
+        // the steadiness run. Keep the last ring; drop the now-stale press tip. Do NOT reset the
+        // smoother — geometry resumes continuously.
         guard let rawCenter = receiver.weightedTarget(target.anchors),
               receiver.handSize > 0 else {
-            smoother.reset(); ringCenter = nil; pressTip = nil
-            apply(machine.step(noHandInput(now)), point: point, hasPresser: false)
+            pressTip = nil
+            let result = machine.step(CoachFrameInput(
+                t: now, present: true, faceCorrect: true,
+                insideEnterRadius: false, insideExitRadius: true, offsetXHandSize: nil))
+            apply(result, point: point, hasPresser: false)
             return
         }
         let hs = receiver.handSize
@@ -194,8 +225,17 @@ final class CoachEngine: ObservableObject {
         ringCenter = center
         ringRadius = tol
 
-        // 4) Press tip + contact (raw landmark for the tip).
-        let faceCorrect = point.requiresDorsal ? receiver.isDorsal : !receiver.isDorsal
+        // 4) Face gate. isDorsal is nil when a required MCP landmark is missing; in that case
+        // reuse the last verdict we could compute so a transient drop doesn't flip to WRONG_FACE.
+        let faceCorrect: Bool
+        if let dorsal = receiver.isDorsal {
+            faceCorrect = point.requiresDorsal ? dorsal : !dorsal
+            lastFaceCorrect = faceCorrect
+        } else {
+            faceCorrect = lastFaceCorrect
+        }
+
+        // 5) Press tip + contact (raw landmark for the tip).
         var inEnter = false, inExit = false, hasPresser = false
         var offN: Double? = nil
         if let presser, let tip = presser.p(target.pressFinger) {
@@ -247,7 +287,12 @@ final class CoachEngine: ObservableObject {
     private func roleReset() { lastReceiverWrist = nil; lastPresserWrist = nil; swapVotes = 0 }
 
     private func assignRoles(_ hands: [Hand], target: MediaPipeTarget) -> (Hand, Hand?) {
-        guard hands.count >= 2 else { roleReset(); return (hands[0], nil) }
+        // One hand: keep the sticky receiver/presser wrist anchors (a brief drop to one hand —
+        // reaching, repositioning — should NOT discard the identity hysteresis; cleared only when
+        // NO hands are present, via roleReset in update). But DO reset swapVotes: the one-hand gap
+        // breaks the "consecutive disagreement" streak, so a partial count must not carry over and
+        // trigger an early/spurious swap when the second hand returns.
+        guard hands.count >= 2 else { swapVotes = 0; return (hands[0], nil) }
         let a = hands[0], b = hands[1]
 
         // Heuristic preference: receiver = the hand whose target zone is nearest the

@@ -8,7 +8,6 @@ struct ARCoachView: View {
     @StateObject private var camera: CameraCoach
     @State private var acknowledged = false
     @State private var feeling: String? = nil
-    @State private var showDebug = false
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
 
     init(acupoint: Acupoint) {
@@ -31,6 +30,9 @@ struct ARCoachView: View {
                 coachLayer
             }
         }
+        // Stop the camera as soon as the routine completes (recap is up) — not only on disappear —
+        // so the session and per-frame engine updates don't keep running behind the recap.
+        .onChange(of: engine.phase) { if $0 == .complete { camera.stop() } }
         .onDisappear { camera.stop() }
     }
 

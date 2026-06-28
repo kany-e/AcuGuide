@@ -56,8 +56,11 @@ struct Hand {
     // The comparison is gated behind ONE flag (`HandCalibration.dorsalWhenSignedPositive`) so
     // that, if WRONG_FACE fires backwards on a device, it can be inverted in a single place
     // (a debug toggle in the coach view) rather than hunting through the geometry.
-    var isDorsal: Bool {
-        guard let w = p(.wrist), let i = p(.indexMCP), let pk = p(.pinkyMCP) else { return true }
+    // nil when a required MCP landmark is missing — the caller must decide what an
+    // unverifiable face means rather than silently defaulting to dorsal (which would let a
+    // partially-detected palm pass the TE3 dorsal gate).
+    var isDorsal: Bool? {
+        guard let w = p(.wrist), let i = p(.indexMCP), let pk = p(.pinkyMCP) else { return nil }
         let cross = (i.x - w.x) * (pk.y - w.y) - (i.y - w.y) * (pk.x - w.x)
         let signed = (chirality == .right) ? cross : -cross
         return HandCalibration.dorsalWhenSignedPositive ? signed > 0 : signed < 0

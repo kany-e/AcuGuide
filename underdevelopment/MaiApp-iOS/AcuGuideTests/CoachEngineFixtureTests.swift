@@ -121,6 +121,20 @@ final class CoachEngineFixtureTests: XCTestCase {
             "\(name): expected \(doc.meta.groundTruth.expected_phase_sequence) in order; got \(res.phases)")
     }
 
+    // Negative guards: the ordered-subsequence match alone allows extra transient states, so on
+    // its own it would pass an engine that spuriously engages. These pin the invariant that an
+    // off-target / no-hand clip NEVER engages, holds, or completes — catching a regression where
+    // engagement stops requiring input-level contact. (The constant-level guards — hysteresis,
+    // min-hold-confirm, pause-grace, dt clamp, occlusion — are exercised with teeth on synthetic
+    // streams in CoachStateMachineTests, since these fixtures have no on-target contact to mutate.)
+    private func assertNeverReaches(_ name: String, _ forbidden: Set<String>) throws {
+        let res = run(try loadDoc(name))
+        for p in res.phases {
+            XCTAssertFalse(forbidden.contains(p),
+                           "\(name): phase \(p) must never occur; timeline was \(res.phases)")
+        }
+    }
+
     func testFixture1_TE3CorrectGoodRhythm() throws { try assertFixture("fixture_1_te3_correct_good_rhythm") }
     func testFixture2_TE3WrongPosition()     throws { try assertFixture("fixture_2_te3_wrong_position") }
     func testFixture3_PC6CorrectTooFast()    throws { try assertFixture("fixture_3_pc6_correct_too_fast") }
@@ -131,5 +145,15 @@ final class CoachEngineFixtureTests: XCTestCase {
     func testFixture5_ReachesComplete() throws {
         let res = run(try loadDoc("fixture_5_te3_full_flow"))
         XCTAssertEqual(res.finalPhase, "COMPLETE", "full-flow fixture must reach COMPLETE")
+    }
+
+    // The pressing finger is off-target the whole clip: it must never engage, hold, or complete.
+    func testFixture2_WrongPositionNeverEngages() throws {
+        try assertNeverReaches("fixture_2_te3_wrong_position", ["ON_TARGET_UNSTABLE", "HOLDING", "COMPLETE"])
+    }
+
+    // No valid hand at correct confidence: no engagement, no hold, no completion.
+    func testFixture4_NoHandNeverEngages() throws {
+        try assertNeverReaches("fixture_4_no_hand_then_partial", ["ON_TARGET_UNSTABLE", "HOLDING", "COMPLETE"])
     }
 }
