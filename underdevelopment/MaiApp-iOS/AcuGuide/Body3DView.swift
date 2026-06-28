@@ -13,7 +13,7 @@ struct Body3DView: View {
 
     var body: some View {
         ZStack {
-            Ink.parch.ignoresSafeArea()
+            ShanshuiBackground()
             SceneKitBody().ignoresSafeArea()
                 .accessibilityHidden(true)   // 3D canvas isn't VoiceOver-inspectable; the pill is the control
 
@@ -37,7 +37,7 @@ struct Body3DView: View {
                 .padding(.bottom, 6)
 
                 Text(AppLocale.pick("拖动旋转身体", "Drag to rotate the body"))
-                    .font(.caption).foregroundStyle(Ink.paper.opacity(0.7)).padding(.bottom, 24)
+                    .font(.caption).foregroundStyle(Ink.text.opacity(0.7)).padding(.bottom, 24)
             }
         }
         .onAppear {
@@ -91,18 +91,29 @@ struct SceneKitBody: UIViewRepresentable {
                     let geometry = found.copy() as! SCNGeometry
                     geometry.materials = [sageMaterial()]
                     let mesh = SCNNode(geometry: geometry)
+                    // Pivot the mesh on its own bounding-box center so the pose's rotation AND the
+                    // shrink below both happen around the figure's center (keeps it centered).
+                    let (lo, hi) = mesh.boundingBox
+                    mesh.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
                     let pose = SCNNode()
                     pose.addChildNode(mesh)
                     pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)   // stand the Z-up mesh upright
                     spin.addChildNode(pose)
-                    view.defaultCameraController.frameNodes([pose])
-                    // frameNodes fits edge-to-edge; dolly back ~22% for margin so the figure isn't
-                    // clipped against the bottom controls.
-                    if let pov = view.pointOfView {
-                        let p = pov.position, f = pov.worldFront
-                        let m = 0.22 * sqrt(p.x * p.x + p.y * p.y + p.z * p.z)
-                        pov.position = SCNVector3(p.x - f.x * m, p.y - f.y * m, p.z - f.z * m)
-                    }
+
+                    // Explicit camera (added to the ROOT, not `spin`, so it doesn't rotate with the
+                    // body). An explicit pointOfView stops allowsCameraControl's auto-fit from
+                    // re-framing the figure to fill the view; we place it far enough back that the
+                    // figure reads as a small ink figure (~1/5 of the view), centered, with generous
+                    // empty space. Pinch-zoom drives this same camera so the user can zoom into a part.
+                    let radius = pose.boundingSphere.radius            // figure is centered at origin
+                    let cam = SCNNode()
+                    cam.camera = SCNCamera()
+                    cam.camera?.fieldOfView = 50
+                    cam.camera?.zNear = 0.01
+                    cam.camera?.zFar = Double(radius) * 400 + 100
+                    cam.position = SCNVector3(0, 0, radius * 11)        // ~1/5 of the view at fov 50
+                    scene.rootNode.addChildNode(cam)
+                    view.pointOfView = cam
                 }
             }
         }
@@ -115,13 +126,16 @@ struct SceneKitBody: UIViewRepresentable {
 
 // The sage-green material from Body3D.jsx (#aebd9d, slight emissive). Uses .blinn (not
 // .physicallyBased) — PBR washes to white without an environment map, while blinn renders the
-// diffuse color directly under the default lighting.
+// diffuse color directly under the default lighting. Matte (no specular highlight) and slightly
+// translucent (≈0.85 opaque), matching the web material's roughness 0.85 / transparency 0.85.
 private func sageMaterial() -> SCNMaterial {
     let mat = SCNMaterial()
     mat.lightingModel = .blinn
-    mat.diffuse.contents = UIColor(Color(hex: "#aebd9d"))
-    mat.specular.contents = UIColor(white: 1, alpha: 0.15)
-    mat.emission.contents = UIColor(Color(hex: "#2c3626")).withAlphaComponent(0.25)
+    mat.diffuse.contents = UIColor(Ink.bodySage)
+    mat.specular.contents = UIColor(white: 1, alpha: 0.0)   // matte — kill the glossy highlight
+    mat.emission.contents = UIColor(Ink.bodyEmission).withAlphaComponent(0.12)
+    mat.transparency = 0.85                                  // a little see-through (ink-wash feel)
+    mat.isDoubleSided = true                                 // back faces read through the translucency
     return mat
 }
 
