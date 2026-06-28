@@ -19,13 +19,21 @@ final class CoachVoice: ObservableObject {
         try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
     }
 
-    func reset() { lastSpokenPhase = nil; synth.stopSpeaking(at: .immediate) }
+    func reset() {
+        lastSpokenPhase = nil
+        synth.stopSpeaking(at: .immediate)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
 
     // Call on every engine update; it self-debounces to phase changes.
     func update(phase: CoachPhase, requiresDorsal: Bool) {
         guard phase != lastSpokenPhase else { return }
         lastSpokenPhase = phase
         guard !muted, let line = phrase(for: phase, requiresDorsal: requiresDorsal) else { return }
+        // Don't clip an in-progress cue for a transient phase oscillation (e.g. a NO_HAND ↔
+        // WRONG_FACE flicker at the frame edge chopping each utterance mid-word). Let the current
+        // one finish; COMPLETE is allowed to preempt so the finish cue is never missed.
+        if synth.isSpeaking && phase != .complete { return }
         speak(line)
     }
 

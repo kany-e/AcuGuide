@@ -16,10 +16,17 @@ final class ChatService {
         return generalReply()
     }
 
-    // Red-flag symptoms → advise stopping; never "continue". (EN + ZH keywords.)
+    // Red-flag screen → advise stopping / professional care; never "continue". Covers the web
+    // app's RED_FLAGS (severe pain, numbness, dizziness, worsening, pregnancy, bleeding/blood
+    // thinners, pacemaker, trouble breathing, broken skin / infection / swelling / injury).
     private func mentionsRedFlag(raw: String, lowered: String) -> Bool {
-        let en = ["severe", "numb", "dizzy", "dizziness", "weakness", "worse", "worsening", "chest pain"]
-        let zh = ["剧痛", "剧烈", "麻木", "头晕", "无力", "加重", "恶化", "胸痛"]
+        let en = ["severe", "numb", "dizzy", "dizziness", "weakness", "worse", "worsening",
+                  "chest pain", "pregnan", "bleeding", "blood thinner", "pacemaker",
+                  "trouble breathing", "can't breathe", "cannot breathe", "shortness of breath",
+                  "broken skin", "wound", "infection", "swelling", "injury", "fracture"]
+        let zh = ["剧痛", "剧烈", "麻木", "头晕", "无力", "加重", "恶化", "胸痛",
+                  "怀孕", "妊娠", "出血", "起搏器", "呼吸困难", "喘不过气",
+                  "破损", "伤口", "感染", "肿胀", "受伤", "骨折"]
         return en.contains { lowered.contains($0) } || zh.contains { raw.contains($0) }
     }
     private func redFlagReply() -> String {
@@ -28,11 +35,16 @@ final class ChatService {
             "If you notice severe or sudden pain, numbness or weakness, dizziness, or symptoms that are getting worse, please stop and consider seeing a professional. This is wellness self-care only.")
     }
 
-    // Match a point by id / Chinese name / romanized name in the query.
+    // Match a point by id / romanized name / Chinese name.
     private func matchPoint(raw: String, lowered: String) -> Acupoint? {
-        Acupoint.all.first { p in
-            lowered.contains(p.id.lowercased()) || raw.contains(p.zh) || lowered.contains(p.en.lowercased())
-        }
+        // id and romanized name are latin and effectively unambiguous — substring is safe.
+        if let p = Acupoint.all.first(where: {
+            lowered.contains($0.id.lowercased()) || lowered.contains($0.en.lowercased())
+        }) { return p }
+        // The 2-char Chinese names embed in everyday words (外关 inside 对外关系, 内关 inside 国内关系),
+        // so only match when the query is essentially just the name — a lookup, not prose.
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Acupoint.all.first { trimmed.contains($0.zh) && trimmed.count <= $0.zh.count + 1 }
     }
     private func pointReply(_ p: Acupoint) -> String {
         let practice = p.mediapipeTarget != nil
