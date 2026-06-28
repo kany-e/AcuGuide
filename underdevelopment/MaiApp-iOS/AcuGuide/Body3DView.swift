@@ -96,6 +96,13 @@ struct SceneKitBody: UIViewRepresentable {
                     pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)   // stand the Z-up mesh upright
                     spin.addChildNode(pose)
                     view.defaultCameraController.frameNodes([pose])
+                    // frameNodes fits edge-to-edge; dolly back ~22% for margin so the figure isn't
+                    // clipped against the bottom controls.
+                    if let pov = view.pointOfView {
+                        let p = pov.position, f = pov.worldFront
+                        let m = 0.22 * sqrt(p.x * p.x + p.y * p.y + p.z * p.z)
+                        pov.position = SCNVector3(p.x - f.x * m, p.y - f.y * m, p.z - f.z * m)
+                    }
                 }
             }
         }
