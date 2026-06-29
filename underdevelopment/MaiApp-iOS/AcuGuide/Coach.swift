@@ -184,7 +184,7 @@ final class CoachEngine: ObservableObject {
         machine.reset(); smoother.reset(); roleReset()
         lastFaceCorrect = false
         phase = .noHand; ringCenter = nil; pressTip = nil; progress = 0
-        cue = "Bring your hand into the frame."
+        cue = AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
     }
 
     func update(hands: [Hand], point: Acupoint, now: TimeInterval) {
@@ -269,16 +269,17 @@ final class CoachEngine: ObservableObject {
 
     private func cueFor(_ phase: CoachPhase, point: Acupoint, hasPresser: Bool) -> String {
         switch phase {
-        case .noHand:           return "Bring your hand into the frame."
+        case .noHand:           return AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
         case .wrongFace:        return point.requiresDorsal
-                                    ? "Turn the back of your hand toward the camera."
-                                    : "Turn your palm toward the camera."
-        case .searching:        return hasPresser ? point.coachAlign
-                                    : "Bring your pressing finger into the zone — keep both hands in view."
-        case .onTargetUnstable: return "Hold it steady."
-        case .holding:          return point.coachHold
-        case .paused:           return point.coachAlign
-        case .complete:         return "Done — nicely held."
+                                    ? AppLocale.pick("把手背朝向相机。", "Turn the back of your hand toward the camera.")
+                                    : AppLocale.pick("把手掌朝向相机。", "Turn your palm toward the camera.")
+        case .searching:        return hasPresser ? point.coachAlignL
+                                    : AppLocale.pick("把按压的手指移入区域 — 双手都保持在画面中。",
+                                                     "Bring your pressing finger into the zone — keep both hands in view.")
+        case .onTargetUnstable: return AppLocale.pick("保持稳定。", "Hold it steady.")
+        case .holding:          return point.coachHoldL
+        case .paused:           return point.coachAlignL
+        case .complete:         return AppLocale.pick("完成 — 保持得很好。", "Done — nicely held.")
         }
     }
 

@@ -41,12 +41,16 @@ struct Acupoint: Identifiable, Hashable {
     let indicationsEn: String
     let coachAlign: String  // AR cue (used live for TE3 only)
     let coachHold: String   // AR cue (used live for TE3 only)
+    var coachAlignZh: String = ""   // zh AR cue (TE3 only; en stays in coachAlign)
+    var coachHoldZh: String = ""
     let mediapipeTarget: MediaPipeTarget?   // non-nil for TE3 only
 
-    // Localized accessors for the atlas UI.
+    // Localized accessors for the atlas UI + the AR coach card.
     var location: String     { AppLocale.pick(locationZh, locationEn) }
     var indications: String  { AppLocale.pick(indicationsZh, indicationsEn) }
     var meridianName: String { AppLocale.pick(meridianZh, meridianEn) }
+    var coachAlignL: String  { AppLocale.pick(coachAlignZh.isEmpty ? coachAlign : coachAlignZh, coachAlign) }
+    var coachHoldL: String   { AppLocale.pick(coachHoldZh.isEmpty ? coachHold : coachHoldZh, coachHold) }
 
     static let all: [Acupoint] = [
         // ── The one validated AR-coached point. ──────────────────────────────────────────────
@@ -60,6 +64,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsEn: "Traditionally used in acupuncture practice for side-of-head tension, ear discomfort, and tension across the back of the hand and wrist.",
             coachAlign: "Back of the hand up. Find the groove behind your ring and pinky knuckles.",
             coachHold: "Good — firm, steady pressure with slow breathing, small gentle circles.",
+            coachAlignZh: "手背朝上。找到无名指与小指掌指关节后方的凹沟。",
+            coachHoldZh: "很好 — 稳定用力，配合缓慢呼吸，可做小幅轻柔画圈。",
             // TE3 sits in the depression proximal to the 4th metacarpophalangeal joint, between
             // the 4th & 5th metacarpals (Acupoints.org; TCM Wiki). Bias toward the ring knuckle and
             // proximal (toward the wrist) so the target lands in the proximal groove, not on the web.

@@ -2,6 +2,11 @@ import SwiftUI
 
 // 2D hand atlas — the tappable acupoint map (native port of MaiApp's HandView).
 // Points are in a 360 x 440 box; we scale to fit. Tapping selects a point.
+//
+// NOT the primary path: round-2 item 6 made the 3D body the whole atlas (in-scene zoom + 3D
+// markers), so this view is no longer pushed from RootView. It is intentionally RETAINED as the
+// "optional flat inset" the spec permits (and as the real HAND_PTS Catmull-Rom silhouette port);
+// wire it back in as an inset if a flat hand reference is wanted.
 struct HandAtlasView: View {
     @State private var selected: Acupoint? = nil
     @Binding var startCoach: Acupoint?

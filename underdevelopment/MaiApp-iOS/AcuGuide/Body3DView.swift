@@ -243,6 +243,7 @@ struct SceneKitBody: UIViewRepresentable {
         var radius: Float = 1
         private var anchors: [(BodyAtlas.Region, SCNNode)] = []
         private var link: CADisplayLink?
+        private var lastPublish: CFTimeInterval = 0
 
         init(model: AtlasModel) { self.model = model; super.init() }
 
@@ -268,6 +269,11 @@ struct SceneKitBody: UIViewRepresentable {
                 if !model.labels.isEmpty && model.focused != nil { model.labels = [] }
                 return
             }
+            // Throttle the @Published label republish to ~30 Hz so the overlay isn't diffed at the
+            // full 60–120 Hz display rate the whole time the auto-rotating atlas is on screen.
+            let now = link?.timestamp ?? 0
+            if now - lastPublish < 1.0 / 30.0 { return }
+            lastPublish = now
             var out: [AtlasModel.Label] = []
             for (r, node) in anchors {
                 let wp = node.presentation.worldPosition
@@ -296,6 +302,8 @@ struct SceneKitBody: UIViewRepresentable {
             cam.position = SCNVector3(target.x, target.y, target.z + radius * 2.4)
             cam.eulerAngles = SCNVector3Zero
             SCNTransaction.commit()
+            // Re-seed allowsCameraControl's orbit center so a subsequent drag doesn't snap back.
+            view?.defaultCameraController.target = SCNVector3(target.x, target.y, target.z)
         }
 
         func unfocus() {
@@ -304,11 +312,14 @@ struct SceneKitBody: UIViewRepresentable {
             cam.position = SCNVector3(0, 0, radius * 11)
             cam.eulerAngles = SCNVector3Zero
             SCNTransaction.commit()
+            view?.defaultCameraController.target = SCNVector3Zero    // recenter the orbit pivot
             spin.eulerAngles = SCNVector3Zero
             spin.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 24)))
         }
 
-        // Hit-test a tap against the acupoint marker nodes (named "acu:<id>").
+        // Hit-test a tap against the acupoint marker nodes (named "acu:<id>"). Markers draw with
+        // depth-test off (always on top), so a far-side marker can sit under the tap — only accept
+        // one on the camera-facing side (z > 0), the nearest hit first.
         @objc func handleTap(_ g: UITapGestureRecognizer) {
             guard let view = view else { return }
             let loc = g.location(in: view)
@@ -317,9 +328,11 @@ struct SceneKitBody: UIViewRepresentable {
                 var n: SCNNode? = h.node
                 while let node = n {
                     if let name = node.name, name.hasPrefix("acu:") {
-                        let id = String(name.dropFirst(4))
-                        if let pt = Acupoint.all.first(where: { $0.id == id }) { model.selectedPoint = pt }
-                        return
+                        if node.presentation.worldPosition.z > -0.02 {     // facing the camera
+                            let id = String(name.dropFirst(4))
+                            if let pt = Acupoint.all.first(where: { $0.id == id }) { model.selectedPoint = pt }
+                            return
+                        }
                     }
                     n = node.parent
                 }
