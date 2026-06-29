@@ -136,6 +136,49 @@ enum BodyAtlas {
         [p.x + dx, p.y + dy, p.z + dz]
     }
 
+    // MARK: 3D acupoint markers (on the RIGHT hand / forearm)
+
+    // Approximated from the GLB hand/forearm bones to the sourced surfaces (see Acupoints.swift):
+    // dorsal points sit on the back (+y), palmar on the front (−y); forearm points (PC6/SJ5) ride
+    // up toward the elbow. LI4 is excluded. Tuned visually against the small low-poly hand.
+    struct AcuMarker { let id: String; let meridian: String; let pos: SIMD3<Float> }
+    static let acuMarkers: [AcuMarker] = [
+        AcuMarker(id: "TE3", meridian: "sj",    pos: [-0.370, -0.043, 0.883]),  // dorsal, 4th/5th MC groove
+        AcuMarker(id: "SI3", meridian: "si",    pos: [-0.398, -0.055, 0.848]),  // ulnar edge, prox. 5th MC
+        AcuMarker(id: "PC8", meridian: "pc",    pos: [-0.365, -0.088, 0.885]),  // palmar, centre of palm
+        AcuMarker(id: "HT7", meridian: "heart", pos: [-0.352, -0.075, 0.922]),  // palmar wrist, ulnar
+        AcuMarker(id: "PC6", meridian: "pc",    pos: [-0.323, -0.050, 1.002]),  // palmar forearm (2 cun up)
+        AcuMarker(id: "SJ5", meridian: "sj",    pos: [-0.323, -0.004, 1.002]),  // dorsal forearm, opp. PC6
+    ]
+
+    // Small glowing meridian-colored spheres; node names ("acu:<id>") let a tap hit-test identify
+    // the point. Added to the mesh (raw coords) so they ride the body through pose + spin.
+    static func markers() -> SCNNode {
+        let root = SCNNode()
+        for m in acuMarkers {
+            let col = UIColor(MeridianColors.color(m.meridian))
+            let halo = SCNSphere(radius: 0.014); halo.firstMaterial = glowMat(col, 0.22)
+            let core = SCNSphere(radius: 0.0075); core.firstMaterial = glowMat(col, 1.0)
+            let node = SCNNode(geometry: core)
+            node.addChildNode(SCNNode(geometry: halo))
+            node.simdPosition = m.pos
+            node.name = "acu:" + m.id
+            root.addChildNode(node)
+        }
+        return root
+    }
+
+    private static func glowMat(_ color: UIColor, _ opacity: CGFloat) -> SCNMaterial {
+        let m = SCNMaterial()
+        m.lightingModel = .constant
+        m.diffuse.contents = color
+        m.emission.contents = color
+        m.transparency = opacity
+        m.readsFromDepthBuffer = false        // always visible on top of the body
+        m.writesToDepthBuffer = false
+        return m
+    }
+
     // MARK: helpers
 
     private static func mix(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ t: Float) -> SIMD3<Float> { a + (b - a) * t }

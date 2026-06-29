@@ -15,18 +15,20 @@ final class AtlasModel: ObservableObject {
     struct Label: Identifiable { let id: String; let region: BodyAtlas.Region; let point: CGPoint }
     @Published var labels: [Label] = []          // region labels projected to screen (full-body mode)
     @Published var focused: BodyAtlas.Region?    // non-nil while zoomed into a region
+    @Published var selectedPoint: Acupoint?      // a tapped 3D acupoint marker
     fileprivate weak var coordinator: SceneKitBody.Coordinator?
 
-    func tap(_ region: BodyAtlas.Region, onEnterHand: () -> Void) {
-        if region.isHand { onEnterHand(); return }   // hand is the drill-down, not a zoom
+    // Every region (including the hand) is now an IN-SCENE camera zoom — no 2D drill-down.
+    func tap(_ region: BodyAtlas.Region) {
+        selectedPoint = nil
         focused = region
         coordinator?.focus(region)
     }
-    func exitFocus() { focused = nil; coordinator?.unfocus() }
+    func exitFocus() { focused = nil; selectedPoint = nil; coordinator?.unfocus() }
 }
 
 struct Body3DView: View {
-    var onEnterHand: () -> Void = {}
+    var onPractice: (Acupoint) -> Void = { _ in }   // TE3 marker → launch the AR coach
     @StateObject private var model = AtlasModel()
     @State private var pulse = false
 
@@ -48,10 +50,44 @@ struct Body3DView: View {
             .ignoresSafeArea()
 
             chrome
+
+            if let pt = model.selectedPoint { pointPanel(pt) }
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { pulse = true }
         }
+    }
+
+    // Tapped-marker detail card (bottom). TE3 keeps the validated "Practice with camera" path.
+    private func pointPanel(_ pt: Acupoint) -> some View {
+        VStack {
+            Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Circle().fill(MeridianColors.color(pt.meridian)).frame(width: 10, height: 10)
+                    Text("\(pt.id) · \(pt.zh)").font(Typo.serif(18, weight: .semibold)).foregroundStyle(Ink.gold)
+                    Text(pt.en).font(Typo.code(17)).foregroundStyle(Ink.textDim)
+                    Spacer()
+                    Button { model.selectedPoint = nil } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Ink.textDim)
+                    }.accessibilityLabel(AppLocale.pick("关闭", "Close"))
+                }
+                Text(pt.location).font(.subheadline).foregroundStyle(Ink.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if pt.mediapipeTarget != nil {
+                    Button(AppLocale.pick("用相机练习", "Practice with camera")) {
+                        let p = pt; model.selectedPoint = nil; onPractice(p)
+                    }.buttonStyle(GoldButtonStyle())
+                } else {
+                    Text(AppLocale.pick("本版本仅 TE3 提供相机引导。",
+                                        "Camera coaching is available for TE3 in this build."))
+                        .font(.caption).foregroundStyle(Ink.textDim)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding().panel().padding()
+        }
+        .transition(.move(edge: .bottom))
     }
 
     // Safe-area-respecting controls: a back button when zoomed, else a hint line.
@@ -89,7 +125,7 @@ struct Body3DView: View {
     }
 
     @ViewBuilder private func regionLabel(_ r: BodyAtlas.Region) -> some View {
-        Button { model.tap(r, onEnterHand: onEnterHand) } label: {
+        Button { model.tap(r) } label: {
             if r.isHand {
                 // The pulsing gold hand hotspot (web HandHotspot) — small, always reachable.
                 HStack(spacing: 4) {
@@ -109,8 +145,7 @@ struct Body3DView: View {
         }
         .contentShape(Rectangle())
         .accessibilityLabel(AppLocale.pick(r.zh, r.en))
-        .accessibilityHint(r.isHand ? AppLocale.pick("查看手部穴位", "Opens the hand acupoint map")
-                                    : AppLocale.pick("放大到此区域", "Zooms to this region"))
+        .accessibilityHint(AppLocale.pick("放大到此区域并显示穴位", "Zooms in and shows its acupoints"))
     }
 }
 
@@ -140,6 +175,10 @@ struct SceneKitBody: UIViewRepresentable {
         context.coordinator.attach(view: view, spin: spin)
         model.coordinator = context.coordinator
 
+        // Tap to select a 3D acupoint marker (coexists with allowsCameraControl's pan/pinch).
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        view.addGestureRecognizer(tap)
+
         if let url = Bundle.main.url(forResource: "model", withExtension: "glb") {
             GLTFAsset.load(with: url, options: [:]) { _, status, maybeAsset, _, _ in
                 guard status == .complete, let asset = maybeAsset else { return }
@@ -157,6 +196,7 @@ struct SceneKitBody: UIViewRepresentable {
                     let (lo, hi) = mesh.boundingBox
                     mesh.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
                     mesh.addChildNode(BodyAtlas.channels())    // meridian channels (skeleton-routed)
+                    mesh.addChildNode(BodyAtlas.markers())     // 3D acupoint markers (hand/forearm)
                     let pose = SCNNode()
                     pose.addChildNode(mesh)
                     pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
@@ -256,6 +296,24 @@ struct SceneKitBody: UIViewRepresentable {
             SCNTransaction.commit()
             spin.eulerAngles = SCNVector3Zero
             spin.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 24)))
+        }
+
+        // Hit-test a tap against the acupoint marker nodes (named "acu:<id>").
+        @objc func handleTap(_ g: UITapGestureRecognizer) {
+            guard let view = view else { return }
+            let loc = g.location(in: view)
+            let hits = view.hitTest(loc, options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
+            for h in hits {
+                var n: SCNNode? = h.node
+                while let node = n {
+                    if let name = node.name, name.hasPrefix("acu:") {
+                        let id = String(name.dropFirst(4))
+                        if let pt = Acupoint.all.first(where: { $0.id == id }) { model.selectedPoint = pt }
+                        return
+                    }
+                    n = node.parent
+                }
+            }
         }
 
         func stop() { link?.invalidate(); link = nil }

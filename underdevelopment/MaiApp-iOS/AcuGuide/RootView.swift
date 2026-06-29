@@ -28,23 +28,16 @@ struct RootView: View {
     }
 }
 
-// Atlas tab: the 3D body → tap the hand hotspot → hand acupoint map → back (mirrors the web
-// onEnterHand / onBack). The body fills the screen (nav bar hidden); the hand view shows a
-// back button + title.
+// Atlas tab: the 3D body IS the whole atlas (no 2D drill-down). Tap a region label to zoom the
+// camera in-scene, tap a 3D acupoint marker for its details, and "Practice with camera" launches
+// the AR coach for the validated TE3 point. The 2D HandAtlasView is retired as the primary path.
 struct AtlasTab: View {
     @Binding var startCoach: Acupoint?
-    @State private var showHand = false
-
     var body: some View {
-        NavigationStack {
-            Body3DView(onEnterHand: { showHand = true })
-                .toolbar(.hidden, for: .navigationBar)
-                .navigationDestination(isPresented: $showHand) {
-                    HandAtlasView(startCoach: $startCoach)
-                        .navigationTitle(AppLocale.pick("手部穴位", "Hand points"))
-                        .navigationBarTitleDisplayMode(.inline)
-                }
-        }
+        // No .ignoresSafeArea here: the SceneKit view + projected-label overlay ignore the safe
+        // area internally (so projectPoint coords line up), while the back button + point panel
+        // stay inside the safe area and clear the status bar / tab bar.
+        Body3DView(onPractice: { startCoach = $0 })
     }
 }
 
