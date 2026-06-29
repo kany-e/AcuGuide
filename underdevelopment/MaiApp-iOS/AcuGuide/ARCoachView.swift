@@ -66,33 +66,37 @@ struct ARCoachView: View {
     }
 
     private var coachLayer: some View {
-        GeometryReader { geo in
-            ZStack {
-                CameraPreview(session: camera.session, mirrored: camera.mirrored)
-                    .ignoresSafeArea().accessibilityHidden(true)
+        ZStack {
+            // Preview + overlay share a FULL-SCREEN coordinate space (ignoresSafeArea), so the
+            // ring/press-dot land on the same pixels the aspect-fill preview shows. The chrome is
+            // kept OUTSIDE this and respects the safe area (status bar / home indicator).
+            GeometryReader { geo in
+                ZStack {
+                    CameraPreview(session: camera.session, mirrored: camera.mirrored)
+                        .accessibilityHidden(true)
 
-                // Target ring + inner dot (smoothed center from the engine). Purely visual — the
-                // feedback card below is the VoiceOver-announced source of truth.
-                Group {
-                    if let c = engine.ringCenter {
-                        let m = mapFill(c, geo.size)
-                        let r = engine.ringRadius * m.dispW
-                        Circle().stroke(engine.color, lineWidth: 3)
-                            .frame(width: r * 2, height: r * 2).position(m.pt)
-                        Circle().fill(engine.color).frame(width: 8, height: 8).position(m.pt)
+                    Group {
+                        if let c = engine.ringCenter {
+                            let m = mapFill(c, geo.size)
+                            let r = engine.ringRadius * m.dispW
+                            Circle().stroke(engine.color, lineWidth: 3)
+                                .frame(width: r * 2, height: r * 2).position(m.pt)
+                            Circle().fill(engine.color).frame(width: 8, height: 8).position(m.pt)
+                        }
+                        if let t = engine.pressTip {
+                            Circle().stroke(.white, lineWidth: 2).frame(width: 16, height: 16)
+                                .position(mapFill(t, geo.size).pt)
+                        }
                     }
-                    if let t = engine.pressTip {
-                        Circle().stroke(.white, lineWidth: 2).frame(width: 16, height: 16)
-                            .position(mapFill(t, geo.size).pt)
-                    }
+                    .accessibilityHidden(true)
                 }
-                .accessibilityHidden(true)
+            }
+            .ignoresSafeArea()
 
-                VStack {
-                    debugBar
-                    Spacer()
-                    feedbackCard
-                }
+            VStack {
+                debugBar
+                Spacer()
+                feedbackCard
             }
         }
         // Cap growth so the largest accessibility sizes can't break the camera overlay layout,
