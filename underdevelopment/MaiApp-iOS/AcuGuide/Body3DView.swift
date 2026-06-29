@@ -32,6 +32,8 @@ struct Body3DView: View {
     @StateObject private var model = AtlasModel()
     @ObservedObject private var settings = AppSettings.shared   // re-render labels on language toggle
     @State private var showSettings = false
+    @State private var showHandChart = false        // 2D finger-detail fallback for the hand region
+    @State private var handChartCoach: Acupoint? = nil
 
     var body: some View {
         ZStack {
@@ -55,6 +57,21 @@ struct Body3DView: View {
             if let pt = model.selectedPoint { pointPanel(pt) }
         }
         .sheet(isPresented: $showSettings) { SettingsSheet() }
+        .sheet(isPresented: $showHandChart) {
+            // The 3D hand is a low-poly mitten; this 2D silhouette (HAND_PTS) has real fingers and
+            // legible point placement — the spec-sanctioned inset fallback for the hand region.
+            NavigationStack {
+                HandAtlasView(startCoach: $handChartCoach)
+                    .navigationTitle(AppLocale.pick("手部穴位", "Hand points"))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) {
+                        Button(AppLocale.pick("完成", "Done")) { showHandChart = false }.tint(Ink.gold)
+                    } }
+            }
+            .onChange(of: handChartCoach) { v in
+                if let pt = v { showHandChart = false; handChartCoach = nil; onPractice(pt) }
+            }
+        }
     }
 
     // Tapped-marker detail card (bottom). TE3 keeps the validated "Practice with camera" path.
@@ -118,12 +135,19 @@ struct Body3DView: View {
             Spacer()
             if let f = model.focused {
                 Text(AppLocale.pick(f.zh, f.en)).font(Typo.brush(30)).foregroundStyle(Ink.brush)
-                Text(f.isHand
-                     ? AppLocale.pick("点按穴位查看详情。", "Tap an acupoint for details.")
-                     : AppLocale.pick("此区域本版本暂无可练习的穴位。", "No practice points in this region in this build."))
-                    .font(.caption).foregroundStyle(Ink.textDim)
-                    .multilineTextAlignment(.center).padding(.horizontal)
-                    .padding(.bottom, 26)
+                if f.isHand {
+                    Text(AppLocale.pick("点按 3D 穴位，或查看带手指的手部图。",
+                                        "Tap a 3D point, or open the finger-detail hand chart."))
+                        .font(.caption).foregroundStyle(Ink.textDim)
+                        .multilineTextAlignment(.center).padding(.horizontal)
+                    Button(AppLocale.pick("手部图", "Hand chart")) { showHandChart = true }
+                        .buttonStyle(GoldButtonStyle()).padding(.top, 2).padding(.bottom, 16)
+                } else {
+                    Text(AppLocale.pick("此区域本版本暂无可练习的穴位。", "No practice points in this region in this build."))
+                        .font(.caption).foregroundStyle(Ink.textDim)
+                        .multilineTextAlignment(.center).padding(.horizontal)
+                        .padding(.bottom, 26)
+                }
             } else {
                 Text(AppLocale.pick("点按区域放大 · 拖动旋转", "Tap a region to zoom · drag to rotate"))
                     .font(.caption).foregroundStyle(Ink.text.opacity(0.7)).padding(.bottom, 24)
