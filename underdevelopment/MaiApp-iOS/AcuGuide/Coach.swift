@@ -322,7 +322,9 @@ final class CoachEngine: ObservableObject {
             if swapVotes >= CoachConst.swapConfirmFrames {
                 aIsReceiver = prefAIsReceiver
                 swapVotes = 0
-                smoother.reset()   // ring jumps to the new hand — don't lerp across the gap
+                // Both roles flip to physically different hands — reset BOTH filters so neither the
+                // ring nor the press tip lerps across the discontinuity.
+                smoother.reset(); pressSmoother.reset()
             }
             return commitRoles(aIsReceiver: aIsReceiver, a: a, b: b)
         }

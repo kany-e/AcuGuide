@@ -40,7 +40,7 @@ enum BodyAtlas {
             // Full leg chain: hip → thigh → knee → ankle.
             let leg = [b(side.k("UpperLeg")), b(side.k("LowerLeg")), mix(b(side.k("LowerLeg")), b(side.k("Foot")), 0.7)]
             root.addChildNode(channel(leg, dx: -s * inner, meridian: "stomach", mesh: mesh, front: true))
-            root.addChildNode(channel(leg, dx:  s * outer * 1.6, meridian: "gb", mesh: mesh, front: true))
+            root.addChildNode(channel(leg, dx:  s * outer * 1.3, meridian: "gb", mesh: mesh, front: true))
         }
         // Torso midlines: ren (front) and du (back).
         let spine = [b("Hips"), b("Spine"), b("Chest"), b("Neck")]
@@ -66,7 +66,7 @@ enum BodyAtlas {
         let dense = densify(offset, perSegment: 6)
         let smoothed = smoothPts(dense, iterations: 3)
         let curve = catmullRom(smoothed, perSegment: 6)
-        let path = curve.map { project($0, mesh: mesh, front: front) }
+        let path = projectAll(curve, mesh: mesh, front: front)
         let mats = channelMaterials(meridian)
         let node = SCNNode()
         for i in 0 ..< path.count - 1 {
@@ -84,20 +84,49 @@ enum BodyAtlas {
         return node
     }
 
-    // Raycast a sample onto the body surface: cast through the limb along the depth axis and pin to
-    // the near (front) / far (back) hit + a small outward nudge. Falls back to the sample if no hit.
-    private static func project(_ p: SIMD3<Float>, mesh: SCNNode, front: Bool) -> SIMD3<Float> {
-        let depth: Float = 0.16
+    // Project a whole path onto the body surface (raycast each sample along the depth axis). For
+    // samples that MISS the thin limb, interpolate the surface depth from the neighbours that hit
+    // (clamped at the ends), so a single miss never injects an off-surface vertex beside the limb.
+    private static func projectAll(_ pts: [SIMD3<Float>], mesh: SCNNode, front: Bool) -> [SIMD3<Float>] {
+        let ys = pts.map { projectY($0, mesh: mesh, front: front) }
+        guard ys.contains(where: { $0 != nil }) else { return pts }   // no hit anywhere → keep raw
+        let filled = fillGaps(ys)
+        return zip(pts, filled).map { SIMD3<Float>($0.x, $1, $0.z) }
+    }
+
+    // The surface depth (y) at a sample, or nil if the ray misses the limb at that (x,z).
+    private static func projectY(_ p: SIMD3<Float>, mesh: SCNNode, front: Bool) -> Float? {
+        let depth: Float = 0.18
         let a = SCNVector3(p.x, front ? p.y - depth : p.y + depth, p.z)   // start outside the body
         let bb = SCNVector3(p.x, front ? p.y + depth : p.y - depth, p.z)  // through to the far side
         let hits = mesh.hitTestWithSegment(from: a, to: bb, options: [
             SCNHitTestOption.backFaceCulling.rawValue: false,
             SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.closest.rawValue,
         ])
-        guard let h = hits.first else { return p }
-        let lc = h.localCoordinates
-        let nudge: Float = front ? -0.006 : 0.006
-        return [Float(lc.x), Float(lc.y) + nudge, Float(lc.z)]
+        guard let h = hits.first else { return nil }
+        return Float(h.localCoordinates.y) + (front ? -0.006 : 0.006)
+    }
+
+    // Linear-interpolate the nil (missed) entries between known values; clamp leading/trailing nils.
+    private static func fillGaps(_ ys: [Float?]) -> [Float] {
+        let n = ys.count
+        var out = [Float](repeating: 0, count: n)
+        var lastIdx = -1
+        var lastVal: Float = 0
+        for i in 0 ..< n {
+            guard let v = ys[i] else { continue }
+            if lastIdx < 0 {
+                for j in 0 ..< i { out[j] = v }                      // leading nils → first value
+            } else if i - lastIdx > 1 {
+                for j in (lastIdx + 1) ..< i {                       // interior nils → interpolate
+                    let t = Float(j - lastIdx) / Float(i - lastIdx)
+                    out[j] = lastVal + (v - lastVal) * t
+                }
+            }
+            out[i] = v; lastIdx = i; lastVal = v
+        }
+        if lastIdx < n - 1 { for j in (lastIdx + 1) ..< n { out[j] = lastVal } }  // trailing nils
+        return out
     }
 
     // Linear subdivision — more control points before smoothing.
