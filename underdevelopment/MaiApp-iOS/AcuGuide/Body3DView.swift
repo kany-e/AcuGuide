@@ -12,7 +12,7 @@ import simd
 
 // Shared state between the SwiftUI overlay and the SceneKit coordinator.
 final class AtlasModel: ObservableObject {
-    struct Label: Identifiable { let id: String; let region: BodyAtlas.Region; let point: CGPoint }
+    struct Label: Identifiable { let id: String; let region: BodyAtlas.Region; let point: CGPoint; let opacity: Double }
     @Published var labels: [Label] = []          // region labels projected to screen (full-body mode)
     @Published var focused: BodyAtlas.Region?    // non-nil while zoomed into a region
     @Published var selectedPoint: Acupoint?      // a tapped 3D acupoint marker
@@ -46,6 +46,8 @@ struct Body3DView: View {
                 if model.focused == nil {
                     ForEach(model.labels) { lab in
                         regionLabel(lab.region).position(lab.point)
+                            .opacity(lab.opacity)
+                            .allowsHitTesting(lab.opacity > 0.35)   // don't tap a near-faded label
                     }
                 }
             }
@@ -287,10 +289,15 @@ struct SceneKitBody: UIViewRepresentable {
             for (r, node) in anchors {
                 let wp = node.presentation.worldPosition
                 let p = view.projectPoint(wp)
-                let onScreen = p.z > 0 && p.z < 1
-                let facing = r.isHand || wp.z > -0.01            // camera looks down +z toward origin
-                if onScreen && facing {
-                    out.append(.init(id: r.id, region: r, point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y))))
+                guard p.z > 0 && p.z < 1 else { continue }       // off-screen / behind camera
+                // Fade by facing instead of a hard cut, so labels don't pop in/out as the body
+                // rotates: full opacity on the near side, ramping to 0 as the anchor turns away.
+                // The hand stays fully visible (it's the key drill-down).
+                let z = Float(wp.z)
+                let opacity = r.isHand ? 1.0 : Double(max(0, min(1, (z + 0.05) / 0.09)))
+                if opacity > 0.02 {
+                    out.append(.init(id: r.id, region: r,
+                                     point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)), opacity: opacity))
                 }
             }
             model.labels = out
@@ -369,7 +376,8 @@ private func sageMaterial() -> SCNMaterial {
     m.diffuse.contents = UIColor(Ink.bodySage)
     m.emission.contents = UIColor(Ink.bodyEmission)
     m.emission.intensity = 0.12
-    m.transparency = 0.85               // a little see-through
+    m.transparency = 0.92               // a touch see-through, but solid enough that an overlapping
+                                        // hand reads against the torso instead of blending in
     m.isDoubleSided = true
     return m
 }

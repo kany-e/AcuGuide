@@ -178,7 +178,8 @@ enum BodyAtlas {
         Region(id: "hand",    zh: "手部", en: "Hand",    anchor: off(b("HandR"),     0,    -0.05,  0.00), center: handCenter,     radius: 0.12, isHand: true),
     ]
     // Centre of the right hand/forearm marker cluster (between wrist and fingertips).
-    private static let handCenter: SIMD3<Float> = [-0.355, -0.06, 0.86]
+    // Centroid of the four hand markers (TE3/SI3/PC8/HT7) so the hand zoom frames the hand itself.
+    private static let handCenter: SIMD3<Float> = [-0.371, -0.065, 0.884]
     private static func off(_ p: SIMD3<Float>, _ dx: Float, _ dy: Float, _ dz: Float) -> SIMD3<Float> {
         [p.x + dx, p.y + dy, p.z + dz]
     }
@@ -207,9 +208,12 @@ enum BodyAtlas {
             let halo = SCNSphere(radius: 0.014); halo.firstMaterial = glowMat(col, 0.22)
             let core = SCNSphere(radius: 0.0075); core.firstMaterial = glowMat(col, 1.0)
             let node = SCNNode(geometry: core)
-            node.addChildNode(SCNNode(geometry: halo))
+            let h = SCNNode(geometry: halo); h.renderingOrder = 14
+            node.addChildNode(h)
             node.simdPosition = m.pos
             node.name = "acu:" + m.id
+            node.renderingOrder = 15            // markers pop above the body + channels, so the hand
+                                                // is always readable even when it overlaps the torso
             root.addChildNode(node)
         }
         return root
