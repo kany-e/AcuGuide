@@ -155,7 +155,8 @@ final class CoachEngine: ObservableObject {
     @Published var cue: String = "Bring your hand into the frame."
 
     private let machine = CoachStateMachine()
-    private let smoother = OneEuroPoint()
+    private let smoother = OneEuroPoint()        // target ring
+    private let pressSmoother = OneEuroPoint()   // second-hand press tip (Vision is noisy on it)
 
     // Sticky two-hand role tracking (stops the ring jumping between hands).
     private var lastReceiverWrist: CGPoint? = nil
@@ -169,7 +170,7 @@ final class CoachEngine: ObservableObject {
 
     // Reset the target smoother (called on a confirmed role swap or a mirror flip — both are
     // coordinate discontinuities that would otherwise spike the One-Euro velocity estimate).
-    func smootherReset() { smoother.reset() }
+    func smootherReset() { smoother.reset(); pressSmoother.reset() }
 
     var color: Color {
         switch phase {
@@ -181,7 +182,7 @@ final class CoachEngine: ObservableObject {
     }
 
     func reset() {
-        machine.reset(); smoother.reset(); roleReset()
+        machine.reset(); smoother.reset(); pressSmoother.reset(); roleReset()
         lastFaceCorrect = false
         phase = .noHand; ringCenter = nil; pressTip = nil; progress = 0
         cue = AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
@@ -195,7 +196,7 @@ final class CoachEngine: ObservableObject {
 
         // 1) No usable hand.
         guard !hands.isEmpty else {
-            smoother.reset(); roleReset(); lastFaceCorrect = false
+            smoother.reset(); pressSmoother.reset(); roleReset(); lastFaceCorrect = false
             ringCenter = nil; pressTip = nil
             apply(machine.step(noHandInput(now)), point: point, hasPresser: false)
             return
@@ -235,17 +236,19 @@ final class CoachEngine: ObservableObject {
             faceCorrect = lastFaceCorrect
         }
 
-        // 5) Press tip + contact (raw landmark for the tip).
+        // 5) Press tip + contact. The second (massaging) hand's fingertip is noisy in Vision, so
+        // One-Euro-smooth it BEFORE the contact test and before drawing (mirrors the target ring).
         var inEnter = false, inExit = false, hasPresser = false
         var offN: Double? = nil
-        if let presser, let tip = presser.p(target.pressFinger) {
+        if let presser, let rawTip = presser.p(target.pressFinger) {
+            let tip = pressSmoother.filter(rawTip, now)
             pressTip = tip; hasPresser = true
             let dd = dist(tip, center)
             inEnter = dd < tol
             inExit = dd < tol * CoachConst.exitRadiusMult
             offN = Double(dd / hs)
         } else {
-            pressTip = nil
+            pressTip = nil; pressSmoother.reset()   // presser dropped — restart the filter clean
         }
 
         let result = machine.step(CoachFrameInput(
