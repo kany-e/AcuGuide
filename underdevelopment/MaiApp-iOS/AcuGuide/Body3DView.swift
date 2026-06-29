@@ -123,10 +123,11 @@ struct SceneKitBody: UIViewRepresentable {
         let view = SpinSCNView()
         view.backgroundColor = .clear
         view.allowsCameraControl = true
-        view.autoenablesDefaultLighting = true
+        view.autoenablesDefaultLighting = false   // its omni light glosses the body; light softly instead
         view.antialiasingMode = .multisampling4X
 
         let scene = SCNScene()
+        addSoftLighting(to: scene)                // ambient + low fill, no bright directional
         let spin = SCNNode()                                   // auto-rotation container
         scene.rootNode.addChildNode(spin)
         spin.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 24)))
@@ -263,17 +264,40 @@ struct SceneKitBody: UIViewRepresentable {
 
 // MARK: - Scene helpers (match Body3D.jsx's feel)
 
-// Sage-green matte material (#aebd9d, low emissive), slightly translucent — matches Body3D.jsx's
-// roughness 0.85 / transparency feel. .blinn (not PBR, which washes white without an env map).
+// Fully MATTE sage body (no specular highlight), slightly translucent — per the round-2 note.
+// PBR with roughness 1 / metalness 0 / clearCoat 0 has no glossy hotspot; combined with the soft
+// ambient+fill lighting (and default lighting OFF) it reads as flat ink, not shiny plastic.
 private func sageMaterial() -> SCNMaterial {
-    let mat = SCNMaterial()
-    mat.lightingModel = .blinn
-    mat.diffuse.contents = UIColor(Ink.bodySage)
-    mat.specular.contents = UIColor(white: 1, alpha: 0.0)
-    mat.emission.contents = UIColor(Ink.bodyEmission).withAlphaComponent(0.12)
-    mat.transparency = 0.85
-    mat.isDoubleSided = true
-    return mat
+    let m = SCNMaterial()
+    m.lightingModel = .physicallyBased
+    m.metalness.contents = 0.0
+    m.roughness.contents = 1.0          // fully matte: no specular hotspot
+    m.clearCoat.contents = 0.0
+    m.diffuse.contents = UIColor(Ink.bodySage)
+    m.emission.contents = UIColor(Ink.bodyEmission)
+    m.emission.intensity = 0.12
+    m.transparency = 0.85               // a little see-through
+    m.isDoubleSided = true
+    return m
+}
+
+// Soft, even lighting (web's ambientLight 0.9 + hemisphereLight feel): a bright ambient plus a
+// low warm fill for gentle form — NO bright directional that would re-introduce a highlight.
+private func addSoftLighting(to scene: SCNScene) {
+    let ambient = SCNNode()
+    ambient.light = SCNLight()
+    ambient.light?.type = .ambient
+    ambient.light?.intensity = 720
+    ambient.light?.color = UIColor(white: 1.0, alpha: 1.0)
+    scene.rootNode.addChildNode(ambient)
+
+    let fill = SCNNode()
+    fill.light = SCNLight()
+    fill.light?.type = .directional
+    fill.light?.intensity = 230
+    fill.light?.color = UIColor(Color(hex: "#fffaf0"))
+    fill.eulerAngles = SCNVector3(-Float.pi / 5, Float.pi / 7, 0)   // soft upper-front
+    scene.rootNode.addChildNode(fill)
 }
 
 private func makeCapsule() -> SCNNode {
