@@ -47,6 +47,19 @@ final class AcuGuideTests: XCTestCase {
                        "embedded Chinese substring must not yield a point detail reply; got: \(reply)")
     }
 
+    // Meridian matching must not misfire on ordinary Chinese prose: "我胃经常痛" (my stomach often
+    // aches) embeds 胃经 inside 胃经常, and must NOT be read as the Stomach meridian — while a real
+    // channel name ("肺经") still resolves. (Sim locale en → English copy; meridianReply says
+    // "<Name> Meridian (…)", the greeting says "fourteen meridians".)
+    func testChatMeridianMatchAvoidsChineseProse() async {
+        let prose = await ChatService().reply(to: "我胃经常痛", history: [])
+        XCTAssertFalse(prose.contains("Stomach Meridian"),
+                       "prose embedding <organ>经 must not yield a meridian card; got: \(prose)")
+        let real = await ChatService().reply(to: "肺经", history: [])
+        XCTAssertTrue(real.contains("Lung Meridian"),
+                      "a real channel name should resolve to its meridian; got: \(real)")
+    }
+
     // "number" contains "numb" — whole-word matching must NOT trip the red-flag screen.
     func testChatBenignWordIsNotRedFlag() async {
         let reply = await ChatService().reply(to: "What is the number for TE3?", history: [])

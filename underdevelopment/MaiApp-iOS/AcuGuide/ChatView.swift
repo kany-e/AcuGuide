@@ -78,21 +78,37 @@ final class ChatService {
     // collisions like "my heart races"). Chinese prefers the longest organ alias so 心包(pc) wins
     // over 心(heart).
     private func matchMeridian(raw: String, lowered: String) -> Meridian? {
-        let isMeridianQ = lowered.contains("meridian") || lowered.contains("channel")
-            || raw.contains("经络") || raw.contains("经脉") || raw.contains("经")
-        guard isMeridianQ else { return nil }
-        if lowered.contains("conception") { return Meridian.by("ren") }
-        if lowered.contains("governing") { return Meridian.by("du") }
-        let zhAlias: [String: String] = [
-            "lung": "肺", "li": "大肠", "stomach": "胃", "spleen": "脾", "heart": "心", "si": "小肠",
-            "bladder": "膀胱", "kidney": "肾", "pc": "心包", "sj": "三焦", "gb": "胆", "liver": "肝",
-            "ren": "任脉", "du": "督脉"]
-        if let zhHit = Meridian.all
-            .filter({ m in raw.contains(m.zh) || (zhAlias[m.id].map { raw.contains($0) } ?? false) })
-            .max(by: { (zhAlias[$0.id]?.count ?? 0) < (zhAlias[$1.id]?.count ?? 0) }) {
-            return zhHit
+        // English: require an explicit "meridian"/"channel" cue, then match the full channel name —
+        // so "lung meridian" works but a bare "heart"/"liver" in ordinary prose does not.
+        if lowered.contains("meridian") || lowered.contains("channel") {
+            if lowered.contains("conception") { return Meridian.by("ren") }
+            if lowered.contains("governing") { return Meridian.by("du") }
+            if let m = Meridian.all.first(where: { lowered.contains($0.en.lowercased()) }) { return m }
         }
-        return Meridian.all.first { lowered.contains($0.en.lowercased()) }
+        // Chinese: the full formal name (手太阴肺经), or the unambiguous <organ>经 / 任脉 / 督脉 forms.
+        // Deliberately NO bare "经" gate and NO single-character organ aliases — those embed in
+        // everyday words (已经 / 神经 / 月经 / 担心 / 胃口) and misfired on ordinary prose.
+        if let m = Meridian.all.first(where: { raw.contains($0.zh) }) { return m }
+        let zhForms: [(id: String, form: String)] = [
+            ("lung", "肺经"), ("li", "大肠经"), ("stomach", "胃经"), ("spleen", "脾经"),
+            ("heart", "心经"), ("si", "小肠经"), ("bladder", "膀胱经"), ("kidney", "肾经"),
+            ("pc", "心包经"), ("sj", "三焦经"), ("gb", "胆经"), ("liver", "肝经"),
+            ("ren", "任脉"), ("du", "督脉"),
+        ]
+        // A <organ>经 form must not be the start of a following compound (胃经常 / 心经过 / 肝经历…),
+        // where 经 belongs to the next word, not the channel. Reject those; precision over recall is
+        // fine here (worst case: a general reply instead of the meridian card).
+        let jingCompounds: [Character] = ["常", "过", "历", "验", "理", "营", "济", "典", "费", "度", "纪", "销", "手"]
+        func mentionsChannel(_ form: String) -> Bool {
+            guard raw.contains(form) else { return false }
+            for c in jingCompounds where raw.contains(form + String(c)) { return false }
+            return true
+        }
+        // Longest matched form wins (defensive: keeps 心包经 from being shadowed by a shorter form).
+        if let hit = zhForms.filter({ mentionsChannel($0.form) }).max(by: { $0.form.count < $1.form.count }) {
+            return Meridian.by(hit.id)
+        }
+        return nil
     }
     private func meridianReply(_ m: Meridian) -> String {
         let pts = m.points

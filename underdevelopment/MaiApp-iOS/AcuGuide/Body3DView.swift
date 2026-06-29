@@ -149,7 +149,7 @@ struct Body3DView: View {
                     }.accessibilityLabel(AppLocale.pick("关闭", "Close"))
                 }
                 // Meridian chip — tappable when the channel is one we draw (opens its card).
-                Button { if let m = Meridian.by(pt.meridian) { model.selectedPoint = nil; model.selectedMeridian = m } } label: {
+                Button { if let m = Meridian.by(pt.meridian) { model.selectedPoint = nil; model.pointLabels = []; model.selectedMeridian = m } } label: {
                     HStack(spacing: 6) {
                         Text(pt.meridianName).font(.caption).foregroundStyle(Ink.text)
                         if Meridian.by(pt.meridian) != nil {
@@ -211,7 +211,9 @@ struct Body3DView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(pts) { p in
-                                Button { model.selectedPoint = p } label: {
+                                // Clear the meridian + its floating tags, matching the marker tap
+                                // path — otherwise stale name tags render behind the point card.
+                                Button { model.selectedMeridian = nil; model.pointLabels = []; model.selectedPoint = p } label: {
                                     HStack(spacing: 5) {
                                         Circle().fill(MeridianColors.color(p.meridian)).frame(width: 7, height: 7)
                                         Text("\(p.id) · \(AppLocale.pick(p.zh, p.en))").font(.caption)
@@ -393,6 +395,8 @@ struct SceneKitBody: UIViewRepresentable {
         var radius: Float = 1
         private var anchors: [(BodyAtlas.Region, SCNNode)] = []
         private var acuNodes: [String: SCNNode] = [:]    // id → marker node, for projecting name tags
+        private var labeledMer: String? = nil            // cached selected-meridian id…
+        private var labeledNodes: [(pt: Acupoint, node: SCNNode)] = []   // …and its points+nodes
         private var link: CADisplayLink?
         private var lastPublish: CFTimeInterval = 0
 
@@ -454,9 +458,14 @@ struct SceneKitBody: UIViewRepresentable {
 
             // Acupoint name tags for the selected meridian (any mode), projected onto their markers.
             if let mer = model.selectedMeridian {
+                // Cache the points + node lookups; rebuild only when the selection changes, not on
+                // every 30 Hz frame (the per-frame work is just the projection below).
+                if labeledMer != mer.id {
+                    labeledMer = mer.id
+                    labeledNodes = mer.points.compactMap { pt in acuNodes[pt.id].map { (pt, $0) } }
+                }
                 var out: [AtlasModel.PLabel] = []
-                for pt in mer.points {
-                    guard let node = acuNodes[pt.id] else { continue }
+                for (pt, node) in labeledNodes {
                     let wp = node.presentation.worldPosition
                     let p = view.projectPoint(wp)
                     guard p.z > 0 && p.z < 1 else { continue }
@@ -469,8 +478,17 @@ struct SceneKitBody: UIViewRepresentable {
                     }
                 }
                 model.pointLabels = out
-            } else if !model.pointLabels.isEmpty {
-                model.pointLabels = []
+            } else {
+                if labeledMer != nil { labeledMer = nil; labeledNodes = [] }
+                if !model.pointLabels.isEmpty { model.pointLabels = [] }
+            }
+
+            // Fade markers by facing: a marker rotated to the far side of the (depth-off) body
+            // shouldn't read as a tappable dot. Keeps the visible set in sync with handleTap's
+            // facing gate, and matches how the region/point labels fade.
+            for node in acuNodes.values {
+                let z = Float(node.presentation.worldPosition.z)
+                node.opacity = CGFloat(max(0, min(1, (z + 0.05) / 0.09)))
             }
         }
 
@@ -521,9 +539,12 @@ struct SceneKitBody: UIViewRepresentable {
                 var n: SCNNode? = h.node
                 while let node = n {
                     if let name = node.name {
+                        // Markers fade out as they rotate to the far side (see tick), so accept a tap
+                        // only on a camera-facing marker — a faded/hidden far-side marker (drawn
+                        // depth-off) must not steal a tap meant for a near channel or empty space.
                         if name.hasPrefix("acu:"), facing {
                             let id = String(name.dropFirst(4))
-                            if let pt = Acupoint.all.first(where: { $0.id == id }) {
+                            if let pt = Acupoint.byId[id] {
                                 model.selectedMeridian = nil
                                 model.pointLabels = []
                                 model.selectedPoint = pt

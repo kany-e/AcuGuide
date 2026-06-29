@@ -33,16 +33,20 @@ enum BodyAtlas {
         let inner: Float = 0.012, outer: Float = 0.016
         for side in [Side.right, .left] {
             let s = side.sign
+            // Acupoint markers live on the RIGHT side only, so only the right channels are tappable
+            // (a left tap would otherwise float the meridian's tags on the opposite-side markers);
+            // the left channels are drawn for symmetry but stay visual-only.
+            let tappable = side == .right
             // Full arm chain off the skeleton: shoulder → upper arm → elbow → wrist.
             let arm = [b(side.k("Shoulder")), b(side.k("UpperArm")), b(side.k("LowerArm")), b(side.k("Hand"))]
-            root.addChildNode(channel(arm, dx: -s * inner, meridian: "lung",    mesh: mesh, front: true))
-            root.addChildNode(channel(arm, dx:  s * outer, meridian: "li",      mesh: mesh, front: true))
+            root.addChildNode(channel(arm, dx: -s * inner, meridian: "lung",    mesh: mesh, front: true, tappable: tappable))
+            root.addChildNode(channel(arm, dx:  s * outer, meridian: "li",      mesh: mesh, front: true, tappable: tappable))
             // Full leg chain: hip → thigh → knee → ankle.
             let leg = [b(side.k("UpperLeg")), b(side.k("LowerLeg")), mix(b(side.k("LowerLeg")), b(side.k("Foot")), 0.7)]
-            root.addChildNode(channel(leg, dx: -s * inner, meridian: "stomach", mesh: mesh, front: true))
-            root.addChildNode(channel(leg, dx:  s * outer * 1.3, meridian: "gb", mesh: mesh, front: true))
+            root.addChildNode(channel(leg, dx: -s * inner, meridian: "stomach", mesh: mesh, front: true, tappable: tappable))
+            root.addChildNode(channel(leg, dx:  s * outer * 1.3, meridian: "gb", mesh: mesh, front: true, tappable: tappable))
         }
-        // Torso midlines: ren (front) and du (back).
+        // Torso midlines: ren (front) and du (back) — single + central, always tappable.
         let spine = [b("Hips"), b("Spine"), b("Chest"), b("Neck")]
         root.addChildNode(channel(spine, dx: 0, meridian: "ren", mesh: mesh, front: true))
         root.addChildNode(channel(spine, dx: 0, meridian: "du",  mesh: mesh, front: false))
@@ -61,7 +65,7 @@ enum BodyAtlas {
     // not beside it), then lay a thin meridian-colored tube + halo + gap-filling joints, drawn on
     // top of the translucent body (high renderingOrder) so it never blends away at grazing angles.
     private static func channel(_ pts: [SIMD3<Float>], dx: Float, meridian: String,
-                                mesh: SCNNode, front: Bool) -> SCNNode {
+                                mesh: SCNNode, front: Bool, tappable: Bool = true) -> SCNNode {
         let offset = pts.map { SIMD3<Float>($0.x + dx, $0.y, $0.z) }
         let dense = densify(offset, perSegment: 6)
         let smoothed = smoothPts(dense, iterations: 3)
@@ -69,7 +73,7 @@ enum BodyAtlas {
         let path = projectAll(curve, mesh: mesh, front: front)
         let mats = channelMaterials(meridian)
         let node = SCNNode()
-        node.name = "mer:" + meridian              // tap hit-test resolves the channel → meridian card
+        if tappable { node.name = "mer:" + meridian }   // tap hit-test resolves the channel → card
         for i in 0 ..< path.count - 1 {
             node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0075, material: mats.halo))
             node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0032, material: mats.core))
@@ -82,13 +86,16 @@ enum BodyAtlas {
             s.renderingOrder = 12
             node.addChildNode(s)
         }
-        // Wide, fully-transparent hit-proxy tubes (children of the named node) so a tap NEAR the
-        // hairline channel still selects the meridian — the visible tube alone is too thin to hit.
-        let step = max(1, path.count / 16)
-        var i = 0
-        while i + step < path.count {
-            node.addChildNode(tube(from: path[i], to: path[i + step], radius: 0.022, material: hitProxyMaterial()))
-            i += step
+        // Modest, fully-transparent hit-proxy tubes (children of the named node) so a tap near the
+        // hairline channel still selects it — but small enough not to swallow taps meant for the
+        // region labels / empty body. Only added when the channel is tappable.
+        if tappable {
+            let step = max(1, path.count / 16)
+            var i = 0
+            while i + step < path.count {
+                node.addChildNode(tube(from: path[i], to: path[i + step], radius: 0.014, material: hitProxyMaterial()))
+                i += step
+            }
         }
         return node
     }
@@ -183,9 +190,11 @@ enum BodyAtlas {
         // Belly sits ABOVE the hip bone (between Hips 0.884 and Spine 1.053); the label previously
         // rode the hip joint and read low, so anchor it on the navel level (~0.965) and nudge up.
         Region(id: "abdomen", zh: "腹",   en: "Abdomen", anchor: off(belly,          0.02, -0.12,  0.03), center: belly,           radius: 0.18, isHand: false),
-        Region(id: "arm",     zh: "臂",   en: "Arm",     anchor: off(b("LowerArmL"), 0.06, -0.05, 0.02), center: b("LowerArmL"),  radius: 0.16, isHand: false),
-        Region(id: "leg",     zh: "腿",   en: "Leg",     anchor: off(b("LowerLegL"), 0.05, -0.06, 0.00), center: b("LowerLegL"),  radius: 0.20, isHand: false),
-        Region(id: "foot",    zh: "足",   en: "Foot",    anchor: off(b("FootL"),     0.03, -0.05, -0.02), center: b("FootL"),     radius: 0.11, isHand: false),
+        // Arm/leg/foot frame the RIGHT limb (−x) to match the right-side acupoint markers — zooming
+        // the left limb would show an empty part. The outward label nudge is mirrored (−dx).
+        Region(id: "arm",     zh: "臂",   en: "Arm",     anchor: off(b("LowerArmR"), -0.06, -0.05, 0.02), center: b("LowerArmR"),  radius: 0.16, isHand: false),
+        Region(id: "leg",     zh: "腿",   en: "Leg",     anchor: off(b("LowerLegR"), -0.05, -0.06, 0.00), center: b("LowerLegR"),  radius: 0.20, isHand: false),
+        Region(id: "foot",    zh: "足",   en: "Foot",    anchor: off(b("FootR"),     -0.03, -0.05, -0.02), center: b("FootR"),     radius: 0.11, isHand: false),
         Region(id: "hand",    zh: "手部", en: "Hand",    anchor: off(b("HandR"),     0,    -0.05,  0.00), center: handCenter,     radius: 0.12, isHand: true),
     ]
     // Centre of the right hand/forearm marker cluster (between wrist and fingertips).
@@ -249,29 +258,12 @@ enum BodyAtlas {
         let root = SCNNode()
         for m in acuMarkers {
             let col = UIColor(MeridianColors.color(m.meridian))
-            let halo = SCNSphere(radius: 0.014); halo.firstMaterial = glowMat(col, 0.22)
-            let core = SCNSphere(radius: 0.0075); core.firstMaterial = glowMat(col, 1.0)
-            let node = SCNNode(geometry: core)
-            let h = SCNNode(geometry: halo); h.renderingOrder = 14
-            node.addChildNode(h)
-            node.simdPosition = m.pos
-            node.name = "acu:" + m.id
-            node.renderingOrder = 15            // markers pop above the body + channels, so the hand
-                                                // is always readable even when it overlaps the torso
-            root.addChildNode(node)
+            // Markers pop above the body + channels (depth off) so the hand stays readable even when
+            // it overlaps the torso — see AtlasMarkers.node.
+            root.addChildNode(AtlasMarkers.node(id: m.id, color: col, coreRadius: 0.0075,
+                                                haloRadius: 0.014, at: SCNVector3(m.pos.x, m.pos.y, m.pos.z)))
         }
         return root
-    }
-
-    private static func glowMat(_ color: UIColor, _ opacity: CGFloat) -> SCNMaterial {
-        let m = SCNMaterial()
-        m.lightingModel = .constant
-        m.diffuse.contents = color
-        m.emission.contents = color
-        m.transparency = opacity
-        m.readsFromDepthBuffer = false        // always visible on top of the body
-        m.writesToDepthBuffer = false
-        return m
     }
 
     // MARK: helpers

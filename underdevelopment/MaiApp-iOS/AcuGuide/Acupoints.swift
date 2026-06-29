@@ -365,6 +365,9 @@ struct Acupoint: Identifiable, Hashable {
             cautionZh: "用指尖轻柔按压。一般被视为温和的补益穴位，耐受性良好；若感到动脉搏动请减轻力度。",
             cautionEn: "Gentle fingertip pressure. Generally a mild, well-tolerated point; ease off if you feel the artery throbbing in the hollow."),
     ]
+
+    // Id → point index, so tap hit-tests and lookups don't linear-scan `all` every time.
+    static let byId: [String: Acupoint] = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 }
 
 // Meridian colors from data.js MERIDIAN_COLORS.
@@ -377,6 +380,7 @@ enum MeridianColors {
         "pc": Color(hex: "#d485c0"), "sj": Color(hex: "#85d4c0"),
         "gb": Color(hex: "#6abd8a"), "liver": Color(hex: "#d48585"),
         "ren": Color(hex: "#f0e6d2"), "du": Color(hex: "#e8d4a0"),
+        "extra": Color(hex: "#c4b3e0"),   // 经外奇穴 (Yintang/Taiyang/Sishencong) — distinct from du's gold
     ]
     static func color(_ id: String) -> Color { map[id] ?? Ink.gold }
 }
