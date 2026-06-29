@@ -95,6 +95,9 @@ struct SceneKitBody: UIViewRepresentable {
                     // shrink below both happen around the figure's center (keeps it centered).
                     let (lo, hi) = mesh.boundingBox
                     mesh.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
+                    // Meridian channels routed along the GLB skeleton (subtle ink), in the mesh's
+                    // own coordinate space so they stay glued to the body through pose + spin.
+                    mesh.addChildNode(BodyAtlas.channels())
                     let pose = SCNNode()
                     pose.addChildNode(mesh)
                     pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)   // stand the Z-up mesh upright
