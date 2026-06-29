@@ -68,3 +68,11 @@ The project is **generated from `project.yml`** — no hand-assembly. You need
 ## Safety (immutable, same as web)
 No treat/cure/heal/diagnose copy anywhere; the safety gate before the camera is **not skippable**;
 "Felt worse" → stop guidance; pregnancy → "check with a professional" (no contraindicated points used).
+
+## Third-party assets / credits
+- **`AcuGuide/Resources/hand_low_poly.glb`** — "Hand Low Poly" by **scribbletoad**, licensed
+  **CC-BY 4.0** (https://creativecommons.org/licenses/by/4.0/), from Sketchfab. Used for the
+  detailed 3D hand in the hand drill-down. Attribution is also shown in-app on that screen.
+  Required attribution: *"Hand Low Poly" by scribbletoad — CC-BY 4.0.*
+- **`AcuGuide/Resources/model.glb`** — body model (same asset as the web `MaiApp/`).
+- Bundled fonts (`AcuGuide/Fonts/`): **Ma Shan Zheng** and **Cormorant Garamond**, both SIL OFL.

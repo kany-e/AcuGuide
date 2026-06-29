@@ -32,7 +32,7 @@ struct Body3DView: View {
     @StateObject private var model = AtlasModel()
     @ObservedObject private var settings = AppSettings.shared   // re-render labels on language toggle
     @State private var showSettings = false
-    @State private var showHandChart = false        // 2D finger-detail fallback for the hand region
+    @State private var showHandChart = false        // 3D finger-detail hand for the hand region
     @State private var handChartCoach: Acupoint? = nil
 
     var body: some View {
@@ -60,15 +60,32 @@ struct Body3DView: View {
         }
         .sheet(isPresented: $showSettings) { SettingsSheet() }
         .sheet(isPresented: $showHandChart) {
-            // The 3D hand is a low-poly mitten; this 2D silhouette (HAND_PTS) has real fingers and
-            // legible point placement — the spec-sanctioned inset fallback for the hand region.
+            // Detailed 3D hand (real fingers) for the hand drill-down — the body's hand is a mitten.
             NavigationStack {
-                HandAtlasView(startCoach: $handChartCoach)
-                    .navigationTitle(AppLocale.pick("手部穴位", "Hand points"))
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .confirmationAction) {
-                        Button(AppLocale.pick("完成", "Done")) { showHandChart = false }.tint(Ink.gold)
-                    } }
+                ZStack {
+                    ShanshuiBackground()
+                    HandModel3DView().ignoresSafeArea()
+                    VStack {
+                        Spacer()
+                        VStack(spacing: 8) {
+                            Text(AppLocale.pick("手部穴位：中渚 TE3 · 后溪 SI3 · 劳宫 PC8 · 神门 HT7",
+                                                "Hand points: TE3 · SI3 · PC8 · HT7"))
+                                .font(.caption).foregroundStyle(Ink.text.opacity(0.75))
+                                .multilineTextAlignment(.center)
+                            Button(AppLocale.pick("用相机练习 TE3", "Practice TE3 with camera")) {
+                                if let te3 = Acupoint.all.first(where: { $0.id == "TE3" }) { handChartCoach = te3 }
+                            }.buttonStyle(GoldButtonStyle())
+                            Text(AppLocale.pick("手部模型 · scribbletoad（CC-BY 4.0）",
+                                                "Hand model · scribbletoad (CC-BY 4.0)"))
+                                .font(.caption2).foregroundStyle(Ink.textDim)
+                        }.padding(.bottom, 14).padding(.horizontal)
+                    }
+                }
+                .navigationTitle(AppLocale.pick("手部穴位", "Hand points"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) {
+                    Button(AppLocale.pick("完成", "Done")) { showHandChart = false }.tint(Ink.gold)
+                } }
             }
             .onChange(of: handChartCoach) { v in
                 if let pt = v { showHandChart = false; handChartCoach = nil; onPractice(pt) }
