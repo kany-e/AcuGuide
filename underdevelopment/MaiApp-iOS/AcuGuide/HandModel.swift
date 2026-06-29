@@ -70,8 +70,10 @@ struct Hand {
 // On-device calibration knobs, surfaced as debug toggles in the coach view so field
 // calibration happens in one place.
 enum HandCalibration {
-    // dorsal <=> signed > 0 (validated default). Flip if WRONG_FACE fires backwards.
-    static var dorsalWhenSignedPositive = true
+    // dorsal <=> signed < 0. On-device the gate fired backwards (palm-to-camera was read as
+    // dorsal / back), so the calibrated sign is inverted here. The single debug toggle in the
+    // coach view re-inverts it in one place if a given device disagrees. Re-verify on hardware.
+    static var dorsalWhenSignedPositive = false
 }
 
 func dist(_ a: CGPoint, _ b: CGPoint) -> CGFloat { hypot(a.x - b.x, a.y - b.y) }
