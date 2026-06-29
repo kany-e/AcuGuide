@@ -54,6 +54,17 @@ struct ARCoachView: View {
         prevPhase = phase
     }
 
+    // Map a normalized landmark (top-left origin) through the preview's aspect-fill crop, so the
+    // overlay lands on the SAME pixels the user sees. Returns the screen point + the displayed
+    // frame width (to scale the ring radius, which is a fraction of frame width).
+    private func mapFill(_ n: CGPoint, _ size: CGSize) -> (pt: CGPoint, dispW: CGFloat) {
+        let fw = camera.frameAspect, fh: CGFloat = 1
+        let s = max(size.width / fw, size.height / fh)   // aspect-fill: cover, crop overflow
+        let dw = s * fw, dh = s * fh
+        let ox = (size.width - dw) / 2, oy = (size.height - dh) / 2
+        return (CGPoint(x: ox + n.x * dw, y: oy + n.y * dh), dw)
+    }
+
     private var coachLayer: some View {
         GeometryReader { geo in
             ZStack {
@@ -64,15 +75,15 @@ struct ARCoachView: View {
                 // feedback card below is the VoiceOver-announced source of truth.
                 Group {
                     if let c = engine.ringCenter {
-                        let p = CGPoint(x: c.x * geo.size.width, y: c.y * geo.size.height)
-                        let r = engine.ringRadius * geo.size.width
+                        let m = mapFill(c, geo.size)
+                        let r = engine.ringRadius * m.dispW
                         Circle().stroke(engine.color, lineWidth: 3)
-                            .frame(width: r * 2, height: r * 2).position(p)
-                        Circle().fill(engine.color).frame(width: 8, height: 8).position(p)
+                            .frame(width: r * 2, height: r * 2).position(m.pt)
+                        Circle().fill(engine.color).frame(width: 8, height: 8).position(m.pt)
                     }
                     if let t = engine.pressTip {
                         Circle().stroke(.white, lineWidth: 2).frame(width: 16, height: 16)
-                            .position(x: t.x * geo.size.width, y: t.y * geo.size.height)
+                            .position(mapFill(t, geo.size).pt)
                     }
                 }
                 .accessibilityHidden(true)

@@ -9,6 +9,12 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     let engine: CoachEngine
     var acupoint: Acupoint
 
+    // Portrait display aspect (width/height, <1) of the camera frame, published so the overlay can
+    // map normalized landmarks through the SAME aspect-fill crop the preview uses (otherwise the
+    // ring/press dot are offset+scaled from the visible video). Defaults to 9:16.
+    @Published var frameAspect: CGFloat = 9.0 / 16.0
+    private var lastAspect: CGFloat = 0
+
     // The selfie (front) camera is used; the preview is mirrored so it feels natural.
     private let usingFront = true
 
@@ -103,6 +109,12 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
         guard let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let w = CVPixelBufferGetWidth(pixel), h = CVPixelBufferGetHeight(pixel)
+        let aspect = CGFloat(min(w, h)) / CGFloat(max(w, h))   // portrait display aspect (W/H)
+        if abs(aspect - lastAspect) > 0.001 {
+            lastAspect = aspect
+            DispatchQueue.main.async { self.frameAspect = aspect }
+        }
         let handler = VNImageRequestHandler(cvPixelBuffer: pixel, orientation: visionOrientation(), options: [:])
         try? handler.perform([request])
         let hands = (request.results ?? []).compactMap { buildHand($0) }
