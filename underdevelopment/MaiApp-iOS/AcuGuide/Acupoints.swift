@@ -61,11 +61,14 @@ struct Acupoint: Identifiable, Hashable {
             indicationsEn: "Traditionally used in acupuncture practice for side-of-head tension, ear discomfort, and tension across the back of the hand and wrist.",
             coachAlign: "Back of the hand up. Find the groove behind your ring and pinky knuckles.",
             coachHold: "Good — firm, steady pressure with slow breathing, small gentle circles.",
+            // TE3 sits in the depression proximal to the 4th metacarpophalangeal joint, between
+            // the 4th & 5th metacarpals (Acupoints.org; TCM Wiki). Bias toward the ring knuckle and
+            // proximal (toward the wrist) so the target lands in the proximal groove, not on the web.
             mediapipeTarget: MediaPipeTarget(
                 anchors: [
                     AnchorWeight(landmark: .ringMCP, weight: 0.45),
-                    AnchorWeight(landmark: .pinkyMCP, weight: 0.40),
-                    AnchorWeight(landmark: .wrist, weight: 0.15),
+                    AnchorWeight(landmark: .pinkyMCP, weight: 0.30),
+                    AnchorWeight(landmark: .wrist, weight: 0.25),
                 ],
                 toleranceXHandSize: 0.16,
                 pressFinger: .indexTip
