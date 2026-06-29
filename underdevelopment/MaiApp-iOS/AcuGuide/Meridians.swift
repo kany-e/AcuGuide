@@ -24,42 +24,28 @@ enum BodyAtlas {
     ]
     static func b(_ k: String) -> SIMD3<Float> { bone[k] ?? .zero }
 
-    // Front of the body is −y; push channels a little toward the front surface so they read as
-    // lines lying ON the limb rather than through its centre.
-    private static let frontArm: Float = -0.035
-    private static let frontLeg: Float = -0.045
-    private static let frontTorso: Float = -0.095   // front surface of the torso
-    private static let backTorso: Float = 0.080     // back surface (du)
-
     // MARK: Channels
 
-    // Build all six channels under one container node (added to the body mesh, raw mesh coords).
-    static func channels() -> SCNNode {
+    // Build all six channels under one container node, routed along the FULL skeleton chains and
+    // projected onto the body surface (raycast against `mesh`). Added to the body mesh (raw coords).
+    static func channels(on mesh: SCNNode) -> SCNNode {
         let root = SCNNode()
         let inner: Float = 0.012, outer: Float = 0.016
         for side in [Side.right, .left] {
             let s = side.sign
-            // Arm chain: start a bit down the upper arm (lerp 0.24), then elbow → wrist.
-            let arm = [
-                mix(b(side.k("UpperArm")), b(side.k("LowerArm")), 0.24),
-                b(side.k("LowerArm")), b(side.k("Hand")),
-            ]
-            // Lung = medial (toward midline), LI = lateral (away) — sign flips per side.
-            root.addChildNode(channel(arm, dx: -s * inner, dy: frontArm, meridian: "lung"))
-            root.addChildNode(channel(arm, dx:  s * outer, dy: frontArm, meridian: "li"))
-            // Leg chain: start down the thigh (0.20), knee, then just above the ankle (0.7).
-            let leg = [
-                mix(b(side.k("UpperLeg")), b(side.k("LowerLeg")), 0.20),
-                b(side.k("LowerLeg")),
-                mix(b(side.k("LowerLeg")), b(side.k("Foot")), 0.7),
-            ]
-            root.addChildNode(channel(leg, dx: -s * inner, dy: frontLeg, meridian: "stomach"))
-            root.addChildNode(channel(leg, dx:  s * outer * 1.6, dy: frontLeg * 0.6, meridian: "gb"))
+            // Full arm chain off the skeleton: shoulder → upper arm → elbow → wrist.
+            let arm = [b(side.k("Shoulder")), b(side.k("UpperArm")), b(side.k("LowerArm")), b(side.k("Hand"))]
+            root.addChildNode(channel(arm, dx: -s * inner, meridian: "lung",    mesh: mesh, front: true))
+            root.addChildNode(channel(arm, dx:  s * outer, meridian: "li",      mesh: mesh, front: true))
+            // Full leg chain: hip → thigh → knee → ankle.
+            let leg = [b(side.k("UpperLeg")), b(side.k("LowerLeg")), mix(b(side.k("LowerLeg")), b(side.k("Foot")), 0.7)]
+            root.addChildNode(channel(leg, dx: -s * inner, meridian: "stomach", mesh: mesh, front: true))
+            root.addChildNode(channel(leg, dx:  s * outer * 1.6, meridian: "gb", mesh: mesh, front: true))
         }
-        // Torso midlines: ren (front) and du (back). Flatten to the surface plane in y.
+        // Torso midlines: ren (front) and du (back).
         let spine = [b("Hips"), b("Spine"), b("Chest"), b("Neck")]
-        root.addChildNode(channel(spine.map { [$0.x, frontTorso, $0.z] }, dx: 0, dy: 0, meridian: "ren"))
-        root.addChildNode(channel(spine.map { [$0.x, backTorso,  $0.z] }, dx: 0, dy: 0, meridian: "du"))
+        root.addChildNode(channel(spine, dx: 0, meridian: "ren", mesh: mesh, front: true))
+        root.addChildNode(channel(spine, dx: 0, meridian: "du",  mesh: mesh, front: false))
         return root
     }
 
@@ -70,21 +56,48 @@ enum BodyAtlas {
         func k(_ base: String) -> String { base + suffix }
     }
 
-    // One channel: offset the control points, then densify → Laplacian-smooth → centripetal
-    // Catmull-Rom so the line flows along the limb contour (not a rigid zig-zag), and lay a thin
-    // meridian-colored tube + a softer, wider halo along the smoothed curve (≈70 samples).
-    private static func channel(_ pts: [SIMD3<Float>], dx: Float, dy: Float, meridian: String) -> SCNNode {
-        let offset = pts.map { SIMD3<Float>($0.x + dx, $0.y + dy, $0.z) }
+    // One channel: lateral-offset the skeleton control points, densify → Laplacian-smooth →
+    // centripetal Catmull-Rom, PROJECT each sample onto the body surface (so it lies ON the limb,
+    // not beside it), then lay a thin meridian-colored tube + halo + gap-filling joints, drawn on
+    // top of the translucent body (high renderingOrder) so it never blends away at grazing angles.
+    private static func channel(_ pts: [SIMD3<Float>], dx: Float, meridian: String,
+                                mesh: SCNNode, front: Bool) -> SCNNode {
+        let offset = pts.map { SIMD3<Float>($0.x + dx, $0.y, $0.z) }
         let dense = densify(offset, perSegment: 6)
         let smoothed = smoothPts(dense, iterations: 3)
-        let path = catmullRom(smoothed, perSegment: 6)
+        let curve = catmullRom(smoothed, perSegment: 6)
+        let path = curve.map { project($0, mesh: mesh, front: front) }
         let mats = channelMaterials(meridian)
         let node = SCNNode()
         for i in 0 ..< path.count - 1 {
             node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0075, material: mats.halo))
             node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0032, material: mats.core))
         }
+        // Small joint spheres fill the V-gaps where straight segments meet at bends.
+        for p in path {
+            let s = SCNNode(geometry: SCNSphere(radius: 0.0032))
+            s.geometry?.firstMaterial = mats.core
+            s.simdPosition = p
+            s.renderingOrder = 12
+            node.addChildNode(s)
+        }
         return node
+    }
+
+    // Raycast a sample onto the body surface: cast through the limb along the depth axis and pin to
+    // the near (front) / far (back) hit + a small outward nudge. Falls back to the sample if no hit.
+    private static func project(_ p: SIMD3<Float>, mesh: SCNNode, front: Bool) -> SIMD3<Float> {
+        let depth: Float = 0.16
+        let a = SCNVector3(p.x, front ? p.y - depth : p.y + depth, p.z)   // start outside the body
+        let bb = SCNVector3(p.x, front ? p.y + depth : p.y - depth, p.z)  // through to the far side
+        let hits = mesh.hitTestWithSegment(from: a, to: bb, options: [
+            SCNHitTestOption.backFaceCulling.rawValue: false,
+            SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.closest.rawValue,
+        ])
+        guard let h = hits.first else { return p }
+        let lc = h.localCoordinates
+        let nudge: Float = front ? -0.006 : 0.006
+        return [Float(lc.x), Float(lc.y) + nudge, Float(lc.z)]
     }
 
     // Linear subdivision — more control points before smoothing.
@@ -238,6 +251,7 @@ enum BodyAtlas {
         cyl.radialSegmentCount = 6
         cyl.firstMaterial = material
         let node = SCNNode(geometry: cyl)
+        node.renderingOrder = 12               // draw on top of the translucent body
         node.simdPosition = (a + b) / 2
         let dir = d / h
         let yAxis = SIMD3<Float>(0, 1, 0)

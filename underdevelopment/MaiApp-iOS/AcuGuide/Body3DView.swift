@@ -185,7 +185,7 @@ struct SceneKitBody: UIViewRepresentable {
                     let mesh = SCNNode(geometry: geometry)
                     let (lo, hi) = mesh.boundingBox
                     mesh.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
-                    mesh.addChildNode(BodyAtlas.channels())    // meridian channels (skeleton-routed)
+                    mesh.addChildNode(BodyAtlas.channels(on: mesh))  // meridian channels (skeleton-routed, surface-projected)
                     mesh.addChildNode(BodyAtlas.markers())     // 3D acupoint markers (hand/forearm)
                     let pose = SCNNode()
                     pose.addChildNode(mesh)
