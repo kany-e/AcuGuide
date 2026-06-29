@@ -1,144 +1,278 @@
 import SwiftUI
 import SceneKit
 import GLTFKit2
+import simd
 
 // Rotatable 3D body — native port of MaiApp's Body3D.jsx. Loads the SAME asset as the web app,
-// model.glb, at runtime via GLTFKit2 (no usdz conversion / no drift). Sage-green material, soft
-// lighting, gentle auto-rotate that yields to the user's drag, and a pulsing gold hand hotspot
-// that drills into the hand acupoint map (mirrors the web onEnterHand). The capsule is shown
-// only if the model is missing or fails to load.
+// model.glb, at runtime via GLTFKit2 (no usdz / no drift). Sage-green matte material, soft
+// lighting, gentle auto-rotate, meridian channels along the skeleton, and brush-style region
+// labels (头/胸/腹/臂/腿/足/手部) projected onto the body. Tapping a body region zooms the camera
+// in to that part (a 全身/Full-body control returns); tapping 手部 drills into the hand acupoint
+// map (mirrors the web onEnterHand). The capsule shows only if the model is missing.
+
+// Shared state between the SwiftUI overlay and the SceneKit coordinator.
+final class AtlasModel: ObservableObject {
+    struct Label: Identifiable { let id: String; let region: BodyAtlas.Region; let point: CGPoint }
+    @Published var labels: [Label] = []          // region labels projected to screen (full-body mode)
+    @Published var focused: BodyAtlas.Region?    // non-nil while zoomed into a region
+    fileprivate weak var coordinator: SceneKitBody.Coordinator?
+
+    func tap(_ region: BodyAtlas.Region, onEnterHand: () -> Void) {
+        if region.isHand { onEnterHand(); return }   // hand is the drill-down, not a zoom
+        focused = region
+        coordinator?.focus(region)
+    }
+    func exitFocus() { focused = nil; coordinator?.unfocus() }
+}
+
 struct Body3DView: View {
     var onEnterHand: () -> Void = {}
+    @StateObject private var model = AtlasModel()
     @State private var pulse = false
 
     var body: some View {
         ZStack {
             ShanshuiBackground()
-            SceneKitBody().ignoresSafeArea()
-                .accessibilityHidden(true)   // 3D canvas isn't VoiceOver-inspectable; the pill is the control
+            SceneKitBody(model: model).ignoresSafeArea().accessibilityHidden(true)
 
-            // A pulsing gold "enter hand" control. It's a labeled control (not a marker pinned to
-            // the hand), so the body's auto-rotation can't leave it stranded over empty space.
-            VStack {
-                Spacer()
-                Button(action: onEnterHand) {
-                    HStack(spacing: 8) {
-                        Circle().fill(Ink.gold).frame(width: 14, height: 14)
-                            .scaleEffect(pulse ? 1.2 : 0.85)
-                        Text(AppLocale.pick("查看手部穴位", "View hand points"))
-                            .font(.subheadline).bold()
-                        Image(systemName: "chevron.right").font(.caption.bold())
+            // Region labels projected onto the body (full-body mode only). This overlay is
+            // full-screen + ignoresSafeArea so .position matches SceneKit's projectPoint coords.
+            ZStack {
+                if model.focused == nil {
+                    ForEach(model.labels) { lab in
+                        regionLabel(lab.region).position(lab.point)
                     }
-                    .foregroundStyle(Ink.paperLight)
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(Capsule().fill(Ink.gold.opacity(0.92)))
                 }
-                .accessibilityLabel(AppLocale.pick("查看手部穴位", "View hand acupoints"))
-                .padding(.bottom, 6)
-
-                Text(AppLocale.pick("拖动旋转身体", "Drag to rotate the body"))
-                    .font(.caption).foregroundStyle(Ink.text.opacity(0.7)).padding(.bottom, 24)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+
+            chrome
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { pulse = true }
         }
     }
+
+    // Safe-area-respecting controls: a back button when zoomed, else a hint line.
+    private var chrome: some View {
+        VStack {
+            if let f = model.focused {
+                HStack {
+                    Button { model.exitFocus() } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "chevron.left").font(.caption.bold())
+                            Text(AppLocale.pick("全身", "Full body")).font(.subheadline).bold()
+                        }
+                        .foregroundStyle(Ink.text)
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(Capsule().fill(Ink.paperLight).overlay(Capsule().stroke(Ink.line, lineWidth: 1)))
+                    }
+                    .accessibilityLabel(AppLocale.pick("返回全身", "Back to full body"))
+                    Spacer()
+                }
+                .padding(.horizontal).padding(.top, 6)
+            }
+            Spacer()
+            if let f = model.focused {
+                Text(AppLocale.pick(f.zh, f.en)).font(.title3).bold().foregroundStyle(Ink.brush)
+                Text(AppLocale.pick("此区域本版本暂无可练习的穴位。",
+                                    "No practice points in this region in this build."))
+                    .font(.caption).foregroundStyle(Ink.textDim)
+                    .multilineTextAlignment(.center).padding(.horizontal)
+                    .padding(.bottom, 26)
+            } else {
+                Text(AppLocale.pick("点按区域放大 · 拖动旋转", "Tap a region to zoom · drag to rotate"))
+                    .font(.caption).foregroundStyle(Ink.text.opacity(0.7)).padding(.bottom, 24)
+            }
+        }
+    }
+
+    @ViewBuilder private func regionLabel(_ r: BodyAtlas.Region) -> some View {
+        Button { model.tap(r, onEnterHand: onEnterHand) } label: {
+            if r.isHand {
+                // The pulsing gold hand hotspot (web HandHotspot) — small, always reachable.
+                HStack(spacing: 4) {
+                    Circle().fill(Ink.gold).frame(width: 9, height: 9).scaleEffect(pulse ? 1.3 : 0.85)
+                    Text(AppLocale.pick(r.zh, r.en)).font(.caption2).bold().foregroundStyle(Ink.gold)
+                }
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(Capsule().fill(Ink.paperLight.opacity(0.82)))
+            } else {
+                // Brush-style ink name tag — plain text + a soft parchment halo for legibility.
+                Text(AppLocale.pick(r.zh, r.en))
+                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                    .foregroundStyle(Ink.brush)
+                    .shadow(color: Ink.paperLight.opacity(0.95), radius: 1.6)
+                    .shadow(color: Ink.paperLight.opacity(0.7), radius: 0.6)
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityLabel(AppLocale.pick(r.zh, r.en))
+        .accessibilityHint(r.isHand ? AppLocale.pick("查看手部穴位", "Opens the hand acupoint map")
+                                    : AppLocale.pick("放大到此区域", "Zooms to this region"))
+    }
 }
 
 struct SceneKitBody: UIViewRepresentable {
+    @ObservedObject var model: AtlasModel
+
+    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
+
     func makeUIView(context: Context) -> SpinSCNView {
         let view = SpinSCNView()
         view.backgroundColor = .clear
-        // allowsCameraControl synthesizes a camera that AUTO-FRAMES the scene content — an
-        // explicit fixed camera failed to frame it. Default lighting guarantees the body is lit.
         view.allowsCameraControl = true
         view.autoenablesDefaultLighting = true
         view.antialiasingMode = .multisampling4X
 
         let scene = SCNScene()
-
-        // Everything spins on a container node so the gentle auto-rotation and the user's drag
-        // don't fight: dragging moves the CAMERA (allowsCameraControl), and the container's spin
-        // is PAUSED while a touch is down (see SpinSCNView).
-        let spin = SCNNode()
+        let spin = SCNNode()                                   // auto-rotation container
         scene.rootNode.addChildNode(spin)
         spin.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 24)))
 
-        // Capsule placeholder shown until/unless the real model loads.
-        let capsule = makeCapsule()
+        let capsule = makeCapsule()                            // placeholder until the GLB loads
         spin.addChildNode(capsule)
 
         view.scene = scene
         view.spinNode = spin
+        context.coordinator.attach(view: view, spin: spin)
+        model.coordinator = context.coordinator
 
-        // Load the real GLB asynchronously; swap in on success, keep the capsule otherwise.
         if let url = Bundle.main.url(forResource: "model", withExtension: "glb") {
             GLTFAsset.load(with: url, options: [:]) { _, status, maybeAsset, _, _ in
                 guard status == .complete, let asset = maybeAsset else { return }
                 let gltfScene = SCNScene(gltfAsset: asset)
                 DispatchQueue.main.async {
-                    // GLTFKit2 imports this rigged GLB with a skinner that collapses the mesh to a
-                    // point (degenerate post-conversion — flattenedClone bounds are zero), so render
-                    // the static bind-pose geometry directly. It is authored Z-up (lying down), so a
-                    // -90° X rotation stands it upright; the camera controller frames the result.
+                    // GLTFKit2's skinner collapses the rigged mesh to a point; render the static
+                    // bind-pose geometry directly. Authored Z-up (lying down) → -90°X stands it up.
                     var found: SCNGeometry? = nil
                     gltfScene.rootNode.enumerateHierarchy { n, _ in if found == nil { found = n.geometry } }
-                    guard let found else { return }         // keep the capsule if there's no mesh
+                    guard let found else { return }
                     capsule.removeFromParentNode()
-                    // COPY the geometry — the shared GLTFKit2 geometry ignores a replaced materials
-                    // array (its appearance is driven by GLTFKit2 shader modifiers); a copy takes ours.
                     let geometry = found.copy() as! SCNGeometry
                     geometry.materials = [sageMaterial()]
                     let mesh = SCNNode(geometry: geometry)
-                    // Pivot the mesh on its own bounding-box center so the pose's rotation AND the
-                    // shrink below both happen around the figure's center (keeps it centered).
                     let (lo, hi) = mesh.boundingBox
                     mesh.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
-                    // Meridian channels routed along the GLB skeleton (subtle ink), in the mesh's
-                    // own coordinate space so they stay glued to the body through pose + spin.
-                    mesh.addChildNode(BodyAtlas.channels())
+                    mesh.addChildNode(BodyAtlas.channels())    // meridian channels (skeleton-routed)
                     let pose = SCNNode()
                     pose.addChildNode(mesh)
-                    pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)   // stand the Z-up mesh upright
+                    pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
                     spin.addChildNode(pose)
 
-                    // Explicit camera (added to the ROOT, not `spin`, so it doesn't rotate with the
-                    // body). An explicit pointOfView stops allowsCameraControl's auto-fit from
-                    // re-framing the figure to fill the view; we place it far enough back that the
-                    // figure reads as a small ink figure (~1/5 of the view), centered, with generous
-                    // empty space. Pinch-zoom drives this same camera so the user can zoom into a part.
-                    let radius = pose.boundingSphere.radius            // figure is centered at origin
+                    // Explicit camera (root child) so allowsCameraControl's auto-fit doesn't reframe
+                    // the figure to fill the view; placed back so it reads as a small ink figure.
+                    let radius = pose.boundingSphere.radius
                     let cam = SCNNode()
                     cam.camera = SCNCamera()
                     cam.camera?.fieldOfView = 50
                     cam.camera?.zNear = 0.01
                     cam.camera?.zFar = Double(radius) * 400 + 100
-                    cam.position = SCNVector3(0, 0, radius * 11)        // ~1/5 of the view at fov 50
+                    cam.position = SCNVector3(0, 0, radius * 11)
                     scene.rootNode.addChildNode(cam)
                     view.pointOfView = cam
+
+                    context.coordinator.installBody(cam: cam, radius: radius, anchorsOn: mesh)
                 }
             }
         }
         return view
     }
+
     func updateUIView(_ uiView: SpinSCNView, context: Context) {}
+    static func dismantleUIView(_ uiView: SpinSCNView, coordinator: Coordinator) { coordinator.stop() }
+
+    // Drives per-frame projection of region anchors to screen + camera zoom-to-region.
+    final class Coordinator: NSObject {
+        let model: AtlasModel
+        weak var view: SpinSCNView?
+        weak var spin: SCNNode?
+        weak var cam: SCNNode?
+        var radius: Float = 1
+        private var anchors: [(BodyAtlas.Region, SCNNode)] = []
+        private var link: CADisplayLink?
+
+        init(model: AtlasModel) { self.model = model; super.init() }
+
+        func attach(view: SpinSCNView, spin: SCNNode) {
+            self.view = view; self.spin = spin
+            let l = CADisplayLink(target: self, selector: #selector(tick))
+            l.add(to: .main, forMode: .common)
+            link = l
+        }
+
+        func installBody(cam: SCNNode, radius: Float, anchorsOn mesh: SCNNode) {
+            self.cam = cam; self.radius = radius
+            anchors = BodyAtlas.regions.map { r in
+                let n = SCNNode(); n.simdPosition = r.anchor; mesh.addChildNode(n)
+                return (r, n)
+            }
+        }
+
+        // Project each region anchor to a screen point each frame so the brush labels track the
+        // rotating body. Body regions hide on the far side; the hand hotspot stays reachable.
+        @objc private func tick() {
+            guard let view = view, model.focused == nil, !anchors.isEmpty else {
+                if !model.labels.isEmpty && model.focused != nil { model.labels = [] }
+                return
+            }
+            var out: [AtlasModel.Label] = []
+            for (r, node) in anchors {
+                let wp = node.presentation.worldPosition
+                let p = view.projectPoint(wp)
+                let onScreen = p.z > 0 && p.z < 1
+                let facing = r.isHand || wp.z > -0.01            // camera looks down +z toward origin
+                if onScreen && facing {
+                    out.append(.init(id: r.id, region: r, point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y))))
+                }
+            }
+            model.labels = out
+        }
+
+        // Square the body to the front, stop the spin, and dolly the camera in on the region.
+        func focus(_ r: BodyAtlas.Region) {
+            guard let spin = spin, let cam = cam,
+                  let node = anchors.first(where: { $0.0.id == r.id })?.1 else { return }
+            let pres = spin.presentation.eulerAngles
+            spin.removeAllActions()
+            spin.eulerAngles = SCNVector3Zero                    // read the front-facing anchor pos
+            let target = node.worldPosition
+            spin.eulerAngles = pres                              // restore for a smooth animation
+            model.labels = []
+            SCNTransaction.begin(); SCNTransaction.animationDuration = 0.6
+            spin.eulerAngles = SCNVector3Zero
+            cam.position = SCNVector3(target.x, target.y, target.z + radius * 2.4)
+            cam.eulerAngles = SCNVector3Zero
+            SCNTransaction.commit()
+        }
+
+        func unfocus() {
+            guard let spin = spin, let cam = cam else { return }
+            SCNTransaction.begin(); SCNTransaction.animationDuration = 0.6
+            cam.position = SCNVector3(0, 0, radius * 11)
+            cam.eulerAngles = SCNVector3Zero
+            SCNTransaction.commit()
+            spin.eulerAngles = SCNVector3Zero
+            spin.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 24)))
+        }
+
+        func stop() { link?.invalidate(); link = nil }
+    }
 }
 
 // MARK: - Scene helpers (match Body3D.jsx's feel)
 
-// The sage-green material from Body3D.jsx (#aebd9d, slight emissive). Uses .blinn (not
-// .physicallyBased) — PBR washes to white without an environment map, while blinn renders the
-// diffuse color directly under the default lighting. Matte (no specular highlight) and slightly
-// translucent (≈0.85 opaque), matching the web material's roughness 0.85 / transparency 0.85.
+// Sage-green matte material (#aebd9d, low emissive), slightly translucent — matches Body3D.jsx's
+// roughness 0.85 / transparency feel. .blinn (not PBR, which washes white without an env map).
 private func sageMaterial() -> SCNMaterial {
     let mat = SCNMaterial()
     mat.lightingModel = .blinn
     mat.diffuse.contents = UIColor(Ink.bodySage)
-    mat.specular.contents = UIColor(white: 1, alpha: 0.0)   // matte — kill the glossy highlight
+    mat.specular.contents = UIColor(white: 1, alpha: 0.0)
     mat.emission.contents = UIColor(Ink.bodyEmission).withAlphaComponent(0.12)
-    mat.transparency = 0.85                                  // a little see-through (ink-wash feel)
-    mat.isDoubleSided = true                                 // back faces read through the translucency
+    mat.transparency = 0.85
+    mat.isDoubleSided = true
     return mat
 }
 

@@ -87,16 +87,21 @@ enum BodyAtlas {
 
     struct Region: Identifiable { let id: String; let zh: String; let en: String; let anchor: SIMD3<Float>; let isHand: Bool }
 
+    // Anchors are pushed to the front (−y) so the labels read in front of the body, and nudged
+    // outward (lateral +x on the LEFT side / up for head) so the small labels don't pile up on
+    // the centerline. They rotate with the body and hide on the far side (see the projector).
     static let regions: [Region] = [
-        Region(id: "head",    zh: "头部", en: "Head",    anchor: front(b("Head"),  -0.12), isHand: false),
-        Region(id: "chest",   zh: "胸",   en: "Chest",   anchor: front(b("Chest"), -0.12), isHand: false),
-        Region(id: "abdomen", zh: "腹",   en: "Abdomen", anchor: front(b("Hips"),  -0.12), isHand: false),
-        Region(id: "arm",     zh: "臂",   en: "Arm",     anchor: front(b("LowerArmL"), -0.05), isHand: false),
-        Region(id: "leg",     zh: "腿",   en: "Leg",     anchor: front(b("LowerLegL"), -0.06), isHand: false),
-        Region(id: "foot",    zh: "足",   en: "Foot",    anchor: front(b("FootL"),     -0.06), isHand: false),
-        Region(id: "hand",    zh: "手部", en: "Hand",    anchor: front(b("HandR"),     -0.05), isHand: true),
+        Region(id: "head",    zh: "头部", en: "Head",    anchor: off(b("Head"),       0,     -0.13,  0.05), isHand: false),
+        Region(id: "chest",   zh: "胸",   en: "Chest",   anchor: off(b("Chest"),     -0.02,  -0.12,  0.02), isHand: false),
+        Region(id: "abdomen", zh: "腹",   en: "Abdomen", anchor: off(b("Hips"),        0.02,  -0.12, -0.02), isHand: false),
+        Region(id: "arm",     zh: "臂",   en: "Arm",     anchor: off(b("LowerArmL"),   0.06,  -0.05,  0.02), isHand: false),
+        Region(id: "leg",     zh: "腿",   en: "Leg",     anchor: off(b("LowerLegL"),   0.05,  -0.06,  0.00), isHand: false),
+        Region(id: "foot",    zh: "足",   en: "Foot",    anchor: off(b("FootL"),       0.03,  -0.05, -0.02), isHand: false),
+        Region(id: "hand",    zh: "手部", en: "Hand",    anchor: off(b("HandR"),       0,     -0.05,  0.00), isHand: true),
     ]
-    private static func front(_ p: SIMD3<Float>, _ dy: Float) -> SIMD3<Float> { [p.x, p.y + dy, p.z] }
+    private static func off(_ p: SIMD3<Float>, _ dx: Float, _ dy: Float, _ dz: Float) -> SIMD3<Float> {
+        [p.x + dx, p.y + dy, p.z + dz]
+    }
 
     // MARK: helpers
 
