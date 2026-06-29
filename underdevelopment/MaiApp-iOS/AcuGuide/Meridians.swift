@@ -45,21 +45,21 @@ enum BodyAtlas {
                 b(side.k("LowerArm")), b(side.k("Hand")),
             ]
             // Lung = medial (toward midline), LI = lateral (away) — sign flips per side.
-            root.addChildNode(channel(arm, dx: -s * inner, dy: frontArm))   // lung
-            root.addChildNode(channel(arm, dx:  s * outer, dy: frontArm))   // large intestine
+            root.addChildNode(channel(arm, dx: -s * inner, dy: frontArm, meridian: "lung"))
+            root.addChildNode(channel(arm, dx:  s * outer, dy: frontArm, meridian: "li"))
             // Leg chain: start down the thigh (0.20), knee, then just above the ankle (0.7).
             let leg = [
                 mix(b(side.k("UpperLeg")), b(side.k("LowerLeg")), 0.20),
                 b(side.k("LowerLeg")),
                 mix(b(side.k("LowerLeg")), b(side.k("Foot")), 0.7),
             ]
-            root.addChildNode(channel(leg, dx: -s * inner, dy: frontLeg))   // stomach (front-medial)
-            root.addChildNode(channel(leg, dx:  s * outer * 1.6, dy: frontLeg * 0.6)) // gallbladder (lateral)
+            root.addChildNode(channel(leg, dx: -s * inner, dy: frontLeg, meridian: "stomach"))
+            root.addChildNode(channel(leg, dx:  s * outer * 1.6, dy: frontLeg * 0.6, meridian: "gb"))
         }
         // Torso midlines: ren (front) and du (back). Flatten to the surface plane in y.
         let spine = [b("Hips"), b("Spine"), b("Chest"), b("Neck")]
-        root.addChildNode(channel(spine.map { [$0.x, frontTorso, $0.z] }, dx: 0, dy: 0))  // ren
-        root.addChildNode(channel(spine.map { [$0.x, backTorso,  $0.z] }, dx: 0, dy: 0))  // du
+        root.addChildNode(channel(spine.map { [$0.x, frontTorso, $0.z] }, dx: 0, dy: 0, meridian: "ren"))
+        root.addChildNode(channel(spine.map { [$0.x, backTorso,  $0.z] }, dx: 0, dy: 0, meridian: "du"))
         return root
     }
 
@@ -70,17 +70,50 @@ enum BodyAtlas {
         func k(_ base: String) -> String { base + suffix }
     }
 
-    // One channel: offset the control points, smooth (Catmull-Rom), and lay a thin ink tube +
-    // a softer, slightly wider halo along it.
-    private static func channel(_ pts: [SIMD3<Float>], dx: Float, dy: Float) -> SCNNode {
+    // One channel: offset the control points, then densify → Laplacian-smooth → centripetal
+    // Catmull-Rom so the line flows along the limb contour (not a rigid zig-zag), and lay a thin
+    // meridian-colored tube + a softer, wider halo along the smoothed curve (≈70 samples).
+    private static func channel(_ pts: [SIMD3<Float>], dx: Float, dy: Float, meridian: String) -> SCNNode {
         let offset = pts.map { SIMD3<Float>($0.x + dx, $0.y + dy, $0.z) }
-        let path = catmullRom(offset, perSegment: 10)
+        let dense = densify(offset, perSegment: 6)
+        let smoothed = smoothPts(dense, iterations: 3)
+        let path = catmullRom(smoothed, perSegment: 6)
+        let mats = channelMaterials(meridian)
         let node = SCNNode()
         for i in 0 ..< path.count - 1 {
-            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0075, material: haloMat))
-            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0030, material: coreMat))
+            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0075, material: mats.halo))
+            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0032, material: mats.core))
         }
         return node
+    }
+
+    // Linear subdivision — more control points before smoothing.
+    private static func densify(_ p: [SIMD3<Float>], perSegment: Int) -> [SIMD3<Float>] {
+        guard p.count >= 2 else { return p }
+        var out: [SIMD3<Float>] = []
+        for i in 0 ..< p.count - 1 {
+            for s in 0 ..< perSegment {
+                let t = Float(s) / Float(perSegment)
+                out.append(p[i] + (p[i + 1] - p[i]) * t)
+            }
+        }
+        out.append(p[p.count - 1])
+        return out
+    }
+
+    // Laplacian smoothing (web smoothPts): average each interior point with its neighbors, keeping
+    // the endpoints pinned so the channel still starts/ends on the limb.
+    private static func smoothPts(_ p: [SIMD3<Float>], iterations: Int) -> [SIMD3<Float>] {
+        guard p.count >= 3 else { return p }
+        var pts = p
+        for _ in 0 ..< iterations {
+            var next = pts
+            for i in 1 ..< pts.count - 1 {
+                next[i] = (pts[i - 1] + pts[i] * 2 + pts[i + 1]) * 0.25
+            }
+            pts = next
+        }
+        return pts
     }
 
     // MARK: Region anchors (for the projected SwiftUI labels)
@@ -131,13 +164,17 @@ enum BodyAtlas {
         return out
     }
 
-    private static let coreMat: SCNMaterial = inkMaterial(hex: "#363c2f", opacity: 0.85)
-    private static let haloMat: SCNMaterial = inkMaterial(hex: "#5b6551", opacity: 0.16)
+    // One colored core + a softer wider halo per meridian (MERIDIAN_COLORS). Created once per
+    // channel and shared across its segments.
+    private static func channelMaterials(_ meridian: String) -> (core: SCNMaterial, halo: SCNMaterial) {
+        let col = UIColor(MeridianColors.color(meridian))
+        return (lineMaterial(col, 0.90), lineMaterial(col, 0.22))
+    }
 
-    private static func inkMaterial(hex: String, opacity: CGFloat) -> SCNMaterial {
+    private static func lineMaterial(_ color: UIColor, _ opacity: CGFloat) -> SCNMaterial {
         let m = SCNMaterial()
-        m.lightingModel = .constant            // flat ink, unaffected by scene lighting
-        m.diffuse.contents = UIColor(Color(hex: hex))
+        m.lightingModel = .constant            // flat color, unaffected by scene lighting
+        m.diffuse.contents = color
         m.transparency = opacity
         m.isDoubleSided = true
         m.writesToDepthBuffer = false          // sits on top of the translucent body cleanly
