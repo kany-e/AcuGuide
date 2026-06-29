@@ -57,7 +57,7 @@ struct Body3DView: View {
     // Safe-area-respecting controls: a back button when zoomed, else a hint line.
     private var chrome: some View {
         VStack {
-            if let f = model.focused {
+            if model.focused != nil {
                 HStack {
                     Button { model.exitFocus() } label: {
                         HStack(spacing: 5) {
