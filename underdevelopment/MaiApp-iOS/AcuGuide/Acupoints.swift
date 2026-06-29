@@ -66,15 +66,16 @@ struct Acupoint: Identifiable, Hashable {
             coachHold: "Good — firm, steady pressure with slow breathing, small gentle circles.",
             coachAlignZh: "手背朝上。找到无名指与小指掌指关节后方的凹沟。",
             coachHoldZh: "很好 — 稳定用力，配合缓慢呼吸，可做小幅轻柔画圈。",
-            // TE3 sits in the depression JUST proximal to the 4th metacarpophalangeal joint,
-            // between the 4th & 5th metacarpals (Acupoints.org; TCM Wiki). Heavy ring bias with only
-            // a light wrist pull (~15% proximal) so it lands in the 4th/5th groove behind the ring
-            // knuckle — not dragged toward mid-metacarpal by the wrist weight.
+            // TE3 = centre of the 4th/5th metacarpal gap, stepped ~20% proximally into the
+            // depression just behind the 4th MCP. Per the WHO Standard (WPRO 2008) + a sourced
+            // landmark study: 0.5·(ringMCP+pinkyMCP) + 0.20·(wrist−gap) ⇒ ring 0.40 / pinky 0.40 /
+            // wrist 0.20, ring-biased to 0.46/0.34 toward the 4th MCP. NO middleMCP (it pulls the
+            // point radially out of the gap). 0.20 wrist sits it behind the knuckle, not on it.
             mediapipeTarget: MediaPipeTarget(
                 anchors: [
-                    AnchorWeight(landmark: .ringMCP, weight: 0.52),
-                    AnchorWeight(landmark: .pinkyMCP, weight: 0.33),
-                    AnchorWeight(landmark: .wrist, weight: 0.15),
+                    AnchorWeight(landmark: .ringMCP, weight: 0.46),
+                    AnchorWeight(landmark: .pinkyMCP, weight: 0.34),
+                    AnchorWeight(landmark: .wrist, weight: 0.20),
                 ],
                 toleranceXHandSize: 0.16,
                 pressFinger: .indexTip
