@@ -99,9 +99,9 @@ struct Body3DView: View {
                 .padding(.horizontal, 7).padding(.vertical, 3)
                 .background(Capsule().fill(Ink.paperLight.opacity(0.82)))
             } else {
-                // Brush-style ink name tag — plain text + a soft parchment halo for legibility.
+                // Brush-calligraphy ink name tag (Ma Shan Zheng) + a soft parchment halo.
                 Text(AppLocale.pick(r.zh, r.en))
-                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                    .font(Typo.brush(19))
                     .foregroundStyle(Ink.brush)
                     .shadow(color: Ink.paperLight.opacity(0.95), radius: 1.6)
                     .shadow(color: Ink.paperLight.opacity(0.7), radius: 0.6)
