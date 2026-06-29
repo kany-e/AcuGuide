@@ -31,7 +31,6 @@ struct Body3DView: View {
     var onPractice: (Acupoint) -> Void = { _ in }   // TE3 marker → launch the AR coach
     @StateObject private var model = AtlasModel()
     @ObservedObject private var settings = AppSettings.shared   // re-render labels on language toggle
-    @State private var pulse = false
     @State private var showSettings = false
 
     var body: some View {
@@ -54,9 +53,6 @@ struct Body3DView: View {
             chrome
 
             if let pt = model.selectedPoint { pointPanel(pt) }
-        }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { pulse = true }
         }
         .sheet(isPresented: $showSettings) { SettingsSheet() }
     }
@@ -121,9 +117,10 @@ struct Body3DView: View {
             .padding(.horizontal).padding(.top, 6)
             Spacer()
             if let f = model.focused {
-                Text(AppLocale.pick(f.zh, f.en)).font(.title3).bold().foregroundStyle(Ink.brush)
-                Text(AppLocale.pick("此区域本版本暂无可练习的穴位。",
-                                    "No practice points in this region in this build."))
+                Text(AppLocale.pick(f.zh, f.en)).font(Typo.brush(30)).foregroundStyle(Ink.brush)
+                Text(f.isHand
+                     ? AppLocale.pick("点按穴位查看详情。", "Tap an acupoint for details.")
+                     : AppLocale.pick("此区域本版本暂无可练习的穴位。", "No practice points in this region in this build."))
                     .font(.caption).foregroundStyle(Ink.textDim)
                     .multilineTextAlignment(.center).padding(.horizontal)
                     .padding(.bottom, 26)
@@ -134,28 +131,11 @@ struct Body3DView: View {
         }
     }
 
+    // Every region — the hand included — uses the same brush label; it enlarges + glows gold on
+    // hover/press and zooms on tap.
     @ViewBuilder private func regionLabel(_ r: BodyAtlas.Region) -> some View {
-        Button { model.tap(r) } label: {
-            if r.isHand {
-                // The pulsing gold hand hotspot (web HandHotspot) — small, always reachable.
-                HStack(spacing: 4) {
-                    Circle().fill(Ink.gold).frame(width: 9, height: 9).scaleEffect(pulse ? 1.3 : 0.85)
-                    Text(AppLocale.pick(r.zh, r.en)).font(.caption2).bold().foregroundStyle(Ink.gold)
-                }
-                .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(Capsule().fill(Ink.paperLight.opacity(0.82)))
-            } else {
-                // Brush-calligraphy ink name tag (Ma Shan Zheng) + a soft parchment halo.
-                Text(AppLocale.pick(r.zh, r.en))
-                    .font(Typo.brush(19))
-                    .foregroundStyle(Ink.brush)
-                    .shadow(color: Ink.paperLight.opacity(0.95), radius: 1.6)
-                    .shadow(color: Ink.paperLight.opacity(0.7), radius: 0.6)
-            }
-        }
-        .contentShape(Rectangle())
-        .accessibilityLabel(AppLocale.pick(r.zh, r.en))
-        .accessibilityHint(AppLocale.pick("放大到此区域并显示穴位", "Zooms in and shows its acupoints"))
+        BrushLabel(text: AppLocale.pick(r.zh, r.en)) { model.tap(r) }
+            .accessibilityHint(AppLocale.pick("放大到此区域并显示穴位", "Zooms in and shows its acupoints"))
     }
 }
 
@@ -240,6 +220,7 @@ struct SceneKitBody: UIViewRepresentable {
         weak var view: SpinSCNView?
         weak var spin: SCNNode?
         weak var cam: SCNNode?
+        weak var mesh: SCNNode?
         var radius: Float = 1
         private var anchors: [(BodyAtlas.Region, SCNNode)] = []
         private var link: CADisplayLink?
@@ -256,10 +237,14 @@ struct SceneKitBody: UIViewRepresentable {
 
         func installBody(cam: SCNNode, radius: Float, anchorsOn mesh: SCNNode) {
             self.cam = cam; self.radius = radius
+            self.mesh = mesh
             anchors = BodyAtlas.regions.map { r in
                 let n = SCNNode(); n.simdPosition = r.anchor; mesh.addChildNode(n)
                 return (r, n)
             }
+            // Orbit pinch/drag around the body center (origin) in full-body mode, so manual zoom
+            // keeps the figure framed instead of dollying toward the scene origin and sliding off.
+            view?.defaultCameraController.target = SCNVector3Zero
         }
 
         // Project each region anchor to a screen point each frame so the brush labels track the
@@ -287,23 +272,26 @@ struct SceneKitBody: UIViewRepresentable {
             model.labels = out
         }
 
-        // Square the body to the front, stop the spin, and dolly the camera in on the region.
+        // Square the body to the front, stop the spin, and dolly the camera in so the PART itself
+        // fills the view (distance from the region's own extent, not the whole-body radius).
         func focus(_ r: BodyAtlas.Region) {
-            guard let spin = spin, let cam = cam,
-                  let node = anchors.first(where: { $0.0.id == r.id })?.1 else { return }
+            guard let spin = spin, let cam = cam, let mesh = mesh else { return }
             let pres = spin.presentation.eulerAngles
             spin.removeAllActions()
-            spin.eulerAngles = SCNVector3Zero                    // read the front-facing anchor pos
-            let target = node.worldPosition
+            spin.eulerAngles = SCNVector3Zero                    // read the front-facing region center
+            let target = mesh.convertPosition(SCNVector3(r.center.x, r.center.y, r.center.z), to: nil)
             spin.eulerAngles = pres                              // restore for a smooth animation
             model.labels = []
+            // distance = regionRadius / tan(fov/2) * margin → the part fills ~70% of the view.
+            let fovHalf = Float(25.0 * Double.pi / 180.0)        // camera fov is 50°
+            let dist = r.radius / tan(fovHalf) * 1.3
             SCNTransaction.begin(); SCNTransaction.animationDuration = 0.6
             spin.eulerAngles = SCNVector3Zero
-            cam.position = SCNVector3(target.x, target.y, target.z + radius * 2.4)
+            cam.position = SCNVector3(target.x, target.y, target.z + dist)
             cam.eulerAngles = SCNVector3Zero
             SCNTransaction.commit()
-            // Re-seed allowsCameraControl's orbit center so a subsequent drag doesn't snap back.
-            view?.defaultCameraController.target = SCNVector3(target.x, target.y, target.z)
+            // Orbit the focused part: pinch/drag now zoom around it, not the scene origin.
+            view?.defaultCameraController.target = target
         }
 
         func unfocus() {
@@ -399,5 +387,37 @@ final class SpinSCNView: SCNView {
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesCancelled(touches, with: event); spinNode?.isPaused = false
+    }
+}
+
+// Brush-calligraphy region label (Ma Shan Zheng), uniform across all regions. Enlarges + glows
+// gold on hover (pointer) or press (touch); tap fires the zoom action.
+struct BrushLabel: View {
+    let text: String
+    let action: () -> Void
+    @State private var hovering = false
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(Typo.brush(19))
+                .foregroundStyle(Ink.brush)
+                .shadow(color: Ink.paperLight.opacity(0.95), radius: 1.6)
+                .shadow(color: Ink.paperLight.opacity(0.7), radius: 0.6)
+        }
+        .buttonStyle(BrushPressStyle(hovering: hovering))
+        .onHover { hovering = $0 }
+        .contentShape(Rectangle())
+        .accessibilityLabel(text)
+    }
+}
+
+private struct BrushPressStyle: ButtonStyle {
+    let hovering: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        let active = hovering || configuration.isPressed
+        return configuration.label
+            .scaleEffect(active ? 1.12 : 1.0)
+            .shadow(color: Ink.gold.opacity(active ? 0.85 : 0.0), radius: active ? 7 : 0)
+            .animation(.easeOut(duration: 0.15), value: active)
     }
 }

@@ -118,20 +118,25 @@ enum BodyAtlas {
 
     // MARK: Region anchors (for the projected SwiftUI labels)
 
-    struct Region: Identifiable { let id: String; let zh: String; let en: String; let anchor: SIMD3<Float>; let isHand: Bool }
+    // `center` is the body point the camera frames on zoom; `radius` is that part's extent (so the
+    // dolly distance fills the view with the PART, not the whole figure). `anchor` is where the
+    // label floats (pushed to the front −y and nudged outward so the small labels don't pile up).
+    struct Region: Identifiable {
+        let id: String; let zh: String; let en: String
+        let anchor: SIMD3<Float>; let center: SIMD3<Float>; let radius: Float; let isHand: Bool
+    }
 
-    // Anchors are pushed to the front (−y) so the labels read in front of the body, and nudged
-    // outward (lateral +x on the LEFT side / up for head) so the small labels don't pile up on
-    // the centerline. They rotate with the body and hide on the far side (see the projector).
     static let regions: [Region] = [
-        Region(id: "head",    zh: "头部", en: "Head",    anchor: off(b("Head"),       0,     -0.13,  0.05), isHand: false),
-        Region(id: "chest",   zh: "胸",   en: "Chest",   anchor: off(b("Chest"),     -0.02,  -0.12,  0.02), isHand: false),
-        Region(id: "abdomen", zh: "腹",   en: "Abdomen", anchor: off(b("Hips"),        0.02,  -0.12, -0.02), isHand: false),
-        Region(id: "arm",     zh: "臂",   en: "Arm",     anchor: off(b("LowerArmL"),   0.06,  -0.05,  0.02), isHand: false),
-        Region(id: "leg",     zh: "腿",   en: "Leg",     anchor: off(b("LowerLegL"),   0.05,  -0.06,  0.00), isHand: false),
-        Region(id: "foot",    zh: "足",   en: "Foot",    anchor: off(b("FootL"),       0.03,  -0.05, -0.02), isHand: false),
-        Region(id: "hand",    zh: "手部", en: "Hand",    anchor: off(b("HandR"),       0,     -0.05,  0.00), isHand: true),
+        Region(id: "head",    zh: "头部", en: "Head",    anchor: off(b("Head"),     0,    -0.13,  0.05), center: b("Head"),       radius: 0.13, isHand: false),
+        Region(id: "chest",   zh: "胸",   en: "Chest",   anchor: off(b("Chest"),   -0.02, -0.12,  0.02), center: b("Chest"),      radius: 0.17, isHand: false),
+        Region(id: "abdomen", zh: "腹",   en: "Abdomen", anchor: off(b("Hips"),     0.02, -0.12, -0.02), center: b("Hips"),       radius: 0.17, isHand: false),
+        Region(id: "arm",     zh: "臂",   en: "Arm",     anchor: off(b("LowerArmL"), 0.06, -0.05, 0.02), center: b("LowerArmL"),  radius: 0.16, isHand: false),
+        Region(id: "leg",     zh: "腿",   en: "Leg",     anchor: off(b("LowerLegL"), 0.05, -0.06, 0.00), center: b("LowerLegL"),  radius: 0.20, isHand: false),
+        Region(id: "foot",    zh: "足",   en: "Foot",    anchor: off(b("FootL"),     0.03, -0.05, -0.02), center: b("FootL"),     radius: 0.11, isHand: false),
+        Region(id: "hand",    zh: "手部", en: "Hand",    anchor: off(b("HandR"),     0,    -0.05,  0.00), center: handCenter,     radius: 0.12, isHand: true),
     ]
+    // Centre of the right hand/forearm marker cluster (between wrist and fingertips).
+    private static let handCenter: SIMD3<Float> = [-0.355, -0.06, 0.86]
     private static func off(_ p: SIMD3<Float>, _ dx: Float, _ dy: Float, _ dz: Float) -> SIMD3<Float> {
         [p.x + dx, p.y + dy, p.z + dz]
     }
