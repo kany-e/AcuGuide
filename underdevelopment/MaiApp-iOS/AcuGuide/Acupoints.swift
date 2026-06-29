@@ -17,11 +17,10 @@ struct MediaPipeTarget: Hashable {
     let pressFinger: HandJoint           // which fingertip presses (INDEX_TIP for TE3)
 }
 
-// Picks the device-locale string. Chinese locales get the zh copy; everything else the en copy.
+// Picks the active-language string from the in-app setting (defaults to the device locale on
+// first launch; toggled in Settings). Observe AppSettings.shared in a view to re-render on change.
 enum AppLocale {
-    static var isChinese: Bool {
-        (Locale.current.language.languageCode?.identifier ?? "en").hasPrefix("zh")
-    }
+    static var isChinese: Bool { AppSettings.shared.lang == .zh }
     static func pick(_ zh: String, _ en: String) -> String { isChinese ? zh : en }
 }
 

@@ -73,8 +73,11 @@ final class ChatService {
 }
 
 struct ChatView: View {
+    @ObservedObject private var settings = AppSettings.shared
     @State private var messages: [ChatMessage] = [
-        .init(role: .coach, text: "Hi — ask me about any hand acupoint, or how to press TE3 中渚. 你也可以用中文问我。")
+        .init(role: .coach, text: AppLocale.pick(
+            "你好 — 可以问我任意手部穴位，或如何按压中渚 TE3。",
+            "Hi — ask me about any hand acupoint, or how to press TE3 中渚."))
     ]
     @State private var input = ""
     @State private var sending = false
@@ -93,7 +96,7 @@ struct ChatView: View {
                 }
             }
             HStack(spacing: 10) {
-                TextField("Ask the coach…", text: $input, axis: .vertical)
+                TextField(AppLocale.pick("问问教练…", "Ask the coach…"), text: $input, axis: .vertical)
                     .textFieldStyle(.plain).padding(10).panel()
                 Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
                     .tint(Ink.gold).disabled(sending || input.trimmingCharacters(in: .whitespaces).isEmpty)

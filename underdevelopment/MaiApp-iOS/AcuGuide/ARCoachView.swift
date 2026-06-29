@@ -8,8 +8,9 @@ struct ARCoachView: View {
     @StateObject private var camera: CameraCoach
     @StateObject private var voice = CoachVoice()
     @StateObject private var haptics = CoachHaptics()
+    @ObservedObject private var settings = AppSettings.shared
     @State private var acknowledged = false
-    @State private var feeling: String? = nil
+    @State private var feeling: String? = nil      // stable key: "relief" | "nochange" | "worse"
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
 
@@ -140,21 +141,26 @@ struct ARCoachView: View {
 
     private var recap: some View {
         VStack(spacing: 20) {
-            Text("Nicely held").font(.title2).foregroundStyle(Ink.gold)
-            Text("You stayed on \(acupoint.id) (\(acupoint.zh)) steadily.")
+            Text(AppLocale.pick("保持得很好", "Nicely held")).font(.title2).foregroundStyle(Ink.gold)
+            Text(AppLocale.pick("你在 \(acupoint.id)（\(acupoint.zh)）上稳定地保持了。",
+                                "You stayed on \(acupoint.id) (\(acupoint.zh)) steadily."))
                 .foregroundStyle(Ink.text).multilineTextAlignment(.center)
-            Text("How do you feel?").font(.headline).foregroundStyle(Ink.text)
+            Text(AppLocale.pick("感觉如何？", "How do you feel?")).font(.headline).foregroundStyle(Ink.text)
             HStack {
-                ForEach(["Some relief", "No change", "Felt worse"], id: \.self) { f in
-                    Button(f) { feeling = f }.buttonStyle(GoldButtonStyle())
-                        .accessibilityHint("Records how you feel after the routine")
+                ForEach([("relief", AppLocale.pick("有所缓解", "Some relief")),
+                         ("nochange", AppLocale.pick("没有变化", "No change")),
+                         ("worse", AppLocale.pick("感觉更糟", "Felt worse"))], id: \.0) { item in
+                    Button(item.1) { feeling = item.0 }.buttonStyle(GoldButtonStyle())
+                        .accessibilityHint(AppLocale.pick("记录练习后的感受", "Records how you feel after the routine"))
                 }
             }
-            if feeling == "Felt worse" {
-                Text("Please stop for now. If symptoms are severe or persistent, consider seeing a professional.")
+            // "Felt worse" → advise stopping, never "continue" (immutable safety behavior).
+            if feeling == "worse" {
+                Text(AppLocale.pick("请暂时停止。如果症状严重或持续，请考虑就医。",
+                                    "Please stop for now. If symptoms are severe or persistent, consider seeing a professional."))
                     .font(.footnote).foregroundStyle(Ink.terracotta).multilineTextAlignment(.center).padding()
             }
-            Text("Wellness self-care only — not medical advice.")
+            Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
                 .font(.caption2).foregroundStyle(Ink.textDim)
         }
         .padding(28)
@@ -166,16 +172,21 @@ struct SafetyGate: View {
     let onAcknowledge: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Before you begin").font(.title2).foregroundStyle(Ink.gold)
-            Text("This is wellness self-care, not a medical tool. Stop and seek care if you notice:")
+            Text(AppLocale.pick("开始之前", "Before you begin")).font(.title2).foregroundStyle(Ink.gold)
+            Text(AppLocale.pick("这是养生自我保养，并非医疗工具。如出现以下情况，请停止并就医：",
+                                "This is wellness self-care, not a medical tool. Stop and seek care if you notice:"))
                 .foregroundStyle(Ink.text)
-            ForEach(["sudden severe pain", "numbness or weakness", "dizziness", "worsening symptoms"], id: \.self) {
+            ForEach([AppLocale.pick("突发剧烈疼痛", "sudden severe pain"),
+                     AppLocale.pick("麻木或无力", "numbness or weakness"),
+                     AppLocale.pick("头晕", "dizziness"),
+                     AppLocale.pick("症状加重", "worsening symptoms")], id: \.self) {
                 Label($0, systemImage: "exclamationmark.triangle").foregroundStyle(Ink.text).font(.subheadline)
             }
-            Text("If you are pregnant or have a medical condition, check with a professional first.")
+            Text(AppLocale.pick("如果你怀孕或有健康状况，请先咨询专业人士。",
+                                "If you are pregnant or have a medical condition, check with a professional first."))
                 .font(.footnote).foregroundStyle(Ink.textDim)
             Spacer().frame(height: 8)
-            Button("I understand", action: onAcknowledge)
+            Button(AppLocale.pick("我明白了", "I understand"), action: onAcknowledge)
                 .buttonStyle(GoldButtonStyle()).frame(maxWidth: .infinity)
         }
         .padding(28)

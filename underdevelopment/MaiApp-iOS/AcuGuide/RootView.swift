@@ -2,26 +2,27 @@ import SwiftUI
 
 struct RootView: View {
     @State private var startCoach: Acupoint? = nil
+    @ObservedObject private var settings = AppSettings.shared   // re-render tab labels on toggle
 
     var body: some View {
         // No separate "Hand" tab — the hand is a drill-down from the 3D body (web parity).
         TabView {
             AtlasTab(startCoach: $startCoach)
-                .tabItem { Label("Atlas", systemImage: "figure.stand") }
+                .tabItem { Label(AppLocale.pick("图谱", "Atlas"), systemImage: "figure.stand") }
 
             ARCoachLauncher(startCoach: $startCoach)
-                .tabItem { Label("Coach", systemImage: "camera.viewfinder") }
+                .tabItem { Label(AppLocale.pick("引导", "Coach"), systemImage: "camera.viewfinder") }
 
             ChatView()
-                .tabItem { Label("Coach AI", systemImage: "bubble.left.and.bubble.right") }
+                .tabItem { Label(AppLocale.pick("AI 教练", "Coach AI"), systemImage: "bubble.left.and.bubble.right") }
         }
         .tint(Ink.gold)
-        // Launch the AR coach when a point is chosen from the hand atlas.
+        // Launch the AR coach when a TE3 marker chooses "Practice with camera".
         .fullScreenCover(item: $startCoach) { pt in
             NavigationStack {
                 ARCoachView(acupoint: pt)
                     .toolbar { ToolbarItem(placement: .topBarLeading) {
-                        Button("Close") { startCoach = nil }.tint(Ink.gold)
+                        Button(AppLocale.pick("关闭", "Close")) { startCoach = nil }.tint(Ink.gold)
                     } }
             }
         }
@@ -44,16 +45,20 @@ struct AtlasTab: View {
 // The Coach tab: defaults to the validated TE3 routine.
 struct ARCoachLauncher: View {
     @Binding var startCoach: Acupoint?
+    @ObservedObject private var settings = AppSettings.shared
     private var te3: Acupoint { Acupoint.all.first { $0.id == "TE3" } ?? Acupoint.all[0] }
     var body: some View {
         ZStack {
             ShanshuiBackground()
             VStack(spacing: 18) {
-                Text("Tension-headache routine").font(.title3).foregroundStyle(Ink.gold)
-                Text("TE3 · 中渚 — press the groove behind your ring and pinky knuckles, on the back of the hand.")
+                Text(AppLocale.pick("紧张性头痛调理", "Tension-headache routine"))
+                    .font(Typo.serif(20, weight: .semibold)).foregroundStyle(Ink.gold)
+                Text(AppLocale.pick("中渚 TE3 — 在手背、无名指与小指掌指关节后方的凹沟处按压。",
+                                    "TE3 · 中渚 — press the groove behind your ring and pinky knuckles, on the back of the hand."))
                     .foregroundStyle(Ink.text).multilineTextAlignment(.center).padding(.horizontal)
-                Button("Start camera coach") { startCoach = te3 }.buttonStyle(GoldButtonStyle())
-                Text("Wellness self-care only — not medical advice.")
+                Button(AppLocale.pick("开始相机引导", "Start camera coach")) { startCoach = te3 }
+                    .buttonStyle(GoldButtonStyle())
+                Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
                     .font(.caption2).foregroundStyle(Ink.textDim)
             }.padding()
         }

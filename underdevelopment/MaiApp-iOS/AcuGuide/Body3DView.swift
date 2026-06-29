@@ -30,7 +30,9 @@ final class AtlasModel: ObservableObject {
 struct Body3DView: View {
     var onPractice: (Acupoint) -> Void = { _ in }   // TE3 marker → launch the AR coach
     @StateObject private var model = AtlasModel()
+    @ObservedObject private var settings = AppSettings.shared   // re-render labels on language toggle
     @State private var pulse = false
+    @State private var showSettings = false
 
     var body: some View {
         ZStack {
@@ -56,6 +58,7 @@ struct Body3DView: View {
         .onAppear {
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { pulse = true }
         }
+        .sheet(isPresented: $showSettings) { SettingsSheet() }
     }
 
     // Tapped-marker detail card (bottom). TE3 keeps the validated "Practice with camera" path.
@@ -90,11 +93,11 @@ struct Body3DView: View {
         .transition(.move(edge: .bottom))
     }
 
-    // Safe-area-respecting controls: a back button when zoomed, else a hint line.
+    // Safe-area-respecting controls: a top bar (back when zoomed, gear always) + a bottom hint.
     private var chrome: some View {
         VStack {
-            if model.focused != nil {
-                HStack {
+            HStack {
+                if model.focused != nil {
                     Button { model.exitFocus() } label: {
                         HStack(spacing: 5) {
                             Image(systemName: "chevron.left").font(.caption.bold())
@@ -105,10 +108,17 @@ struct Body3DView: View {
                         .background(Capsule().fill(Ink.paperLight).overlay(Capsule().stroke(Ink.line, lineWidth: 1)))
                     }
                     .accessibilityLabel(AppLocale.pick("返回全身", "Back to full body"))
-                    Spacer()
                 }
-                .padding(.horizontal).padding(.top, 6)
+                Spacer()
+                Button { showSettings = true } label: {
+                    Image(systemName: "gearshape")
+                        .font(.callout).foregroundStyle(Ink.text)
+                        .padding(9)
+                        .background(Circle().fill(Ink.paperLight).overlay(Circle().stroke(Ink.line, lineWidth: 1)))
+                }
+                .accessibilityLabel(AppLocale.pick("设置", "Settings"))
             }
+            .padding(.horizontal).padding(.top, 6)
             Spacer()
             if let f = model.focused {
                 Text(AppLocale.pick(f.zh, f.en)).font(.title3).bold().foregroundStyle(Ink.brush)
