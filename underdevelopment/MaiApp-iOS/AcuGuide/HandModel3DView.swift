@@ -85,8 +85,9 @@ struct HandModel3DView: UIViewRepresentable {
         for pt in Acupoint.all where pt.region == "hand" && HandMarkerCalib.contains(pt.x, pt.y) {
             let (X, Y) = HandMarkerCalib.world(Float(pt.x), Float(pt.y))
             // Dorsal points (requiresDorsal) raycast onto the back (camera-facing) surface; palmar
-            // points (PC8/HT7) raycast onto the far PALM surface so they sit on the palm. Markers are
-            // depth-tested against the opaque hand, so palmar ones hide until you rotate to the palm.
+            // points (PC8/HT7) raycast onto the far PALM surface so they sit on the palm anatomically.
+            // Markers draw on top (depth-off) so all four are always visible (palmar ones read as
+            // projected dots from the dorsal view, matching the 2D atlas).
             let fromFront = pt.requiresDorsal
             let from = SCNVector3(X, Y, fromFront ? 1.5 : -1.5)
             let to   = SCNVector3(X, Y, fromFront ? -1.5 : 1.5)
@@ -99,7 +100,7 @@ struct HandModel3DView: UIViewRepresentable {
             let dz: Float = fromFront ? 0.02 : -0.02       // sit just proud of the hit surface
             scene.rootNode.addChildNode(AtlasMarkers.node(
                 id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
-                coreRadius: 0.022, haloRadius: 0.04, at: SCNVector3(p.x, p.y, p.z + dz), depthTested: true))
+                coreRadius: 0.022, haloRadius: 0.04, at: SCNVector3(p.x, p.y, p.z + dz)))
         }
     }
 }

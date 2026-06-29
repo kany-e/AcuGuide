@@ -119,10 +119,11 @@ struct PartModel3DView: UIViewRepresentable {
             guard let hit = hits.first else { continue }
             let p = hit.worldCoordinates
             let dz: Float = fromBack ? -0.02 : 0.02       // sit just proud of the hit surface
-            // Depth-tested against the opaque part mesh, so a back/sole marker hides until you rotate.
+            // Draw on top (depth-off) so every marker is visible; back/sole points are placed on the
+            // far surface anatomically and read as projected dots from the front.
             scene.rootNode.addChildNode(AtlasMarkers.node(
                 id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
-                coreRadius: 0.024, haloRadius: 0.044, at: SCNVector3(p.x, p.y, p.z + dz), depthTested: true))
+                coreRadius: 0.024, haloRadius: 0.044, at: SCNVector3(p.x, p.y, p.z + dz)))
         }
     }
 }

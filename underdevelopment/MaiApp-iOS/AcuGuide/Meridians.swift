@@ -33,18 +33,16 @@ enum BodyAtlas {
         let inner: Float = 0.012, outer: Float = 0.016
         for side in [Side.right, .left] {
             let s = side.sign
-            // Acupoint markers live on the RIGHT side only, so only the right channels are tappable
-            // (a left tap would otherwise float the meridian's tags on the opposite-side markers);
-            // the left channels are drawn for symmetry but stay visual-only.
-            let tappable = side == .right
+            // Both sides are tappable so a tap on whichever limb faces you opens the meridian; the
+            // selection reveals that meridian's points (modeled on the right) regardless of side.
             // Full arm chain off the skeleton: shoulder → upper arm → elbow → wrist.
             let arm = [b(side.k("Shoulder")), b(side.k("UpperArm")), b(side.k("LowerArm")), b(side.k("Hand"))]
-            root.addChildNode(channel(arm, dx: -s * inner, meridian: "lung",    mesh: mesh, front: true, tappable: tappable))
-            root.addChildNode(channel(arm, dx:  s * outer, meridian: "li",      mesh: mesh, front: true, tappable: tappable))
+            root.addChildNode(channel(arm, dx: -s * inner, meridian: "lung",    mesh: mesh, front: true))
+            root.addChildNode(channel(arm, dx:  s * outer, meridian: "li",      mesh: mesh, front: true))
             // Full leg chain: hip → thigh → knee → ankle.
             let leg = [b(side.k("UpperLeg")), b(side.k("LowerLeg")), mix(b(side.k("LowerLeg")), b(side.k("Foot")), 0.7)]
-            root.addChildNode(channel(leg, dx: -s * inner, meridian: "stomach", mesh: mesh, front: true, tappable: tappable))
-            root.addChildNode(channel(leg, dx:  s * outer * 1.3, meridian: "gb", mesh: mesh, front: true, tappable: tappable))
+            root.addChildNode(channel(leg, dx: -s * inner, meridian: "stomach", mesh: mesh, front: true))
+            root.addChildNode(channel(leg, dx:  s * outer * 1.3, meridian: "gb", mesh: mesh, front: true))
         }
         // Torso midlines: ren (front) and du (back) — single + central, always tappable.
         let spine = [b("Hips"), b("Spine"), b("Chest"), b("Neck")]
@@ -93,7 +91,7 @@ enum BodyAtlas {
             let step = max(1, path.count / 16)
             var i = 0
             while i + step < path.count {
-                node.addChildNode(tube(from: path[i], to: path[i + step], radius: 0.014, material: hitProxyMaterial()))
+                node.addChildNode(tube(from: path[i], to: path[i + step], radius: 0.03, material: hitProxyMaterial()))
                 i += step
             }
         }
@@ -254,16 +252,37 @@ enum BodyAtlas {
 
     // Small glowing meridian-colored spheres; node names ("acu:<id>") let a tap hit-test identify
     // the point. Added to the mesh (raw coords) so they ride the body through pose + spin.
-    static func markers() -> SCNNode {
+    static func markers(on mesh: SCNNode) -> SCNNode {
         let root = SCNNode()
         for m in acuMarkers {
             let col = UIColor(MeridianColors.color(m.meridian))
-            // Markers pop above the body + channels (depth off) so the hand stays readable even when
-            // it overlaps the torso — see AtlasMarkers.node.
-            root.addChildNode(AtlasMarkers.node(id: m.id, color: col, coreRadius: 0.0075,
-                                                haloRadius: 0.014, at: SCNVector3(m.pos.x, m.pos.y, m.pos.z)))
+            let pos = snapToSurface(m.pos, mesh: mesh)
+            let node = AtlasMarkers.node(id: m.id, color: col, coreRadius: 0.0075,
+                                         haloRadius: 0.014, at: SCNVector3(pos.x, pos.y, pos.z))
+            node.isHidden = true        // revealed only for the focused region / selected meridian
+            root.addChildNode(node)
         }
         return root
+    }
+
+    // Snap a first-pass marker estimate onto the body surface: raycast radially inward (in the x-y
+    // cross-section at the marker's height z) from outside the body toward the central axis, and place
+    // the marker just proud of the first surface hit — so an estimate that floated off the mesh lands
+    // on it. Points near the vertical axis (vertex/sole) have no radial direction, so keep the estimate.
+    private static func snapToSurface(_ p: SIMD3<Float>, mesh: SCNNode) -> SIMD3<Float> {
+        let radial = SIMD3<Float>(p.x, p.y, 0)
+        let r = simd_length(radial)
+        guard r > 0.02 else { return p }
+        let dir = radial / r
+        let axisPt = SIMD3<Float>(0, 0, p.z)
+        let start = axisPt + dir * 0.45
+        let hits = mesh.hitTestWithSegment(from: SCNVector3(start), to: SCNVector3(axisPt), options: [
+            SCNHitTestOption.backFaceCulling.rawValue: false,
+            SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.closest.rawValue,
+        ])
+        guard let h = hits.first else { return p }
+        let hit = SIMD3<Float>(Float(h.localCoordinates.x), Float(h.localCoordinates.y), Float(h.localCoordinates.z))
+        return hit + dir * 0.006
     }
 
     // MARK: helpers
@@ -305,7 +324,7 @@ enum BodyAtlas {
     private static func hitProxyMaterial() -> SCNMaterial {
         let m = SCNMaterial()
         m.lightingModel = .constant
-        m.transparency = 0.0
+        m.colorBufferWriteMask = []        // invisible (writes no color) but still hit-testable
         m.writesToDepthBuffer = false
         m.readsFromDepthBuffer = false
         m.isDoubleSided = true

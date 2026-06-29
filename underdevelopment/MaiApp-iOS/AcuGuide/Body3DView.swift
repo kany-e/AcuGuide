@@ -294,10 +294,11 @@ struct Body3DView: View {
                     }
                 }
             } else {
-                Text(AppLocale.pick("点按区域放大 · 点按经络或穴位 · 拖动旋转",
-                                    "Tap a region to zoom · tap a channel or point · drag to rotate"))
+                Text(AppLocale.pick("点按区域放大 · 点按经络查看穴位 · 拖动旋转",
+                                    "Tap a region to zoom · tap a channel for its points · drag to rotate"))
                     .font(.caption).foregroundStyle(Ink.text.opacity(0.7)).multilineTextAlignment(.center)
                     .padding(.horizontal).padding(.bottom, 24)
+                    .allowsHitTesting(false)   // don't block the (bottom-positioned) 足/Foot label
             }
         }
     }
@@ -357,7 +358,7 @@ struct SceneKitBody: UIViewRepresentable {
                     let (lo, hi) = mesh.boundingBox
                     mesh.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
                     mesh.addChildNode(BodyAtlas.channels(on: mesh))  // meridian channels (skeleton-routed, surface-projected)
-                    mesh.addChildNode(BodyAtlas.markers())     // 3D acupoint markers (hand/forearm)
+                    mesh.addChildNode(BodyAtlas.markers(on: mesh))  // 3D acupoint markers, surface-snapped
                     let pose = SCNNode()
                     pose.addChildNode(mesh)
                     pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
@@ -436,20 +437,16 @@ struct SceneKitBody: UIViewRepresentable {
             if now - lastPublish < 1.0 / 30.0 { return }
             lastPublish = now
 
-            // Region brush labels: full-body mode only.
+            // Region brush labels: full-body mode only. All stay fully visible/tappable (they're the
+            // only full-body affordance now that markers are hidden until a region/meridian is picked),
+            // so they don't fade out as the figure rotates.
             if model.focused == nil && !anchors.isEmpty {
                 var out: [AtlasModel.Label] = []
                 for (r, node) in anchors {
-                    let wp = node.presentation.worldPosition
-                    let p = view.projectPoint(wp)
-                    guard p.z > 0 && p.z < 1 else { continue }   // off-screen / behind camera
-                    // Fade by facing instead of a hard cut, so labels don't pop as the body rotates.
-                    let z = Float(wp.z)
-                    let opacity = r.isHand ? 1.0 : Double(max(0, min(1, (z + 0.05) / 0.09)))
-                    if opacity > 0.02 {
-                        out.append(.init(id: r.id, region: r,
-                                         point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)), opacity: opacity))
-                    }
+                    let p = view.projectPoint(node.presentation.worldPosition)
+                    guard p.z > 0 && p.z < 1 else { continue }   // in front of the camera
+                    out.append(.init(id: r.id, region: r,
+                                     point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)), opacity: 1.0))
                 }
                 model.labels = out
             } else if !model.labels.isEmpty {
@@ -483,12 +480,22 @@ struct SceneKitBody: UIViewRepresentable {
                 if !model.pointLabels.isEmpty { model.pointLabels = [] }
             }
 
-            // Fade markers by facing: a marker rotated to the far side of the (depth-off) body
-            // shouldn't read as a tappable dot. Keeps the visible set in sync with handleTap's
-            // facing gate, and matches how the region/point labels fade.
-            for node in acuNodes.values {
-                let z = Float(node.presentation.worldPosition.z)
-                node.opacity = CGFloat(max(0, min(1, (z + 0.05) / 0.09)))
+            // Acupoint markers are HIDDEN until you tap a region label (→ that region's points) or a
+            // meridian channel (→ that meridian's points). Keeps the full-body figure uncluttered.
+            // When revealed in full-body (meridian), fade by facing; when zoomed into a region, show
+            // fully (the part faces the camera).
+            for (id, node) in acuNodes {
+                let pt = Acupoint.byId[id]
+                let inRegion = model.focused != nil && model.focused?.id == pt?.region
+                let inMeridian = model.selectedMeridian != nil && model.selectedMeridian?.id == pt?.meridian
+                node.isHidden = !(inRegion || inMeridian)
+                if node.isHidden { continue }
+                if model.focused != nil {
+                    node.opacity = 1.0
+                } else {
+                    let z = Float(node.presentation.worldPosition.z)
+                    node.opacity = CGFloat(max(0, min(1, (z + 0.05) / 0.09)))
+                }
             }
         }
 
@@ -539,10 +546,10 @@ struct SceneKitBody: UIViewRepresentable {
                 var n: SCNNode? = h.node
                 while let node = n {
                     if let name = node.name {
-                        // Markers fade out as they rotate to the far side (see tick), so accept a tap
-                        // only on a camera-facing marker — a faded/hidden far-side marker (drawn
-                        // depth-off) must not steal a tap meant for a near channel or empty space.
-                        if name.hasPrefix("acu:"), facing {
+                        // Markers are only shown for the focused region / selected meridian. When
+                        // zoomed in, any shown marker is tappable; in full-body (meridian reveal) only
+                        // a camera-facing one, so a far-side marker can't steal a near tap.
+                        if name.hasPrefix("acu:"), (model.focused != nil || facing) {
                             let id = String(name.dropFirst(4))
                             if let pt = Acupoint.byId[id] {
                                 model.selectedMeridian = nil
