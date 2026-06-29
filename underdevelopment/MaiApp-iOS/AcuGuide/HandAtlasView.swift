@@ -35,7 +35,7 @@ struct HandAtlasView: View {
                         .frame(width: box.width * scale, height: box.height * scale)
                         .position(x: geo.size.width / 2, y: geo.size.height / 2)
 
-                    ForEach(Acupoint.all) { pt in
+                    ForEach(Acupoint.all.filter { $0.region == "hand" }) { pt in
                         Circle()
                             .fill(MeridianColors.color(pt.meridian))
                             .frame(width: selected?.id == pt.id ? 18 : 12,

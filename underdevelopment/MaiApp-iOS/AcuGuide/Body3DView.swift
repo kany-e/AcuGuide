@@ -13,18 +13,25 @@ import simd
 // Shared state between the SwiftUI overlay and the SceneKit coordinator.
 final class AtlasModel: ObservableObject {
     struct Label: Identifiable { let id: String; let region: BodyAtlas.Region; let point: CGPoint; let opacity: Double }
+    // A floating acupoint name tag drawn at a projected marker position (while a meridian is selected).
+    struct PLabel: Identifiable { let id: String; let text: String; let color: Color; let point: CGPoint; let opacity: Double }
     @Published var labels: [Label] = []          // region labels projected to screen (full-body mode)
+    @Published var pointLabels: [PLabel] = []    // acupoint name tags for the selected meridian
     @Published var focused: BodyAtlas.Region?    // non-nil while zoomed into a region
     @Published var selectedPoint: Acupoint?      // a tapped 3D acupoint marker
+    @Published var selectedMeridian: Meridian?   // a tapped channel → its card + point tags
     fileprivate weak var coordinator: SceneKitBody.Coordinator?
 
     // Every region (including the hand) is now an IN-SCENE camera zoom — no 2D drill-down.
     func tap(_ region: BodyAtlas.Region) {
         selectedPoint = nil
+        selectedMeridian = nil
+        pointLabels = []
         focused = region
         coordinator?.focus(region)
     }
-    func exitFocus() { focused = nil; selectedPoint = nil; coordinator?.unfocus() }
+    func exitFocus() { focused = nil; selectedPoint = nil; selectedMeridian = nil; pointLabels = []; coordinator?.unfocus() }
+    func clearSelection() { selectedPoint = nil; selectedMeridian = nil; pointLabels = [] }
 }
 
 struct Body3DView: View {
@@ -34,6 +41,8 @@ struct Body3DView: View {
     @State private var showSettings = false
     @State private var showHandChart = false        // 3D finger-detail hand for the hand region
     @State private var handChartCoach: Acupoint? = nil
+    @State private var handSel: Acupoint? = nil      // a tapped marker on the detailed hand chart
+    @State private var detailPart: PartDetail? = nil // head/arm/foot detailed-model drill-down
 
     var body: some View {
         ZStack {
@@ -54,9 +63,21 @@ struct Body3DView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea()
 
+            // Acupoint name tags floating on the selected meridian's markers ("their names display
+            // as you tap the channel"). Non-interactive — taps still reach the 3D markers/channels.
+            ZStack {
+                ForEach(model.pointLabels) { lab in
+                    pointTag(lab).position(lab.point).opacity(lab.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+
             chrome
 
             if let pt = model.selectedPoint { pointPanel(pt) }
+            else if let m = model.selectedMeridian { meridianPanel(m) }
         }
         .sheet(isPresented: $showSettings) { SettingsSheet() }
         .sheet(isPresented: $showHandChart) {
@@ -64,23 +85,39 @@ struct Body3DView: View {
             NavigationStack {
                 ZStack {
                     ShanshuiBackground()
-                    HandModel3DView().ignoresSafeArea()
+                    HandModel3DView(onSelect: { handSel = $0 }).ignoresSafeArea()
                     VStack {
                         Spacer()
                         VStack(spacing: 8) {
-                            Text(AppLocale.pick("手部穴位：中渚 TE3 · 后溪 SI3 · 劳宫 PC8 · 神门 HT7",
-                                                "Hand points: TE3 · SI3 · PC8 · HT7"))
-                                .font(.caption).foregroundStyle(Ink.text.opacity(0.75))
-                                .multilineTextAlignment(.center)
-                            Button(AppLocale.pick("用相机练习 TE3", "Practice TE3 with camera")) {
-                                if let te3 = Acupoint.all.first(where: { $0.id == "TE3" }) { handChartCoach = te3 }
-                            }.buttonStyle(GoldButtonStyle())
+                            if let s = handSel {
+                                // Tapped-marker detail.
+                                HStack(spacing: 8) {
+                                    Circle().fill(MeridianColors.color(s.meridian)).frame(width: 9, height: 9)
+                                    Text("\(s.id) · \(s.zh)").font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
+                                    Text(s.en).font(Typo.code(15)).foregroundStyle(Ink.textDim)
+                                }
+                                Text(s.location).font(.caption).foregroundStyle(Ink.text)
+                                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                                if s.mediapipeTarget != nil {
+                                    Button(AppLocale.pick("用相机练习", "Practice with camera")) { handChartCoach = s }
+                                        .buttonStyle(GoldButtonStyle())
+                                }
+                            } else {
+                                Text(AppLocale.pick("点按手上的穴位查看详情：中渚 TE3 · 后溪 SI3 · 劳宫 PC8 · 神门 HT7",
+                                                    "Tap a point on the hand for detail: TE3 · SI3 · PC8 · HT7"))
+                                    .font(.caption).foregroundStyle(Ink.text.opacity(0.75))
+                                    .multilineTextAlignment(.center)
+                                Button(AppLocale.pick("用相机练习 TE3", "Practice TE3 with camera")) {
+                                    if let te3 = Acupoint.all.first(where: { $0.id == "TE3" }) { handChartCoach = te3 }
+                                }.buttonStyle(GoldButtonStyle())
+                            }
                             Text(AppLocale.pick("手部模型 · scribbletoad（CC-BY 4.0）",
                                                 "Hand model · scribbletoad (CC-BY 4.0)"))
                                 .font(.caption2).foregroundStyle(Ink.textDim)
                         }.padding(.bottom, 14).padding(.horizontal)
                     }
                 }
+                .onAppear { handSel = nil }
                 .navigationTitle(AppLocale.pick("手部穴位", "Hand points"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) {
@@ -90,6 +127,10 @@ struct Body3DView: View {
             .onChange(of: handChartCoach) { v in
                 if let pt = v { showHandChart = false; handChartCoach = nil; onPractice(pt) }
             }
+        }
+        // Detailed-model drill-down for head / arm / foot (uses the added part GLBs).
+        .sheet(item: $detailPart) { cfg in
+            PartDetailSheet(config: cfg) { detailPart = nil }
         }
     }
 
@@ -103,26 +144,105 @@ struct Body3DView: View {
                     Text("\(pt.id) · \(pt.zh)").font(Typo.serif(18, weight: .semibold)).foregroundStyle(Ink.gold)
                     Text(pt.en).font(Typo.code(17)).foregroundStyle(Ink.textDim)
                     Spacer()
-                    Button { model.selectedPoint = nil } label: {
+                    Button { model.clearSelection() } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(Ink.textDim)
                     }.accessibilityLabel(AppLocale.pick("关闭", "Close"))
                 }
+                // Meridian chip — tappable when the channel is one we draw (opens its card).
+                Button { if let m = Meridian.by(pt.meridian) { model.selectedPoint = nil; model.selectedMeridian = m } } label: {
+                    HStack(spacing: 6) {
+                        Text(pt.meridianName).font(.caption).foregroundStyle(Ink.text)
+                        if Meridian.by(pt.meridian) != nil {
+                            Image(systemName: "chevron.right").font(.caption2.bold()).foregroundStyle(Ink.gold)
+                        }
+                    }
+                }.disabled(Meridian.by(pt.meridian) == nil)
                 Text(pt.location).font(.subheadline).foregroundStyle(Ink.text)
                     .fixedSize(horizontal: false, vertical: true)
+                if !pt.indications.isEmpty {
+                    Text(pt.indications).font(.caption).foregroundStyle(Ink.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !pt.caution.isEmpty {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.caption2).foregroundStyle(Ink.gold)
+                        Text(pt.caution).font(.caption2).foregroundStyle(Ink.gold.opacity(0.9))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 if pt.mediapipeTarget != nil {
                     Button(AppLocale.pick("用相机练习", "Practice with camera")) {
-                        let p = pt; model.selectedPoint = nil; onPractice(p)
+                        let p = pt; model.clearSelection(); onPractice(p)
                     }.buttonStyle(GoldButtonStyle())
-                } else {
-                    Text(AppLocale.pick("本版本仅 TE3 提供相机引导。",
-                                        "Camera coaching is available for TE3 in this build."))
-                        .font(.caption).foregroundStyle(Ink.textDim)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding().panel().padding()
         }
         .transition(.move(edge: .bottom))
+    }
+
+    // Tapped-channel card (bottom): meridian name + traditional description + its atlas points as
+    // tappable chips. Selecting a chip swaps to that point's detail; the point name tags also float
+    // on the body markers (see model.pointLabels / tick()).
+    private func meridianPanel(_ m: Meridian) -> some View {
+        VStack {
+            Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Circle().fill(m.color).frame(width: 10, height: 10)
+                    Text(m.name).font(Typo.serif(18, weight: .semibold)).foregroundStyle(Ink.gold)
+                    Text(m.ab).font(Typo.code(15)).foregroundStyle(Ink.textDim)
+                    Spacer()
+                    Button { model.clearSelection() } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Ink.textDim)
+                    }.accessibilityLabel(AppLocale.pick("关闭", "Close"))
+                }
+                Text(m.desc).font(.subheadline).foregroundStyle(Ink.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                let pts = m.points
+                if pts.isEmpty {
+                    Text(AppLocale.pick("本图谱暂未收录此经的穴位。",
+                                        "No points from this channel are in this atlas yet."))
+                        .font(.caption).foregroundStyle(Ink.textDim)
+                } else {
+                    Text(AppLocale.pick("此经穴位（点按查看）", "Points on this channel (tap for detail)"))
+                        .font(.caption2).foregroundStyle(Ink.gold).textCase(.uppercase)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(pts) { p in
+                                Button { model.selectedPoint = p } label: {
+                                    HStack(spacing: 5) {
+                                        Circle().fill(MeridianColors.color(p.meridian)).frame(width: 7, height: 7)
+                                        Text("\(p.id) · \(AppLocale.pick(p.zh, p.en))").font(.caption)
+                                    }
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .background(Capsule().fill(Ink.paperLight).overlay(Capsule().stroke(Ink.line, lineWidth: 1)))
+                                    .foregroundStyle(Ink.text)
+                                }
+                            }
+                        }.padding(.vertical, 2)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding().panel().padding()
+        }
+        .transition(.move(edge: .bottom))
+    }
+
+    // A small floating acupoint name tag drawn over its 3D marker while a meridian is selected.
+    private func pointTag(_ lab: AtlasModel.PLabel) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(lab.color).frame(width: 6, height: 6)
+            Text(lab.text).font(.caption2.bold())
+        }
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().fill(Ink.paperLight.opacity(0.92))
+            .overlay(Capsule().stroke(lab.color.opacity(0.7), lineWidth: 1)))
+        .foregroundStyle(Ink.text)
+        .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+        .fixedSize()
     }
 
     // Safe-area-respecting controls: a top bar (back when zoomed, gear always) + a bottom hint.
@@ -162,14 +282,20 @@ struct Body3DView: View {
                     Button(AppLocale.pick("手部图", "Hand chart")) { showHandChart = true }
                         .buttonStyle(GoldButtonStyle()).padding(.top, 2).padding(.bottom, 16)
                 } else {
-                    Text(AppLocale.pick("此区域本版本暂无可练习的穴位。", "No practice points in this region in this build."))
+                    Text(AppLocale.pick("点按发光穴位查看详情。", "Tap a glowing point for its details."))
                         .font(.caption).foregroundStyle(Ink.textDim)
                         .multilineTextAlignment(.center).padding(.horizontal)
-                        .padding(.bottom, 26)
+                        .padding(.bottom, PartDetail.forRegion(f.id) == nil ? 26 : 4)
+                    if let cfg = PartDetail.forRegion(f.id) {
+                        Button(AppLocale.pick("细看模型", "Detailed view")) { detailPart = cfg }
+                            .buttonStyle(GoldButtonStyle()).padding(.bottom, 16)
+                    }
                 }
             } else {
-                Text(AppLocale.pick("点按区域放大 · 拖动旋转", "Tap a region to zoom · drag to rotate"))
-                    .font(.caption).foregroundStyle(Ink.text.opacity(0.7)).padding(.bottom, 24)
+                Text(AppLocale.pick("点按区域放大 · 点按经络或穴位 · 拖动旋转",
+                                    "Tap a region to zoom · tap a channel or point · drag to rotate"))
+                    .font(.caption).foregroundStyle(Ink.text.opacity(0.7)).multilineTextAlignment(.center)
+                    .padding(.horizontal).padding(.bottom, 24)
             }
         }
     }
@@ -266,6 +392,7 @@ struct SceneKitBody: UIViewRepresentable {
         weak var mesh: SCNNode?
         var radius: Float = 1
         private var anchors: [(BodyAtlas.Region, SCNNode)] = []
+        private var acuNodes: [String: SCNNode] = [:]    // id → marker node, for projecting name tags
         private var link: CADisplayLink?
         private var lastPublish: CFTimeInterval = 0
 
@@ -285,6 +412,11 @@ struct SceneKitBody: UIViewRepresentable {
                 let n = SCNNode(); n.simdPosition = r.anchor; mesh.addChildNode(n)
                 return (r, n)
             }
+            // Cache the acupoint marker nodes so a selected meridian can float name tags on them.
+            acuNodes.removeAll()
+            mesh.enumerateHierarchy { n, _ in
+                if let nm = n.name, nm.hasPrefix("acu:") { self.acuNodes[String(nm.dropFirst(4))] = n }
+            }
             // Orbit pinch/drag around the body center (origin) in full-body mode, so manual zoom
             // keeps the figure framed instead of dollying toward the scene origin and sliding off.
             view?.defaultCameraController.target = SCNVector3Zero
@@ -293,31 +425,53 @@ struct SceneKitBody: UIViewRepresentable {
         // Project each region anchor to a screen point each frame so the brush labels track the
         // rotating body. Body regions hide on the far side; the hand hotspot stays reachable.
         @objc private func tick() {
-            guard let view = view, model.focused == nil, !anchors.isEmpty else {
-                if !model.labels.isEmpty && model.focused != nil { model.labels = [] }
-                return
-            }
-            // Throttle the @Published label republish to ~30 Hz so the overlay isn't diffed at the
-            // full 60–120 Hz display rate the whole time the auto-rotating atlas is on screen.
+            guard let view = view else { return }
+            // Throttle the @Published republish to ~30 Hz so the overlay isn't diffed at the full
+            // 60–120 Hz display rate the whole time the auto-rotating atlas is on screen.
             let now = link?.timestamp ?? 0
             if now - lastPublish < 1.0 / 30.0 { return }
             lastPublish = now
-            var out: [AtlasModel.Label] = []
-            for (r, node) in anchors {
-                let wp = node.presentation.worldPosition
-                let p = view.projectPoint(wp)
-                guard p.z > 0 && p.z < 1 else { continue }       // off-screen / behind camera
-                // Fade by facing instead of a hard cut, so labels don't pop in/out as the body
-                // rotates: full opacity on the near side, ramping to 0 as the anchor turns away.
-                // The hand stays fully visible (it's the key drill-down).
-                let z = Float(wp.z)
-                let opacity = r.isHand ? 1.0 : Double(max(0, min(1, (z + 0.05) / 0.09)))
-                if opacity > 0.02 {
-                    out.append(.init(id: r.id, region: r,
-                                     point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)), opacity: opacity))
+
+            // Region brush labels: full-body mode only.
+            if model.focused == nil && !anchors.isEmpty {
+                var out: [AtlasModel.Label] = []
+                for (r, node) in anchors {
+                    let wp = node.presentation.worldPosition
+                    let p = view.projectPoint(wp)
+                    guard p.z > 0 && p.z < 1 else { continue }   // off-screen / behind camera
+                    // Fade by facing instead of a hard cut, so labels don't pop as the body rotates.
+                    let z = Float(wp.z)
+                    let opacity = r.isHand ? 1.0 : Double(max(0, min(1, (z + 0.05) / 0.09)))
+                    if opacity > 0.02 {
+                        out.append(.init(id: r.id, region: r,
+                                         point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)), opacity: opacity))
+                    }
                 }
+                model.labels = out
+            } else if !model.labels.isEmpty {
+                model.labels = []
             }
-            model.labels = out
+
+            // Acupoint name tags for the selected meridian (any mode), projected onto their markers.
+            if let mer = model.selectedMeridian {
+                var out: [AtlasModel.PLabel] = []
+                for pt in mer.points {
+                    guard let node = acuNodes[pt.id] else { continue }
+                    let wp = node.presentation.worldPosition
+                    let p = view.projectPoint(wp)
+                    guard p.z > 0 && p.z < 1 else { continue }
+                    let z = Float(wp.z)
+                    let opacity = Double(max(0, min(1, (z + 0.05) / 0.09)))
+                    if opacity > 0.04 {
+                        out.append(.init(id: pt.id, text: "\(pt.id) · \(AppLocale.pick(pt.zh, pt.en))",
+                                         color: MeridianColors.color(pt.meridian),
+                                         point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)), opacity: opacity))
+                    }
+                }
+                model.pointLabels = out
+            } else if !model.pointLabels.isEmpty {
+                model.pointLabels = []
+            }
         }
 
         // Square the body to the front, stop the spin, and dolly the camera in so the PART itself
@@ -353,25 +507,39 @@ struct SceneKitBody: UIViewRepresentable {
             spin.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 24)))
         }
 
-        // Hit-test a tap against the acupoint marker nodes (named "acu:<id>"). Markers draw with
-        // depth-test off (always on top), so a far-side marker can sit under the tap — only accept
-        // one on the camera-facing side (z > 0), the nearest hit first.
+        // Hit-test a tap against the acupoint markers ("acu:<id>") and the meridian channels
+        // ("mer:<id>"). Both draw on top (depth-test off), so a far-side hit can sit under the tap —
+        // only accept camera-facing hits. Markers win over channels (you're tapping the point); a
+        // channel hit is remembered and selected only if no facing marker was tapped.
         @objc func handleTap(_ g: UITapGestureRecognizer) {
             guard let view = view else { return }
             let loc = g.location(in: view)
             let hits = view.hitTest(loc, options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
+            var meridianHit: String? = nil
             for h in hits {
+                let facing = Float(h.worldCoordinates.z) > -0.05
                 var n: SCNNode? = h.node
                 while let node = n {
-                    if let name = node.name, name.hasPrefix("acu:") {
-                        if node.presentation.worldPosition.z > -0.02 {     // facing the camera
+                    if let name = node.name {
+                        if name.hasPrefix("acu:"), facing {
                             let id = String(name.dropFirst(4))
-                            if let pt = Acupoint.all.first(where: { $0.id == id }) { model.selectedPoint = pt }
+                            if let pt = Acupoint.all.first(where: { $0.id == id }) {
+                                model.selectedMeridian = nil
+                                model.pointLabels = []
+                                model.selectedPoint = pt
+                            }
                             return
+                        }
+                        if name.hasPrefix("mer:"), facing, meridianHit == nil {
+                            meridianHit = String(name.dropFirst(4))
                         }
                     }
                     n = node.parent
                 }
+            }
+            if let mid = meridianHit, let m = Meridian.by(mid) {
+                model.selectedPoint = nil
+                model.selectedMeridian = m
             }
         }
 

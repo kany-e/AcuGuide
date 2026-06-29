@@ -69,6 +69,7 @@ enum BodyAtlas {
         let path = projectAll(curve, mesh: mesh, front: front)
         let mats = channelMaterials(meridian)
         let node = SCNNode()
+        node.name = "mer:" + meridian              // tap hit-test resolves the channel → meridian card
         for i in 0 ..< path.count - 1 {
             node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0075, material: mats.halo))
             node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0032, material: mats.core))
@@ -80,6 +81,14 @@ enum BodyAtlas {
             s.simdPosition = p
             s.renderingOrder = 12
             node.addChildNode(s)
+        }
+        // Wide, fully-transparent hit-proxy tubes (children of the named node) so a tap NEAR the
+        // hairline channel still selects the meridian — the visible tube alone is too thin to hit.
+        let step = max(1, path.count / 16)
+        var i = 0
+        while i + step < path.count {
+            node.addChildNode(tube(from: path[i], to: path[i + step], radius: 0.022, material: hitProxyMaterial()))
+            i += step
         }
         return node
     }
@@ -171,7 +180,9 @@ enum BodyAtlas {
     static let regions: [Region] = [
         Region(id: "head",    zh: "头部", en: "Head",    anchor: off(b("Head"),     0,    -0.13,  0.05), center: b("Head"),       radius: 0.13, isHand: false),
         Region(id: "chest",   zh: "胸",   en: "Chest",   anchor: off(b("Chest"),   -0.02, -0.12,  0.02), center: b("Chest"),      radius: 0.17, isHand: false),
-        Region(id: "abdomen", zh: "腹",   en: "Abdomen", anchor: off(b("Hips"),     0.02, -0.12, -0.02), center: b("Hips"),       radius: 0.17, isHand: false),
+        // Belly sits ABOVE the hip bone (between Hips 0.884 and Spine 1.053); the label previously
+        // rode the hip joint and read low, so anchor it on the navel level (~0.965) and nudge up.
+        Region(id: "abdomen", zh: "腹",   en: "Abdomen", anchor: off(belly,          0.02, -0.12,  0.03), center: belly,           radius: 0.18, isHand: false),
         Region(id: "arm",     zh: "臂",   en: "Arm",     anchor: off(b("LowerArmL"), 0.06, -0.05, 0.02), center: b("LowerArmL"),  radius: 0.16, isHand: false),
         Region(id: "leg",     zh: "腿",   en: "Leg",     anchor: off(b("LowerLegL"), 0.05, -0.06, 0.00), center: b("LowerLegL"),  radius: 0.20, isHand: false),
         Region(id: "foot",    zh: "足",   en: "Foot",    anchor: off(b("FootL"),     0.03, -0.05, -0.02), center: b("FootL"),     radius: 0.11, isHand: false),
@@ -180,6 +191,8 @@ enum BodyAtlas {
     // Centre of the right hand/forearm marker cluster (between wrist and fingertips).
     // Centroid of the four hand markers (TE3/SI3/PC8/HT7) so the hand zoom frames the hand itself.
     private static let handCenter: SIMD3<Float> = [-0.371, -0.065, 0.884]
+    // Navel-level belly point (between Hips 0.884 and Spine 1.053), front of the torso.
+    private static let belly: SIMD3<Float> = [0, -0.005, 0.965]
     private static func off(_ p: SIMD3<Float>, _ dx: Float, _ dy: Float, _ dz: Float) -> SIMD3<Float> {
         [p.x + dx, p.y + dy, p.z + dz]
     }
@@ -191,12 +204,43 @@ enum BodyAtlas {
     // up toward the elbow. LI4 is excluded. Tuned visually against the small low-poly hand.
     struct AcuMarker { let id: String; let meridian: String; let pos: SIMD3<Float> }
     static let acuMarkers: [AcuMarker] = [
+        // Hand / forearm (right hand). ──────────────────────────────────────────────────────────
         AcuMarker(id: "TE3", meridian: "sj",    pos: [-0.370, -0.043, 0.883]),  // dorsal, 4th/5th MC groove
         AcuMarker(id: "SI3", meridian: "si",    pos: [-0.398, -0.055, 0.848]),  // ulnar edge, prox. 5th MC
         AcuMarker(id: "PC8", meridian: "pc",    pos: [-0.365, -0.088, 0.885]),  // palmar, centre of palm
         AcuMarker(id: "HT7", meridian: "heart", pos: [-0.352, -0.075, 0.922]),  // palmar wrist, ulnar
         AcuMarker(id: "PC6", meridian: "pc",    pos: [-0.323, -0.050, 1.002]),  // palmar forearm (2 cun up)
         AcuMarker(id: "SJ5", meridian: "sj",    pos: [-0.323, -0.004, 1.002]),  // dorsal forearm, opp. PC6
+        // Body-region points — first-pass anatomical estimates in mesh space (z-up, right=−x,
+        // front=−y), placed off the GLB skeleton + WHO surface hints. Markers draw on top of the
+        // body, so they read even when slightly off-surface; fine-tune visually like TE3 if needed.
+        // Head & face ─────────────────────────────────────────────────────────────────────────
+        AcuMarker(id: "EX-HN3", meridian: "extra", pos: [ 0.000, -0.085, 1.630]), // glabella, front midline
+        AcuMarker(id: "EX-HN5", meridian: "extra", pos: [-0.080, -0.025, 1.630]), // right temple (lateral)
+        AcuMarker(id: "GV20",   meridian: "du",    pos: [ 0.000,  0.000, 1.760]), // vertex (top of head)
+        AcuMarker(id: "EX-HN1", meridian: "extra", pos: [ 0.000, -0.035, 1.748]), // around the vertex
+        // Chest ───────────────────────────────────────────────────────────────────────────────
+        AcuMarker(id: "CV17",   meridian: "ren",    pos: [ 0.000, -0.100, 1.220]), // mid-sternum
+        AcuMarker(id: "KI27",   meridian: "kidney", pos: [-0.065, -0.090, 1.350]), // under right collarbone
+        // Abdomen ───────────────────────────────────────────────────────────────────────────────
+        AcuMarker(id: "CV12",   meridian: "ren",     pos: [ 0.000, -0.100, 1.080]), // upper abdomen midline
+        AcuMarker(id: "ST25",   meridian: "stomach", pos: [-0.060, -0.100, 0.965]), // right of navel
+        // Arm (right elbow + wrist) ─────────────────────────────────────────────────────────────
+        AcuMarker(id: "LI11",   meridian: "li",    pos: [-0.295, -0.010, 1.155]), // lateral elbow crease
+        AcuMarker(id: "LU5",    meridian: "lung",  pos: [-0.265, -0.050, 1.150]), // anterior elbow crease
+        AcuMarker(id: "TE4",    meridian: "sj",    pos: [-0.345,  0.005, 0.960]), // dorsal wrist
+        AcuMarker(id: "PC7",    meridian: "pc",    pos: [-0.350, -0.085, 0.952]), // palmar wrist crease
+        // Leg (right knee + lower leg) ──────────────────────────────────────────────────────────
+        AcuMarker(id: "ST36",   meridian: "stomach", pos: [-0.115, -0.060, 0.400]), // below knee, front-lat
+        AcuMarker(id: "GB34",   meridian: "gb",      pos: [-0.135, -0.045, 0.480]), // below knee, lateral
+        AcuMarker(id: "SP10",   meridian: "spleen",  pos: [-0.075, -0.055, 0.620]), // inner thigh, above knee
+        AcuMarker(id: "ST34",   meridian: "stomach", pos: [-0.135, -0.060, 0.620]), // outer thigh, above knee
+        AcuMarker(id: "ST35",   meridian: "stomach", pos: [-0.125, -0.065, 0.500]), // outer knee eye
+        // Foot & ankle (right) ──────────────────────────────────────────────────────────────────
+        AcuMarker(id: "LR3",    meridian: "liver",   pos: [-0.120, -0.100, 0.060]), // dorsum, 1st/2nd MT
+        AcuMarker(id: "ST44",   meridian: "stomach", pos: [-0.130, -0.135, 0.045]), // dorsum, 2nd/3rd toe
+        AcuMarker(id: "KI1",    meridian: "kidney",  pos: [-0.120, -0.075, 0.025]), // sole, anterior third
+        AcuMarker(id: "KI3",    meridian: "kidney",  pos: [-0.105,  0.020, 0.110]), // inner ankle
     ]
 
     // Small glowing meridian-colored spheres; node names ("acu:<id>") let a tap hit-test identify
@@ -263,6 +307,17 @@ enum BodyAtlas {
     private static func channelMaterials(_ meridian: String) -> (core: SCNMaterial, halo: SCNMaterial) {
         let col = UIColor(MeridianColors.color(meridian))
         return (lineMaterial(col, 0.90), lineMaterial(col, 0.22))
+    }
+
+    // Invisible material for the wide tap-proxy tubes: never drawn, but still returned by hitTest.
+    private static func hitProxyMaterial() -> SCNMaterial {
+        let m = SCNMaterial()
+        m.lightingModel = .constant
+        m.transparency = 0.0
+        m.writesToDepthBuffer = false
+        m.readsFromDepthBuffer = false
+        m.isDoubleSided = true
+        return m
     }
 
     private static func lineMaterial(_ color: UIColor, _ opacity: CGFloat) -> SCNMaterial {
