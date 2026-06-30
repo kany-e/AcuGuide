@@ -1,7 +1,11 @@
 import SwiftUI
 
 struct ChatMessage: Identifiable { let id = UUID(); let role: Role; let text: String
+    var suggestions: [Acupoint] = []     // practiceable points offered as tappable "Practice" buttons
     enum Role { case user, coach } }
+
+// A coach reply: prose + any practiceable points to surface as launch-the-coach buttons.
+struct CoachAnswer { let text: String; let suggestions: [Acupoint] }
 
 // One general-knowledge entry for the offline coach (ported from the verified research FAQ set).
 struct CoachFAQ { let topic: String; let keywords: [String]; let aZh: String; let aEn: String
@@ -14,14 +18,58 @@ struct CoachFAQ { let topic: String; let keywords: [String]; let aZh: String; le
 // always route to a stop-and-seek-care reply (matching the web app).
 final class ChatService {
     // Order matters: SAFETY first, then the most specific lookup that matched, then general help.
-    func reply(to user: String, history: [ChatMessage]) async -> String {
+    // Each branch may attach practiceable points the UI turns into "Practice with camera" buttons.
+    func reply(to user: String, history: [ChatMessage]) async -> CoachAnswer {
         let raw = user
         let q = user.lowercased()
-        if mentionsRedFlag(raw: raw, lowered: q) { return redFlagReply() }
-        if let point = matchPoint(raw: raw, lowered: q) { return pointReply(point) }
-        if let mer = matchMeridian(raw: raw, lowered: q) { return meridianReply(mer) }
-        if let faq = matchFAQ(raw: raw, lowered: q) { return faq.answer }
-        return generalReply()
+        if mentionsRedFlag(raw: raw, lowered: q) { return CoachAnswer(text: redFlagReply(), suggestions: []) }
+        if let point = matchPoint(raw: raw, lowered: q) {
+            return CoachAnswer(text: pointReply(point), suggestions: practiceable([point]))
+        }
+        if let pts = matchSymptom(raw: raw, lowered: q) {
+            return CoachAnswer(text: symptomReply(pts), suggestions: pts)
+        }
+        if let mer = matchMeridian(raw: raw, lowered: q) {
+            return CoachAnswer(text: meridianReply(mer), suggestions: practiceable(mer.points))
+        }
+        if let faq = matchFAQ(raw: raw, lowered: q) { return CoachAnswer(text: faq.answer, suggestions: []) }
+        return CoachAnswer(text: generalReply(), suggestions: practiceable(headlinePoints))
+    }
+
+    // Practiceable = has a validated AR target. Dedup, cap a few so the bubble stays compact.
+    private func practiceable(_ pts: [Acupoint]) -> [Acupoint] {
+        var seen = Set<String>(); var out: [Acupoint] = []
+        for p in pts where p.mediapipeTarget != nil && !seen.contains(p.id) {
+            seen.insert(p.id); out.append(p); if out.count == 4 { break }
+        }
+        return out
+    }
+    private var headlinePoints: [Acupoint] {
+        ["TE3", "PC6", "SI3", "HT7"].compactMap { Acupoint.byId[$0] }
+    }
+
+    // Map a wellness concern to gentle, practiceable self-care points (NOT a diagnosis). Runs after
+    // a direct point lookup, so "PC6 for nausea" still resolves to the point itself.
+    private func matchSymptom(raw: String, lowered: String) -> [Acupoint]? {
+        let groups: [(kw: [String], ids: [String])] = [
+            (["headache", "migraine", "tension head", "head ache", "头痛", "头疼", "偏头痛"], ["TE3", "SJ5"]),
+            (["nausea", "queasy", "motion sick", "car sick", "seasick", "vomit", "sick to my", "恶心", "想吐", "晕车", "反胃", "孕吐"], ["PC6"]),
+            (["neck", "stiff neck", "shoulder", "颈", "脖子", "肩", "落枕"], ["SI3", "SJ5"]),
+            (["sleep", "insomnia", "anxiety", "anxious", "stress", "restless", "can't relax", "失眠", "焦虑", "压力", "心烦", "紧张", "安神", "睡不着"], ["HT7", "PC8"]),
+            (["wrist", "carpal", "手腕", "腕"], ["TE4", "PC7"]),
+        ]
+        for g in groups where g.kw.contains(where: { lowered.contains($0) || raw.contains($0) }) {
+            let pts = practiceable(g.ids.compactMap { Acupoint.byId[$0] })
+            if !pts.isEmpty { return pts }
+        }
+        return nil
+    }
+    private func symptomReply(_ pts: [Acupoint]) -> String {
+        let names = pts.map { "\($0.id) \(AppLocale.pick($0.zh, $0.en))" }
+            .joined(separator: AppLocale.pick("、", ", "))
+        return AppLocale.pick(
+            "作为温和的自我保养，有些人会按压：\(names)。点按下方按钮即可用相机练习。如有不适，或症状严重、持续，请停止并咨询专业人士。仅供养生自我保养参考。",
+            "As gentle self-care, some people press: \(names). Tap a button below to practice it with the camera. Stop if it’s uncomfortable, and see a professional if symptoms are severe or persistent. Wellness self-care only.")
     }
 
     // Red-flag screen → advise stopping / professional care; never "continue". Covers the web
@@ -193,6 +241,7 @@ final class ChatService {
 }
 
 struct ChatView: View {
+    @Binding var startCoach: Acupoint?     // tapping a suggested point launches the AR coach
     @ObservedObject private var settings = AppSettings.shared
     @State private var messages: [ChatMessage] = [
         .init(role: .coach, text: AppLocale.pick(
@@ -227,12 +276,39 @@ struct ChatView: View {
     }
 
     private func bubble(_ m: ChatMessage) -> some View {
-        HStack {
-            if m.role == .coach { coachText(m.text); Spacer(minLength: 40) }
-            else { Spacer(minLength: 40); userText(m.text) }
+        HStack(alignment: .top) {
+            if m.role == .coach {
+                VStack(alignment: .leading, spacing: 8) {
+                    coachText(m.text)
+                    if !m.suggestions.isEmpty { suggestionRow(m.suggestions) }
+                }
+                Spacer(minLength: 40)
+            } else {
+                Spacer(minLength: 40); userText(m.text)
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel((m.role == .coach ? "Coach" : "You") + ": " + m.text)
+    }
+
+    // Tappable "Practice with camera" buttons under a coach reply — launch the AR coach.
+    private func suggestionRow(_ pts: [Acupoint]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(pts) { p in
+                Button { startCoach = p } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "camera.viewfinder").font(.caption)
+                        Text(AppLocale.pick("用相机练习 \(p.id) · \(p.zh)", "Practice \(p.id) · \(p.en)"))
+                            .font(.caption.weight(.medium))
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(Capsule().fill(Ink.jade.opacity(0.16))
+                        .overlay(Capsule().stroke(Ink.gold.opacity(0.55), lineWidth: 1)))
+                    .foregroundStyle(Ink.gold)
+                }
+                .accessibilityLabel(AppLocale.pick("用相机练习 \(p.id) \(p.zh)", "Practice \(p.id) \(p.en) with the camera"))
+            }
+        }
     }
     private func coachText(_ t: String) -> some View {
         Text(t).padding(12).foregroundStyle(Ink.text)
@@ -250,7 +326,9 @@ struct ChatView: View {
         let hist = messages
         Task {
             let r = await service.reply(to: q, history: hist)
-            await MainActor.run { messages.append(.init(role: .coach, text: r)); sending = false }
+            await MainActor.run {
+                messages.append(.init(role: .coach, text: r.text, suggestions: r.suggestions)); sending = false
+            }
         }
     }
 }

@@ -13,7 +13,7 @@ struct RootView: View {
             ARCoachLauncher(startCoach: $startCoach)
                 .tabItem { Label(AppLocale.pick("引导", "Coach"), systemImage: "camera.viewfinder") }
 
-            ChatView()
+            ChatView(startCoach: $startCoach)
                 .tabItem { Label(AppLocale.pick("AI 教练", "Coach AI"), systemImage: "bubble.left.and.bubble.right") }
         }
         .tint(Ink.gold)

@@ -95,7 +95,15 @@ struct Acupoint: Identifiable, Hashable {
             locationEn: "On the palmar side of the forearm, about two cun above the wrist crease, between the two tendons.",
             indicationsZh: "传统上常与恶心、胸闷、心神不宁、晕动不适等相关联。",
             indicationsEn: "Commonly associated in acupuncture practice with nausea, chest tightness, an unsettled spirit, and motion-related discomfort.",
-            coachAlign: "", coachHold: "", mediapipeTarget: nil
+            coachAlign: "", coachHold: "",
+            // AR target — palmar forearm, 2 cun PROXIMAL to the wrist crease, between the tendons
+            // (WHO 2008; who.int/publications/i/item/9789290613831). No forearm tracking, so this is
+            // EXTRAPOLATED beyond the wrist away from the MCP line: wrist + 0.85·(wrist−middleMCP).
+            // Lower precision (reliability: low) — wide tolerance + a clear caveat in the cue.
+            mediapipeTarget: MediaPipeTarget(anchors: [
+                AnchorWeight(landmark: .wrist,     weight: 1.85),
+                AnchorWeight(landmark: .middleMCP, weight: -0.85),
+            ], toleranceXHandSize: 0.22, pressFinger: .indexTip)
         ),
         Acupoint(
             id: "SJ5", zh: "外关", en: "Waiguan", pinyin: "Wàiguān",
@@ -105,7 +113,14 @@ struct Acupoint: Identifiable, Hashable {
             locationEn: "On the dorsal side of the forearm, about two cun above the dorsal wrist crease, opposite Neiguan.",
             indicationsZh: "传统上常用于头侧不适、耳部不适、上肢酸楚等相关调理。",
             indicationsEn: "Traditionally used in acupuncture practice for side-of-head discomfort, ear discomfort, and aching of the arm.",
-            coachAlign: "", coachHold: "", mediapipeTarget: nil
+            coachAlign: "", coachHold: "",
+            // AR target — dorsal forearm, 2 cun proximal to the dorsal wrist crease, opposite PC6
+            // (WHO 2008; sportsmedicineacupuncture.com/san-jiao-5-waiguan). EXTRAPOLATED up the
+            // forearm (no forearm tracking): wrist + 1.6·(wrist−middleMCP). Reliability: low.
+            mediapipeTarget: MediaPipeTarget(anchors: [
+                AnchorWeight(landmark: .wrist,     weight: 2.6),
+                AnchorWeight(landmark: .middleMCP, weight: -1.6),
+            ], toleranceXHandSize: 0.28, pressFinger: .indexTip)
         ),
         Acupoint(
             id: "PC8", zh: "劳宫", en: "Laogong", pinyin: "Láogōng",
@@ -115,7 +130,15 @@ struct Acupoint: Identifiable, Hashable {
             locationEn: "At the center of the palm, between the second and third metacarpal bones, nearer the third.",
             indicationsZh: "传统上常与心烦、口部不适、手心热等相关联。",
             indicationsEn: "Commonly associated in acupuncture practice with restlessness, mouth discomfort, and warmth of the palms.",
-            coachAlign: "", coachHold: "", mediapipeTarget: nil
+            coachAlign: "", coachHold: "",
+            // AR target — centre of the palm, between the 2nd/3rd metacarpals, just proximal to the
+            // MCP line (WHO 2008; meandqi.com/.../laogong-pc-8). Interpolated inside the tracked
+            // joints: middle-biased, radial (index), distal-of-centre toward the knuckles. Palmar.
+            mediapipeTarget: MediaPipeTarget(anchors: [
+                AnchorWeight(landmark: .middleMCP, weight: 0.50),
+                AnchorWeight(landmark: .indexMCP,  weight: 0.18),
+                AnchorWeight(landmark: .wrist,     weight: 0.32),
+            ], toleranceXHandSize: 0.16, pressFinger: .indexTip)
         ),
         Acupoint(
             id: "HT7", zh: "神门", en: "Shenmen", pinyin: "Shénmén",
@@ -125,7 +148,13 @@ struct Acupoint: Identifiable, Hashable {
             locationEn: "At the wrist, on the ulnar end of the palmar crease, in the depression on the radial side of the flexor carpi ulnaris tendon.",
             indicationsZh: "传统上常与睡眠不安、心神不宁、情绪紧张等相关联。",
             indicationsEn: "Commonly associated in acupuncture practice with restless sleep, an unsettled spirit, and emotional tension.",
-            coachAlign: "", coachHold: "", mediapipeTarget: nil
+            coachAlign: "", coachHold: "",
+            // AR target — ulnar end of the palmar wrist crease (WHO 2008;
+            // meandqi.com/.../shenmen-ht-7). At the wrist, nudged toward the little-finger side. Palmar.
+            mediapipeTarget: MediaPipeTarget(anchors: [
+                AnchorWeight(landmark: .wrist,    weight: 0.85),
+                AnchorWeight(landmark: .pinkyMCP, weight: 0.15),
+            ], toleranceXHandSize: 0.13, pressFinger: .indexTip)
         ),
         Acupoint(
             id: "SI3", zh: "后溪", en: "Houxi", pinyin: "Hòuxī",
@@ -135,7 +164,14 @@ struct Acupoint: Identifiable, Hashable {
             locationEn: "On the ulnar side of the hand, in the depression proximal to the head of the fifth metacarpal bone, at the end of the crease when a loose fist is made.",
             indicationsZh: "传统上常用于颈项强紧、肩背不适、头侧不适等相关调理。",
             indicationsEn: "Traditionally used in acupuncture practice for neck stiffness, shoulder and upper-back discomfort, and side-of-head discomfort.",
-            coachAlign: "", coachHold: "", mediapipeTarget: nil
+            coachAlign: "", coachHold: "",
+            // AR target — ulnar border, proximal to the 5th MCP (WHO 2008; evidencebasedacupuncture.org
+            // /smallintestine/si3-hou-xi). pinkyMCP heavy, pulled proximal (wrist) + ulnar (−ringMCP).
+            mediapipeTarget: MediaPipeTarget(anchors: [
+                AnchorWeight(landmark: .pinkyMCP, weight: 0.85),
+                AnchorWeight(landmark: .wrist,    weight: 0.35),
+                AnchorWeight(landmark: .ringMCP,  weight: -0.20),
+            ], toleranceXHandSize: 0.15, pressFinger: .indexTip)
         ),
 
         // ── Body-region atlas points (display + tappable 3D markers; no AR coaching). ──────────
@@ -257,7 +293,15 @@ struct Acupoint: Identifiable, Hashable {
             locationEn: "On the back of the wrist, at the dorsal wrist crease, in the depression on the little-finger side of the extensor digitorum tendon (WHO Standard 2008).",
             indicationsZh: "传统上常与手腕的轻松灵活感以及手部的温暖舒适相关联。",
             indicationsEn: "Traditionally associated with a supple, relaxed wrist and warm, comfortable hands.",
-            coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "arm",
+            coachAlign: "", coachHold: "",
+            // AR target — dorsal wrist crease, ulnar to the extensor digitorum tendon (WHO 2008;
+            // acupoints.org/te4-acupuncture-point). At the wrist, slightly toward the ring/ulnar side.
+            mediapipeTarget: MediaPipeTarget(anchors: [
+                AnchorWeight(landmark: .wrist,     weight: 0.84),
+                AnchorWeight(landmark: .middleMCP, weight: 0.09),
+                AnchorWeight(landmark: .ringMCP,   weight: 0.07),
+            ], toleranceXHandSize: 0.16, pressFinger: .indexTip),
+            region: "arm",
             cautionZh: "在腕背用指腹轻柔按压；若有疼痛或麻木即停。",
             cautionEn: "Light fingertip pressure on the back of the wrist; stop if you feel pain or numbness."),
         Acupoint(id: "PC7", zh: "大陵", en: "Daling", pinyin: "Dàlíng",
@@ -267,7 +311,14 @@ struct Acupoint: Identifiable, Hashable {
             locationEn: "On the palm-side of the wrist, at the wrist crease, midway between the two tendons (palmaris longus and flexor carpi radialis) (WHO Standard 2008).",
             indicationsZh: "传统上常与平静放松的心境以及手腕的舒适感相关联。",
             indicationsEn: "Traditionally associated with a calm, settled mind and comfort of the wrist.",
-            coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "arm",
+            coachAlign: "", coachHold: "",
+            // AR target — midpoint of the palmar wrist crease, between the PL & FCR tendons (WHO 2008;
+            // meandqi.com/.../daling-pc-7). The wrist landmark sits on the crease centre. Palmar.
+            mediapipeTarget: MediaPipeTarget(anchors: [
+                AnchorWeight(landmark: .wrist,     weight: 0.90),
+                AnchorWeight(landmark: .middleMCP, weight: 0.10),
+            ], toleranceXHandSize: 0.12, pressFinger: .indexTip),
+            region: "arm",
             cautionZh: "在腕横纹正中用指腹轻柔、短暂按压；若有刺麻感传向手部即放松。",
             cautionEn: "Gentle, brief fingertip pressure at the centre of the wrist crease; ease off if you feel tingling into the hand."),
 

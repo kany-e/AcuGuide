@@ -276,14 +276,28 @@ final class CoachEngine: ObservableObject {
         case .wrongFace:        return point.requiresDorsal
                                     ? AppLocale.pick("把手背朝向相机。", "Turn the back of your hand toward the camera.")
                                     : AppLocale.pick("把手掌朝向相机。", "Turn your palm toward the camera.")
-        case .searching:        return hasPresser ? point.coachAlignL
+        case .searching:        return hasPresser ? alignCue(point)
                                     : AppLocale.pick("把按压的手指移入区域 — 双手都保持在画面中。",
                                                      "Bring your pressing finger into the zone — keep both hands in view.")
         case .onTargetUnstable: return AppLocale.pick("保持稳定。", "Hold it steady.")
-        case .holding:          return point.coachHoldL
-        case .paused:           return point.coachAlignL
+        case .holding:          return holdCue(point)
+        case .paused:           return alignCue(point)
         case .complete:         return AppLocale.pick("完成 — 保持得很好。", "Done — nicely held.")
         }
+    }
+
+    // Per-point cues where authored (TE3), otherwise a generic cue keyed to the surface — so every
+    // coachable point gives a meaningful align/hold prompt.
+    private func alignCue(_ p: Acupoint) -> String {
+        if !p.coachAlignL.isEmpty { return p.coachAlignL }
+        return p.requiresDorsal
+            ? AppLocale.pick("手背朝向相机，把指尖对准圆圈。", "Back of the hand to the camera — line your fingertip up with the ring.")
+            : AppLocale.pick("手掌朝向相机，把指尖对准圆圈。", "Palm to the camera — line your fingertip up with the ring.")
+    }
+    private func holdCue(_ p: Acupoint) -> String {
+        if !p.coachHoldL.isEmpty { return p.coachHoldL }
+        return AppLocale.pick("很好 — 稳定用力，配合缓慢呼吸，可做小幅轻柔画圈。",
+                              "Good — firm, steady pressure with slow breathing, small gentle circles.")
     }
 
     // MARK: - Sticky role assignment
