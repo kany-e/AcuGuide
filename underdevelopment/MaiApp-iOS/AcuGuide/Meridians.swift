@@ -183,7 +183,7 @@ enum BodyAtlas {
     }
 
     static let regions: [Region] = [
-        Region(id: "head",    zh: "头部", en: "Head",    anchor: off(b("Head"),     0,    -0.13,  0.05), center: b("Head"),       radius: 0.13, isHand: false),
+        Region(id: "head",    zh: "头",   en: "Head",    anchor: off(b("Head"),     0,    -0.13,  0.05), center: b("Head"),       radius: 0.13, isHand: false),
         Region(id: "chest",   zh: "胸",   en: "Chest",   anchor: off(b("Chest"),   -0.02, -0.12,  0.02), center: b("Chest"),      radius: 0.17, isHand: false),
         // Belly sits ABOVE the hip bone (between Hips 0.884 and Spine 1.053); the label previously
         // rode the hip joint and read low, so anchor it on the navel level (~0.965) and nudge up.
@@ -193,7 +193,7 @@ enum BodyAtlas {
         Region(id: "arm",     zh: "臂",   en: "Arm",     anchor: off(b("LowerArmR"), -0.06, -0.05, 0.02), center: b("LowerArmR"),  radius: 0.16, isHand: false),
         Region(id: "leg",     zh: "腿",   en: "Leg",     anchor: off(b("LowerLegR"), -0.05, -0.06, 0.00), center: b("LowerLegR"),  radius: 0.20, isHand: false),
         Region(id: "foot",    zh: "足",   en: "Foot",    anchor: off(b("FootR"),     -0.03, -0.05, -0.02), center: b("FootR"),     radius: 0.11, isHand: false),
-        Region(id: "hand",    zh: "手部", en: "Hand",    anchor: off(b("HandR"),     0,    -0.05,  0.00), center: handCenter,     radius: 0.12, isHand: true),
+        Region(id: "hand",    zh: "手",   en: "Hand",    anchor: off(b("HandR"),     0,    -0.05,  0.00), center: handCenter,     radius: 0.12, isHand: true),
     ]
     // Centre of the right hand/forearm marker cluster (between wrist and fingertips).
     // Centroid of the four hand markers (TE3/SI3/PC8/HT7) so the hand zoom frames the hand itself.

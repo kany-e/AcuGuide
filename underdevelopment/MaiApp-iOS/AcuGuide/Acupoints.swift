@@ -98,11 +98,11 @@ struct Acupoint: Identifiable, Hashable {
             coachAlign: "", coachHold: "",
             // AR target — palmar forearm, 2 cun PROXIMAL to the wrist crease, between the tendons
             // (WHO 2008; who.int/publications/i/item/9789290613831). No forearm tracking, so this is
-            // EXTRAPOLATED beyond the wrist away from the MCP line: wrist + 0.85·(wrist−middleMCP).
-            // Lower precision (reliability: low) — wide tolerance + a clear caveat in the cue.
+            // EXTRAPOLATED just past the wrist: wrist + 0.7·(wrist−middleMCP) ≈ 2 cun. Kept SHORT on
+            // purpose — a larger factor amplifies hand rotation/jitter and the marker swings around.
             mediapipeTarget: MediaPipeTarget(anchors: [
-                AnchorWeight(landmark: .wrist,     weight: 1.85),
-                AnchorWeight(landmark: .middleMCP, weight: -0.85),
+                AnchorWeight(landmark: .wrist,     weight: 1.7),
+                AnchorWeight(landmark: .middleMCP, weight: -0.7),
             ], toleranceXHandSize: 0.22, pressFinger: .indexTip)
         ),
         Acupoint(
@@ -115,12 +115,13 @@ struct Acupoint: Identifiable, Hashable {
             indicationsEn: "Traditionally used in acupuncture practice for side-of-head discomfort, ear discomfort, and aching of the arm.",
             coachAlign: "", coachHold: "",
             // AR target — dorsal forearm, 2 cun proximal to the dorsal wrist crease, opposite PC6
-            // (WHO 2008; sportsmedicineacupuncture.com/san-jiao-5-waiguan). EXTRAPOLATED up the
-            // forearm (no forearm tracking): wrist + 1.6·(wrist−middleMCP). Reliability: low.
+            // (WHO 2008; sportsmedicineacupuncture.com/san-jiao-5-waiguan). Same 2-cun distance as
+            // PC6, so the SAME short extrapolation: wrist + 0.7·(wrist−middleMCP). (A bigger factor —
+            // the old 1.6 — made the marker swing as the forearm rotated.) Reliability: low.
             mediapipeTarget: MediaPipeTarget(anchors: [
-                AnchorWeight(landmark: .wrist,     weight: 2.6),
-                AnchorWeight(landmark: .middleMCP, weight: -1.6),
-            ], toleranceXHandSize: 0.28, pressFinger: .indexTip)
+                AnchorWeight(landmark: .wrist,     weight: 1.7),
+                AnchorWeight(landmark: .middleMCP, weight: -0.7),
+            ], toleranceXHandSize: 0.24, pressFinger: .indexTip)
         ),
         Acupoint(
             id: "PC8", zh: "劳宫", en: "Laogong", pinyin: "Láogōng",

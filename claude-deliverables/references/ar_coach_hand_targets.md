@@ -18,8 +18,8 @@ Definitions live in `Acupoints.swift` (`mediapipeTarget`).
 | **HT7** 神门 | palmar wrist crease, ulnar end | wrist .85 / pinkyMCP .15 | 0.13 | medium |
 | **PC7** 大陵 | palmar wrist crease midpoint (PL/FCR) | wrist .90 / middleMCP .10 | 0.12 | medium |
 | **TE4** 阳池 | dorsal wrist crease, ulnar to ext. digitorum | wrist .84 / middleMCP .09 / ringMCP .07 | 0.16 | medium |
-| **PC6** 内关 | palmar forearm, **2 cun proximal** to wrist crease | wrist 1.85 / middleMCP −.85 *(extrapolated)* | 0.22 | **low** |
-| **SJ5/TE5** 外关 | dorsal forearm, 2 cun proximal (opposite PC6) | wrist 2.6 / middleMCP −1.6 *(extrapolated)* | 0.28 | **low** |
+| **PC6** 内关 | palmar forearm, **2 cun proximal** to wrist crease | wrist 1.7 / middleMCP −.7 *(extrapolated ≈2 cun)* | 0.22 | **low** |
+| **SJ5/TE5** 外关 | dorsal forearm, 2 cun proximal (opposite PC6) | wrist 1.7 / middleMCP −.7 *(extrapolated ≈2 cun)* | 0.24 | **low** |
 
 **Reliability** = how well the WHO location can be hit from hand landmarks alone. PC6/SJ5 are on the
 forearm, which Vision does not track, so they are extrapolated up the forearm axis (`wrist +

@@ -273,9 +273,7 @@ final class CoachEngine: ObservableObject {
     private func cueFor(_ phase: CoachPhase, point: Acupoint, hasPresser: Bool) -> String {
         switch phase {
         case .noHand:           return AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
-        case .wrongFace:        return point.requiresDorsal
-                                    ? AppLocale.pick("把手背朝向相机。", "Turn the back of your hand toward the camera.")
-                                    : AppLocale.pick("把手掌朝向相机。", "Turn your palm toward the camera.")
+        case .wrongFace:        return faceCue(point)
         case .searching:        return hasPresser ? alignCue(point)
                                     : AppLocale.pick("把按压的手指移入区域 — 双手都保持在画面中。",
                                                      "Bring your pressing finger into the zone — keep both hands in view.")
@@ -286,10 +284,34 @@ final class CoachEngine: ObservableObject {
         }
     }
 
+    // PC6/SJ5 sit on the FOREARM (extrapolated past the wrist), so their cues talk about the forearm,
+    // not the hand — the plain "back of your hand" prompt reads wrong there.
+    private func isForearm(_ p: Acupoint) -> Bool { p.id == "PC6" || p.id == "SJ5" }
+
+    private func faceCue(_ p: Acupoint) -> String {
+        if isForearm(p) {
+            return p.requiresDorsal
+                ? AppLocale.pick("把前臂外侧（手背那一侧）转向相机。",
+                                 "Turn the outer side of your forearm — the back-of-hand side — toward the camera.")
+                : AppLocale.pick("手掌向上，让前臂内侧朝向相机。",
+                                 "Turn your palm up so the inner side of your forearm faces the camera.")
+        }
+        return p.requiresDorsal
+            ? AppLocale.pick("把手背朝向相机。", "Turn the back of your hand toward the camera.")
+            : AppLocale.pick("把手掌朝向相机。", "Turn your palm toward the camera.")
+    }
+
     // Per-point cues where authored (TE3), otherwise a generic cue keyed to the surface — so every
     // coachable point gives a meaningful align/hold prompt.
     private func alignCue(_ p: Acupoint) -> String {
         if !p.coachAlignL.isEmpty { return p.coachAlignL }
+        if isForearm(p) {
+            return p.requiresDorsal
+                ? AppLocale.pick("前臂放稳，腕横纹上约两指宽处，把指尖对准圆圈。",
+                                 "Rest your forearm steady — about two finger-widths above the wrist crease — and line your fingertip up with the ring.")
+                : AppLocale.pick("掌心向上、前臂放稳，腕横纹上约两指宽处，把指尖对准圆圈。",
+                                 "Palm up and forearm steady — about two finger-widths above the wrist crease — line your fingertip up with the ring.")
+        }
         return p.requiresDorsal
             ? AppLocale.pick("手背朝向相机，把指尖对准圆圈。", "Back of the hand to the camera — line your fingertip up with the ring.")
             : AppLocale.pick("手掌朝向相机，把指尖对准圆圈。", "Palm to the camera — line your fingertip up with the ring.")

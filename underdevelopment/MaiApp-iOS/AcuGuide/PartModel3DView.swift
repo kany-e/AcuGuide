@@ -32,7 +32,7 @@ struct PartDetail: Identifiable {
             id: "head", resource: "low_poly_head", euler: SCNVector3(0, 0, 0),
             layout: ["EX-HN3": [0.00, 0.10], "EX-HN5": [0.22, 0.06], "GV20": [0.00, 0.44], "EX-HN1": [0.00, 0.34]],
             back: [],
-            titleZh: "头部", titleEn: "Head",
+            titleZh: "头", titleEn: "Head",
             creditZh: "头部模型 · 低多边形（参考用）", creditEn: "Head model · low-poly (reference)"),
         "arm": PartDetail(
             id: "arm", resource: "lowpoly_arm", euler: SCNVector3(-Float.pi / 2, 0.3, 0),
