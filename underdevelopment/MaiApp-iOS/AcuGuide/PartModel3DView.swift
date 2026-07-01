@@ -107,23 +107,23 @@ struct PartModel3DView: UIViewRepresentable {
             guard let uv = config.layout[pt.id] else { continue }
             let X = cx + uv.x * w, Y = cy + uv.y * h
             let fromBack = config.back.contains(pt.id)
-            // Front points: ray originates beyond +Z and the closest hit is the camera-facing
-            // surface. Back points (e.g. a sole point): ray originates beyond −Z so the closest hit
-            // is the far/under surface. (Both span the full mesh depth + margin so neither is missed.)
+            // Raycast the (X,Y) column onto the mesh: front points from beyond +Z (closest hit =
+            // camera-facing surface), back points (e.g. a sole point) from beyond −Z (far surface).
             let from = SCNVector3(X, Y, fromBack ? wlo.z - 0.6 : whi.z + 0.6)
             let to   = SCNVector3(X, Y, fromBack ? whi.z + 0.6 : wlo.z - 0.6)
             let hits = scene.rootNode.hitTestWithSegment(from: from, to: to, options: [
                 SCNHitTestOption.backFaceCulling.rawValue: false,
                 SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.closest.rawValue,
             ])
-            guard let hit = hits.first else { continue }
-            let p = hit.worldCoordinates
-            let dz: Float = fromBack ? -0.02 : 0.02       // sit just proud of the hit surface
-            // Draw on top (depth-off) so every marker is visible; back/sole points are placed on the
-            // far surface anatomically and read as projected dots from the front.
+            // On a hit, sit just proud of the surface; if the ray misses (a layout point outside the
+            // silhouette), FALL BACK to the front/back plane so the marker still shows. Markers draw
+            // on top (depth-off), so they're visible either way.
+            let z: Float
+            if let hit = hits.first { z = Float(hit.worldCoordinates.z) + (fromBack ? -0.02 : 0.02) }
+            else { z = (fromBack ? wlo.z - 0.02 : whi.z + 0.02) }
             scene.rootNode.addChildNode(AtlasMarkers.node(
                 id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
-                coreRadius: 0.024, haloRadius: 0.044, at: SCNVector3(p.x, p.y, p.z + dz)))
+                coreRadius: 0.03, haloRadius: 0.055, at: SCNVector3(X, Y, z)))
         }
     }
 }

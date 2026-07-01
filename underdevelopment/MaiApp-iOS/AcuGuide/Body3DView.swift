@@ -325,9 +325,8 @@ struct SceneKitBody: UIViewRepresentable {
 
         let scene = SCNScene()
         addSoftLighting(to: scene)                // ambient + low fill, no bright directional
-        let spin = SCNNode()                                   // auto-rotation container
-        scene.rootNode.addChildNode(spin)
-        spin.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 24)))
+        let spin = SCNNode()                                   // orientation container (no auto-spin;
+        scene.rootNode.addChildNode(spin)                      // the user drags to rotate the camera)
 
         let capsule = makeCapsule()                            // placeholder until the GLB loads
         spin.addChildNode(capsule)
@@ -482,20 +481,14 @@ struct SceneKitBody: UIViewRepresentable {
 
             // Acupoint markers are HIDDEN until you tap a region label (→ that region's points) or a
             // meridian channel (→ that meridian's points). Keeps the full-body figure uncluttered.
-            // When revealed in full-body (meridian), fade by facing; when zoomed into a region, show
-            // fully (the part faces the camera).
+            // Shown fully when revealed (few, contextual); the body is static so there's no facing
+            // fade to keep — the camera orbits and hitTest's nearest-first order handles occlusion.
             for (id, node) in acuNodes {
                 let pt = Acupoint.byId[id]
                 let inRegion = model.focused != nil && model.focused?.id == pt?.region
                 let inMeridian = model.selectedMeridian != nil && model.selectedMeridian?.id == pt?.meridian
                 node.isHidden = !(inRegion || inMeridian)
-                if node.isHidden { continue }
-                if model.focused != nil {
-                    node.opacity = 1.0
-                } else {
-                    let z = Float(node.presentation.worldPosition.z)
-                    node.opacity = CGFloat(max(0, min(1, (z + 0.05) / 0.09)))
-                }
+                node.opacity = 1.0
             }
         }
 
@@ -529,27 +522,23 @@ struct SceneKitBody: UIViewRepresentable {
             SCNTransaction.commit()
             view?.defaultCameraController.target = SCNVector3Zero    // recenter the orbit pivot
             spin.eulerAngles = SCNVector3Zero
-            spin.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 24)))
         }
 
         // Hit-test a tap against the acupoint markers ("acu:<id>") and the meridian channels
-        // ("mer:<id>"). Both draw on top (depth-test off), so a far-side hit can sit under the tap —
-        // only accept camera-facing hits. Markers win over channels (you're tapping the point); a
-        // channel hit is remembered and selected only if no facing marker was tapped.
+        // ("mer:<id>"). hitTest returns results NEAREST-first, so the first match is the one facing
+        // the camera at that pixel (correct at any orbit angle) — no world-axis facing hack needed.
+        // A marker wins over a channel (you're tapping the point); a channel is used only if no
+        // marker was hit under the tap.
         @objc func handleTap(_ g: UITapGestureRecognizer) {
             guard let view = view else { return }
             let loc = g.location(in: view)
             let hits = view.hitTest(loc, options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
             var meridianHit: String? = nil
             for h in hits {
-                let facing = Float(h.worldCoordinates.z) > -0.05
                 var n: SCNNode? = h.node
                 while let node = n {
                     if let name = node.name {
-                        // Markers are only shown for the focused region / selected meridian. When
-                        // zoomed in, any shown marker is tappable; in full-body (meridian reveal) only
-                        // a camera-facing one, so a far-side marker can't steal a near tap.
-                        if name.hasPrefix("acu:"), (model.focused != nil || facing) {
+                        if name.hasPrefix("acu:") {
                             let id = String(name.dropFirst(4))
                             if let pt = Acupoint.byId[id] {
                                 model.selectedMeridian = nil
@@ -558,7 +547,7 @@ struct SceneKitBody: UIViewRepresentable {
                             }
                             return
                         }
-                        if name.hasPrefix("mer:"), facing, meridianHit == nil {
+                        if name.hasPrefix("mer:"), meridianHit == nil {
                             meridianHit = String(name.dropFirst(4))
                         }
                     }

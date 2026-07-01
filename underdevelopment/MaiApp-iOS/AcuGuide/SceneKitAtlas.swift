@@ -34,16 +34,24 @@ enum AtlasMarkers {
         return node
     }
 
-    // Soft studio lighting (ambient + warm fill) shared by the detailed hand/part drill-downs.
+    // Studio lighting shared by the detailed hand/part drill-downs. A warm KEY + cool RIM over a
+    // LOW ambient gives the flat low-poly meshes real light/shadow + a warm/cool colour gradient, so
+    // the form reads and doesn't merge into one blob at grazing angles.
     // (Body3DView keeps its own softer ambient for the translucent sage figure.)
     static func addStudioLighting(to scene: SCNScene) {
         let amb = SCNNode(); amb.light = SCNLight(); amb.light?.type = .ambient
-        amb.light?.intensity = 740; amb.light?.color = UIColor.white
+        amb.light?.intensity = 300; amb.light?.color = UIColor(white: 1, alpha: 1)
         scene.rootNode.addChildNode(amb)
-        let fill = SCNNode(); fill.light = SCNLight(); fill.light?.type = .directional
-        fill.light?.intensity = 240; fill.light?.color = UIColor(Color(hex: "#fffaf0"))
-        fill.eulerAngles = SCNVector3(-Float.pi / 5, Float.pi / 7, 0)
-        scene.rootNode.addChildNode(fill)
+        // Warm key from the upper-front-left (bright, shaping side).
+        let key = SCNNode(); key.light = SCNLight(); key.light?.type = .directional
+        key.light?.intensity = 950; key.light?.color = UIColor(Color(hex: "#fff2dc"))
+        key.eulerAngles = SCNVector3(-Float.pi / 5, -Float.pi / 6, 0)
+        scene.rootNode.addChildNode(key)
+        // Cool rim/fill from the lower-back-right so far edges separate (cool shadow side).
+        let rim = SCNNode(); rim.light = SCNLight(); rim.light?.type = .directional
+        rim.light?.intensity = 500; rim.light?.color = UIColor(Color(hex: "#a9c4e6"))
+        rim.eulerAngles = SCNVector3(Float.pi / 7, Float.pi * 0.82, 0)
+        scene.rootNode.addChildNode(rim)
     }
 
     // Explicit camera at distance `z` for a unit-scaled part mesh, wired as the view's POV.
