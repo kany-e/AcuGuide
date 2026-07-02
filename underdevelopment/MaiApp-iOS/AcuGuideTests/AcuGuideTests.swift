@@ -94,6 +94,17 @@ final class AcuGuideTests: XCTestCase {
         XCTAssertFalse(FaceAcupoints.isLocatable("TE3"), "hand points are not face-locatable")
     }
 
+    // Torso locator covers the abdomen midline points (Zhongwan/Tianshu) placed by the cun grid.
+    func testTorsoLocatablePointsAreAbdomenPoints() {
+        XCTAssertEqual(TorsoAcupoints.locatableIDs, ["CV12", "ST25"])
+        for id in TorsoAcupoints.locatableIDs {
+            let p = Acupoint.byId[id]
+            XCTAssertNotNil(p, "\(id) must exist in the atlas")
+            XCTAssertEqual(p?.region, "abdomen", "\(id) must be an abdomen-region point")
+        }
+        XCTAssertFalse(TorsoAcupoints.isLocatable("TE3"), "hand points are not torso-locatable")
+    }
+
     // "number" contains "numb" — whole-word matching must NOT trip the red-flag screen.
     func testChatBenignWordIsNotRedFlag() async {
         let reply = await ChatService().reply(to: "What is the number for TE3?", history: []).text

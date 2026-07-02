@@ -43,7 +43,7 @@ struct Body3DView: View {
     @State private var handChartCoach: Acupoint? = nil
     @State private var handSel: Acupoint? = nil      // a tapped marker on the detailed hand chart
     @State private var detailPart: PartDetail? = nil // head/arm/foot detailed-model drill-down
-    @State private var faceLocate: Acupoint? = nil   // front-camera face locator for head points
+    @State private var locate: Acupoint? = nil       // front-camera region locator (face / torso)
 
     var body: some View {
         ZStack {
@@ -133,9 +133,10 @@ struct Body3DView: View {
         .sheet(item: $detailPart) { cfg in
             PartDetailSheet(config: cfg) { detailPart = nil }
         }
-        // Front-camera locator: mark a head point (Yintang/Taiyang) on the user's own face.
-        .fullScreenCover(item: $faceLocate) { pt in
-            FaceAtlasView(focus: pt) { faceLocate = nil }
+        // Front-camera locator: mark the point on the user's own face (head points) or body (torso).
+        .fullScreenCover(item: $locate) { pt in
+            if FaceAcupoints.isLocatable(pt.id) { FaceAtlasView(focus: pt) { locate = nil } }
+            else { TorsoAtlasView(focus: pt) { locate = nil } }
         }
     }
 
@@ -182,7 +183,12 @@ struct Body3DView: View {
                 }
                 if FaceAcupoints.isLocatable(pt.id) {
                     Button(AppLocale.pick("在我的脸上定位", "Find on my face")) {
-                        let p = pt; model.clearSelection(); faceLocate = p
+                        let p = pt; model.clearSelection(); locate = p
+                    }.buttonStyle(GoldButtonStyle())
+                }
+                if TorsoAcupoints.isLocatable(pt.id) {
+                    Button(AppLocale.pick("在我身上定位", "Find on my body")) {
+                        let p = pt; model.clearSelection(); locate = p
                     }.buttonStyle(GoldButtonStyle())
                 }
             }

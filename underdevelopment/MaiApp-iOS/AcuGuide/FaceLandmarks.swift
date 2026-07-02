@@ -16,11 +16,9 @@ enum FaceAcupoints {
     static let locatableIDs: Set<String> = ["EX-HN3", "EX-HN5"]
     static func isLocatable(_ id: String) -> Bool { locatableIDs.contains(id) }
 
-    struct Mark: Identifiable { let id = UUID(); let acuId: String; let label: String; let point: CGPoint }
-
     // Normalized TOP-LEFT-origin marks for the visible head acupoints from one face observation.
     // `mirrored` flips x to match the mirrored (selfie) preview, exactly like the hand path.
-    static func marks(from face: VNFaceObservation, mirrored: Bool) -> [Mark] {
+    static func marks(from face: VNFaceObservation, mirrored: Bool) -> [LocatorMark] {
         guard let lm = face.landmarks,
               let lBrow = lm.leftEyebrow?.normalizedPoints, !lBrow.isEmpty,
               let rBrow = lm.rightEyebrow?.normalizedPoints, !rBrow.isEmpty,
@@ -47,18 +45,18 @@ enum FaceAcupoints {
             return "\(p.id) · \(AppLocale.pick(p.zh, p.en))"
         }
 
-        var out: [Mark] = []
+        var out: [LocatorMark] = []
 
         // Yintang: midpoint of the two inner (medial) brow ends — the glabella between the brows.
         let yin = mid(nearMid(lBrow), nearMid(rBrow))
-        out.append(Mark(acuId: "EX-HN3", label: label("EX-HN3"), point: toImage(yin)))
+        out.append(LocatorMark(acuId: "EX-HN3", label: label("EX-HN3"), point: toImage(yin)))
 
         // Taiyang (each temple): midpoint of the lateral brow end + the outer eye corner, pushed
         // laterally-posterior toward the temple (≈1 cun) — amplify the offset from the midline.
         for (brow, eye) in [(lBrow, lEye), (rBrow, rEye)] {
             let m = mid(farMid(brow), farMid(eye))
             let taiyang = CGPoint(x: m.x + 0.35 * (m.x - 0.5), y: m.y + 0.02)
-            out.append(Mark(acuId: "EX-HN5", label: label("EX-HN5"), point: toImage(taiyang)))
+            out.append(LocatorMark(acuId: "EX-HN5", label: label("EX-HN5"), point: toImage(taiyang)))
         }
         return out
     }

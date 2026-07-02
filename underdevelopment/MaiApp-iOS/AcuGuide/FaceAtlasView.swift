@@ -6,69 +6,14 @@ import SwiftUI
 // points (Yintang / Taiyang) on the live, mirrored selfie preview via FaceAcupoints — the face
 // counterpart to the hand AR coach. This is a LOCATOR (shows where the points are on YOU); the
 // press-and-hold coaching layer is hand-only for now.
-final class FaceCamera: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
-    let session = AVCaptureSession()
-    @Published var marks: [FaceAcupoints.Mark] = []
-    @Published var frameAspect: CGFloat = 9.0 / 16.0
-    let mirrored = true                       // front camera → mirrored selfie preview
-
-    private var lastAspect: CGFloat = 0
-    private let queue = DispatchQueue(label: "face.camera")
+final class FaceCamera: LocatorCameraBase {
     private let request = VNDetectFaceLandmarksRequest()
-    private var videoConnection: AVCaptureConnection?
 
-    override init() { super.init(); queue.async { [weak self] in self?.configure() } }
-
-    private func configure() {
-        session.beginConfiguration()
-        session.sessionPreset = .high
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
-              let input = try? AVCaptureDeviceInput(device: device),
-              session.canAddInput(input) else { session.commitConfiguration(); return }
-        session.addInput(input)
-        let output = AVCaptureVideoDataOutput()
-        output.setSampleBufferDelegate(self, queue: queue)
-        output.alwaysDiscardsLateVideoFrames = true
-        if session.canAddOutput(output) { session.addOutput(output) }
-        if let conn = output.connection(with: .video) {
-            videoConnection = conn
-            conn.forcePortrait()              // upright buffers → landmark coords share the overlay space
-            conn.setMirrored(false)           // data un-mirrored; the PREVIEW mirrors; marks flip x
-        }
-        session.commitConfiguration()
-    }
-
-    func start() { queue.async { if !self.session.isRunning { self.session.startRunning() } } }
-    func stop()  { queue.async { if self.session.isRunning { self.session.stopRunning() } } }
-
-    // Same connection-derived orientation as the hand path (portrait configured → .up).
-    private func visionOrientation() -> CGImagePropertyOrientation {
-        guard let conn = videoConnection else { return .up }
-        if #available(iOS 17.0, *) {
-            switch Int(conn.videoRotationAngle.rounded()) {
-            case 90: return .up; case 0: return .right; case 180: return .left; case 270: return .down
-            default: return .up
-            }
-        } else {
-            switch conn.videoOrientation {
-            case .portrait: return .up; case .landscapeRight: return .right
-            case .landscapeLeft: return .left; case .portraitUpsideDown: return .down
-            @unknown default: return .up
-            }
-        }
-    }
-
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
-                       from connection: AVCaptureConnection) {
-        guard let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let w = CVPixelBufferGetWidth(pixel), h = CVPixelBufferGetHeight(pixel)
-        let aspect = CGFloat(min(w, h)) / CGFloat(max(w, h))
-        if abs(aspect - lastAspect) > 0.001 { lastAspect = aspect; DispatchQueue.main.async { self.frameAspect = aspect } }
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixel, orientation: visionOrientation(), options: [:])
+    override func detect(_ pixel: CVPixelBuffer, orientation: CGImagePropertyOrientation, aspect: CGFloat) -> [LocatorMark] {
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixel, orientation: orientation, options: [:])
         try? handler.perform([request])
         let face = (request.results as? [VNFaceObservation])?.first
-        let marks = face.map { FaceAcupoints.marks(from: $0, mirrored: mirrored) } ?? []
-        DispatchQueue.main.async { self.marks = marks }
+        return face.map { FaceAcupoints.marks(from: $0, mirrored: mirrored) } ?? []
     }
 }
 
@@ -77,27 +22,14 @@ struct FaceAtlasView: View {
     var onClose: () -> Void
     @StateObject private var camera = FaceCamera()
 
-    // Map a normalized (top-left) point through the preview's aspect-fill crop (mirrors ARCoachView).
-    private func mapFill(_ n: CGPoint, _ size: CGSize) -> CGPoint {
-        let fw = camera.frameAspect, fh: CGFloat = 1
-        let s = max(size.width / fw, size.height / fh)
-        let dw = s * fw, dh = s * fh
-        let ox = (size.width - dw) / 2, oy = (size.height - dh) / 2
-        return CGPoint(x: ox + n.x * dw, y: oy + n.y * dh)
-    }
-
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
-                GeometryReader { geo in
-                    ZStack {
-                        CameraPreview(session: camera.session, mirrored: camera.mirrored)
-                            .accessibilityHidden(true)
-                        ForEach(camera.marks) { m in marker(m).position(mapFill(m.point, geo.size)) }
-                    }
-                }
-                .ignoresSafeArea()
+                CameraPreview(session: camera.session, mirrored: camera.mirrored)
+                    .ignoresSafeArea().accessibilityHidden(true)
+                LocatorMarkersOverlay(marks: camera.marks, frameAspect: camera.frameAspect, focusId: focus.id)
+                    .ignoresSafeArea()
 
                 VStack {
                     Spacer()
@@ -130,21 +62,5 @@ struct FaceAtlasView: View {
         }
         .onAppear { camera.start() }
         .onDisappear { camera.stop() }
-    }
-
-    @ViewBuilder private func marker(_ m: FaceAcupoints.Mark) -> some View {
-        let col = MeridianColors.color(Acupoint.byId[m.acuId]?.meridian ?? "extra")
-        let hot = m.acuId == focus.id
-        ZStack {
-            Circle().fill(col.opacity(hot ? 0.9 : 0.55))
-                .frame(width: hot ? 20 : 13, height: hot ? 20 : 13)
-                .overlay(Circle().stroke(.white, lineWidth: 2))
-                .shadow(color: col.opacity(0.8), radius: 6)
-            Text(m.label).font(.caption2.weight(.semibold)).foregroundStyle(.white)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Capsule().fill(.black.opacity(0.5)))
-                .offset(y: hot ? 22 : 18)
-        }
-        .accessibilityLabel(m.label)
     }
 }
