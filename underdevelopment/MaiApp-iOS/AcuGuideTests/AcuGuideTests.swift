@@ -80,6 +80,20 @@ final class AcuGuideTests: XCTestCase {
                       "a real channel name should resolve to its meridian; got: \(real)")
     }
 
+    // Face locator covers only FACE-VISIBLE head points (Yintang/Taiyang); they are real head-region
+    // atlas points and are not hand-AR-coached. Vertex points (Baihui/Sishencong) are excluded.
+    func testFaceLocatablePointsAreVisibleHeadPoints() {
+        XCTAssertEqual(FaceAcupoints.locatableIDs, ["EX-HN3", "EX-HN5"])
+        for id in FaceAcupoints.locatableIDs {
+            let p = Acupoint.byId[id]
+            XCTAssertNotNil(p, "\(id) must exist in the atlas")
+            XCTAssertEqual(p?.region, "head", "\(id) must be a head-region point")
+            XCTAssertNil(p?.mediapipeTarget, "\(id) is a face-locator point, not a hand AR target")
+        }
+        XCTAssertFalse(FaceAcupoints.isLocatable("GV20"), "Baihui (vertex) is not front-face-visible")
+        XCTAssertFalse(FaceAcupoints.isLocatable("TE3"), "hand points are not face-locatable")
+    }
+
     // "number" contains "numb" — whole-word matching must NOT trip the red-flag screen.
     func testChatBenignWordIsNotRedFlag() async {
         let reply = await ChatService().reply(to: "What is the number for TE3?", history: []).text
