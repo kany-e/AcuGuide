@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AcuGuide · iOS Port Dashboard</title>
+<style>
+  :root{
+    --ground-top:#f6f4ed; --ground-mid:#ece9e0; --ground-edge:#e1dfd4;
+    --ink:#33372f; --ink-dim:#767b6e; --gold:#9a7d44; --gold-soft:#7c6531;
+    --jade:#5f8a63; --terra:#b04a2f; --line:rgba(90,80,50,.22);
+    --panel:#f4f2ea; --panel-2:#efece2;
+    --blue:#5b7a8c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Iowan Old Style','Palatino',Georgia,'Noto Serif SC',serif;
+    color:var(--ink); min-height:100vh; padding:28px clamp(14px,4vw,48px) 60px;
+    background:radial-gradient(120% 90% at 50% 0%,var(--ground-top) 0%,var(--ground-mid) 55%,var(--ground-edge) 100%);
+  }
+  .wrap{max-width:1140px;margin:0 auto}
+  /* header */
+  header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:14px;
+    padding-bottom:18px;border-bottom:1px solid var(--line);margin-bottom:24px}
+  .brand h1{font-size:30px;letter-spacing:.5px;font-weight:600}
+  .brand .zh{color:var(--gold);font-weight:500}
+  .brand p{color:var(--ink-dim);font-size:14px;margin-top:4px}
+  .meta{text-align:right;font-size:13px;color:var(--ink-dim);line-height:1.7}
+  .meta b{color:var(--ink)}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;letter-spacing:.4px;
+    border:1px solid var(--line);background:var(--panel)}
+  .pill.green{color:var(--jade);border-color:rgba(95,138,99,.4)}
+  .pill.gold{color:var(--gold-soft);border-color:rgba(154,125,68,.4)}
+  .fresh{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--jade);box-shadow:0 0 0 0 rgba(95,138,99,.5);
+    animation:pulse 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(95,138,99,.45)}70%{box-shadow:0 0 0 7px rgba(95,138,99,0)}100%{box-shadow:0 0 0 0 rgba(95,138,99,0)}}
+  /* metric row */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+  .metric{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .metric .n{font-size:30px;font-weight:600;color:var(--ink);line-height:1}
+  .metric .n small{font-size:15px;color:var(--ink-dim);font-weight:400}
+  .metric .l{font-size:12px;color:var(--ink-dim);letter-spacing:1px;text-transform:uppercase;margin-top:7px}
+  .metric .l.good{color:var(--jade)}
+  /* grid */
+  .grid{display:grid;grid-template-columns:1.25fr .95fr;gap:20px}
+  @media(max-width:840px){.grid{grid-template-columns:1fr}}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin-bottom:20px}
+  h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:16px;font-weight:600}
+  /* phases */
+  .phase{margin-bottom:14px}
+  .phase:last-child{margin-bottom:0}
+  .phase .top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+  .phase .name{font-size:15px;font-weight:500}
+  .phase .name span{color:var(--ink-dim);font-weight:400;font-size:13px}
+  .bar{height:7px;border-radius:99px;background:var(--panel-2);overflow:hidden;border:1px solid var(--line)}
+  .bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--jade),#7ba36f)}
+  .bar.pending i{background:linear-gradient(90deg,var(--gold),#c2a15a)}
+  .tag{font-size:11px;padding:1px 9px;border-radius:999px;white-space:nowrap}
+  .tag.done{color:var(--jade);background:rgba(95,138,99,.12)}
+  .tag.wip{color:var(--gold-soft);background:rgba(154,125,68,.14)}
+  /* checklist */
+  ul.todo{list-style:none}
+  ul.todo li{display:flex;gap:11px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:14px;align-items:flex-start}
+  ul.todo li:last-child{border-bottom:0}
+  .box{flex:0 0 auto;width:16px;height:16px;border-radius:5px;border:1.5px solid var(--gold);margin-top:2px;position:relative}
+  .box.done{background:var(--jade);border-color:var(--jade)}
+  .box.done::after{content:"✓";color:#fff;font-size:11px;position:absolute;top:-1px;left:3px}
+  li .t{flex:1}
+  li .t small{display:block;color:var(--ink-dim);font-size:12px;margin-top:2px}
+  /* commits */
+  .commit{display:flex;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:13px}
+  .commit:last-child{border-bottom:0}
+  .commit .h{font-family:'SF Mono',ui-monospace,Menlo,monospace;color:var(--gold-soft);flex:0 0 auto}
+  .commit .m{flex:1}
+  .commit .d{color:var(--ink-dim);flex:0 0 auto;font-size:12px}
+  /* modules */
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{font-size:12px;padding:4px 11px;border-radius:999px;background:var(--panel-2);border:1px solid var(--line);color:var(--ink)}
+  .chip.t{color:var(--blue);border-color:rgba(91,122,140,.35)}
+  .chip.new{border-color:rgba(95,138,99,.45);color:var(--jade)}
+  /* safety */
+  .safe{display:flex;align-items:center;gap:9px;font-size:13.5px;padding:7px 0}
+  .safe .s{color:var(--jade);font-weight:700}
+  footer{margin-top:26px;text-align:center;color:var(--ink-dim);font-size:12px;line-height:1.8}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:8px;font-size:11.5px}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <h1>AcuGuide <span class="zh">经络图谱</span> — iOS Port</h1>
+      <p>Native SwiftUI port · camera-guided acupressure wellness coach</p>
+    </div>
+    <div class="meta">
+      <div class="fresh"><span class="dot"></span> Last refreshed <b id="refreshed">—</b></div>
+      <div>Branch <b>IOS-APP</b> · HEAD <b>2fb6116</b> · origin <b>277971b</b> (+5 local)</div>
+      <div>Last commit <b>2026-07-05 00:12</b> · working tree <b>clean</b></div>
+    </div>
+  </header>
+
+  <!-- metrics -->
+  <div class="metrics">
+    <div class="metric"><div class="n">5<small>/5</small></div><div class="l good">Phases shipped</div></div>
+    <div class="metric"><div class="n">46</div><div class="l">iOS-port commits</div></div>
+    <div class="metric"><div class="n">31<small>+4</small></div><div class="l">Swift modules · tests</div></div>
+    <div class="metric"><div class="n">~6.1k</div><div class="l">Lines of Swift</div></div>
+    <div class="metric"><div class="n" style="color:var(--jade)">32/32</div><div class="l good">Tests passing</div></div>
+    <div class="metric"><div class="n" style="color:var(--jade)">36/36</div><div class="l good">Round 2–9 shipped</div></div>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT column -->
+    <div>
+      <section class="card">
+        <h2>Build phases</h2>
+
+        <div class="phase">
+          <div class="top"><span class="name">Phase 0 — Buildable Xcode project <span>· XcodeGen, Info.plist, assets, test target</span></span><span class="tag done">done</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Phase 1 — On-device correctness <span>· One-Euro, sticky roles, engine.js state machine</span></span><span class="tag done">done · fixture-validated</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Phase 2 — Models · shanshui theme · nav <span>· GLTFKit2 body, meridians, zoom-to-part labels</span></span><span class="tag done">done</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Phase 3 — Native features <span>· voice cues, haptics, full atlas, offline chat</span></span><span class="tag done">done</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Phase 4 — Hardening (stretch) <span>· fixture tests, accessibility pass</span></span><span class="tag done">done</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Round-2 corrections <span>· bilingual · fonts · matte · 3D markers</span></span><span class="tag done">done · 7/7</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Round-3 corrections <span>· zoom-to-part · meridians · hand fingers · press · TE3</span></span><span class="tag done">done · 6/6</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Round-4 corrections <span>· AR overlay align · WHO TE3 · label fade · 3D hand</span></span><span class="tag done">done · 6/6</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Round-5 enhancements <span>· full-body 21-pt atlas · interactive meridians · part drill-downs · richer coach</span></span><span class="tag done">done · 6/6 · +R5.1/5.2 review</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Round-6 enhancements <span>· AR-coach all 8 hand/wrist points · forearm targets &amp; cues · detailed-part markers &amp; lighting</span></span><span class="tag done">done · 4/4 · +R6.1/6.2</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Round-7 — Face/head AR locator <span>· Vision face landmarks + cun placement</span></span><span class="tag done">done · 1/1</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Round-8 — Abdomen/torso AR locator <span>· shared locator plumbing across regions</span></span><span class="tag done">done · 1/1</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Round-9 — Sources &amp; evidence upgrade + learned localizer <span>· citations/sources screen · expanded sourced atlas · learned-localizer shadow mode (M0/M1 experiments) · 3D detail overhaul · M3 label-capture pipeline</span></span><span class="tag done">done · 4/4</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+        <div class="phase">
+          <div class="top"><span class="name">Round-9.1 — Hand atlas expansion <span>· six more hand atlas points · hand chart pose &amp; calibration</span></span><span class="tag done">done · 1/1</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Round-2 corrections — all shipped</h2>
+        <ul class="todo">
+          <li><span class="box done"></span><div class="t">Language setting 中文 ⇄ English in Settings<small>8fe24ee · AppSettings + @AppStorage; gear→sheet; AppLocale reads the toggle; safety copy bilingual</small></div></li>
+          <li><span class="box done"></span><div class="t">Bundle the html fonts<small>6421b30 · Ma Shan Zheng (brush) + Cormorant Garamond via UIAppFonts; Noto Serif SC dropped (25 MB) → system serif</small></div></li>
+          <li><span class="box done"></span><div class="t">Body still too shiny → kill specular<small>a5aac72 · PBR roughness 1, metalness 0, transparency 0.85; autoenablesDefaultLighting off; ambient + low fill</small></div></li>
+          <li><span class="box done"></span><div class="t">Meridians too rigid → smooth<small>0617faf · densify + Laplacian + centripetal Catmull-Rom (~70 samples); now meridian-colored</small></div></li>
+          <li><span class="box done"></span><div class="t">Face detection inverted (front read as back)<small>5de5a42 · flipped HandCalibration default; toggle retained; needs on-device reconfirm</small></div></li>
+          <li><span class="box done"></span><div class="t">Label tap = in-scene 3D zoom, hand stays attached<small>6a7da67 · animate pointOfView; tappable 3D acupoint markers; 2D HandView drill-down retired</small></div></li>
+          <li><span class="box done"></span><div class="t">Accurate, sourced acupoints<small>e1b37a7 · TE3 · SI3 · PC8 · HT7 · PC6 · SJ5 per WHO-aligned refs; dorsal/palmar markers; LI4 excluded</small></div></li>
+        </ul>
+      </section>
+    </div>
+
+    <!-- RIGHT column -->
+    <div>
+      <section class="card">
+        <h2>Recent commits</h2>
+        <div class="commit"><span class="h">2fb6116</span><span class="m">R9.1: six more hand atlas points · hand chart pose/calibration</span><span class="d">07-05</span></div>
+        <div class="commit"><span class="h">04691db</span><span class="m">R9: source upgrade · learned-localizer shadow · 3D detail overhaul · M3 label capture</span><span class="d">07-04</span></div>
+        <div class="commit"><span class="h">90dba25</span><span class="m">R8: abdomen/torso AR locator · shared locator plumbing</span><span class="d">07-02</span></div>
+        <div class="commit"><span class="h">a36acb3</span><span class="m">R7: face/head AR locator (Vision landmarks · cun placement)</span><span class="d">07-01</span></div>
+        <div class="commit"><span class="h">3d72cbb</span><span class="m">R6.2: detailed-part markers · better part lighting · no body auto-spin</span><span class="d">07-01</span></div>
+        <div class="commit"><span class="h">277971b</span><span class="m">R6.1: stabilize forearm AR targets · forearm cues · tidy labels</span><span class="d">06-30</span></div>
+        <div class="commit"><span class="h">da234cf</span><span class="m">R6: AR-coach all 8 hand/wrist points · chat/body launch</span><span class="d">06-29</span></div>
+        <div class="commit"><span class="h">eb9398a</span><span class="m">R5.2: acupoints reveal-on-tap; fix labels/meridians</span><span class="d">06-29</span></div>
+        <div class="commit"><span class="h">0435942</span><span class="m">R5.1: code-review fixes (meridian match · 3D markers · dedup)</span><span class="d">06-29</span></div>
+        <div class="commit"><span class="h">35d8402</span><span class="m">R5: full-body atlas · interactive meridians · richer coach</span><span class="d">06-29</span></div>
+        <div class="commit"><span class="h">504e8d0</span><span class="m">R4.5: detailed 3D hand (real fingers) drill-down</span><span class="d">06-29</span></div>
+        <div class="commit"><span class="h">4bc3c2f</span><span class="m">fix AR overlay coordinate space (review, high)</span><span class="d">06-28</span></div>
+        <div class="commit"><span class="h">3a49322</span><span class="m">R4.3/4/6: label fade · hand-zoom center · contrast</span><span class="d">06-28</span></div>
+        <div class="commit"><span class="h">d03658f</span><span class="m">R4.2: TE3 anchor from WHO-sourced placement</span><span class="d">06-28</span></div>
+        <div class="commit"><span class="h">e52170c</span><span class="m">R4.1: align AR overlay to aspect-fill preview</span><span class="d">06-28</span></div>
+        <div class="commit"><span class="h">9a863e9</span><span class="m">address round-3 review (safety clean; 2 fixes)</span><span class="d">06-28</span></div>
+        <div class="commit"><span class="h">6fd6840</span><span class="m">R3.4: finger-detail hand chart (2D inset fallback)</span><span class="d">06-28</span></div>
+        <div class="commit"><span class="h">a988933</span><span class="m">R3.3: meridians — skeleton-routed, surface-projected</span><span class="d">06-28</span></div>
+      </section>
+
+      <section class="card">
+        <h2>Swift modules</h2>
+        <div class="chips">
+          <span class="chip">AcuGuideApp</span><span class="chip">RootView</span><span class="chip">Theme</span>
+          <span class="chip">Shanshui</span><span class="chip">Acupoints</span><span class="chip">Meridians</span>
+          <span class="chip">Body3DView</span><span class="chip">HandAtlasView</span><span class="chip">HandModel</span>
+          <span class="chip">Coach</span><span class="chip">CameraCoach</span><span class="chip">OneEuroFilter</span>
+          <span class="chip">ARCoachView</span><span class="chip">ChatView</span><span class="chip">Speech</span><span class="chip">Haptics</span>
+          <span class="chip">Typography</span><span class="chip">AppSettings</span><span class="chip">Settings</span>
+          <span class="chip">HandModel3DView</span><span class="chip">PartModel3DView</span><span class="chip">SceneKitAtlas</span>
+          <span class="chip">CameraLocator</span><span class="chip">FaceAtlasView</span><span class="chip">FaceLandmarks</span>
+          <span class="chip">TorsoAtlasView</span><span class="chip">TorsoLandmarks</span>
+          <span class="chip new">SourcesView</span><span class="chip new">LearnedLocalizer</span><span class="chip new">LabelCapture</span><span class="chip new">HandVision</span>
+        </div>
+        <div style="height:12px"></div>
+        <div class="chips">
+          <span class="chip t">AcuGuideTests</span><span class="chip t">CoachStateMachineTests</span><span class="chip t">CoachEngineFixtureTests</span><span class="chip t">DetailSnapshotTests</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Safety non-negotiables</h2>
+        <div class="safe"><span class="s">✓</span> No treat / cure / heal / diagnose copy</div>
+        <div class="safe"><span class="s">✓</span> Forced safety gate before camera</div>
+        <div class="safe"><span class="s">✓</span> "Felt worse" → stop guidance</div>
+        <div class="safe"><span class="s">✓</span> LI4 + pregnancy-unsafe points excluded</div>
+        <div class="safe"><span class="s">✓</span> AR locators span hand/wrist · forearm · face/head · torso — only TE3 device-validated</div>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--jade)"></span> shipped</span>
+      <span><span class="sw" style="background:var(--gold)"></span> in progress</span>
+      <span><span class="sw" style="background:var(--blue)"></span> tests</span>
+      <span><span class="sw" style="background:var(--jade)"></span> new this round</span>
+    </div>
+    <div style="margin-top:10px">Generated from live git state on branch <b>IOS-APP</b> · AcuGuide repo · HEAD <b>2fb6116</b> (Round 9.1) · +2 commits since last refresh — Sources &amp; evidence upgrade now committed (R9) · test pass-state (32/32) from last verified run, Xcode not re-run this refresh · wellness self-care, not medical advice.</div>
+  </footer>
+
+</div>
+<script>
+  // Stamp the refresh time (this file is regenerated from fresh git state by the scheduled task).
+  (function(){
+    var d = new Date();
+    var s = d.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    document.getElementById('refreshed').textContent = s;
+  })();
+</script>
+</body>
+</html>
