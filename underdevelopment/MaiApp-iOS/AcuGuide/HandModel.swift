@@ -22,6 +22,17 @@ enum HandJoint: Hashable {
         case .pinkyMCP:  return .littleMCP
         }
     }
+
+    // Stable string key for serialization (M3 label records). Must stay in lockstep with train.py.
+    var key: String {
+        switch self {
+        case .wrist: return "wrist"
+        case .thumbTip: return "thumbTip"; case .indexTip: return "indexTip"; case .middleTip: return "middleTip"
+        case .ringTip: return "ringTip";   case .pinkyTip: return "pinkyTip"
+        case .indexMCP: return "indexMCP"; case .middleMCP: return "middleMCP"
+        case .ringMCP: return "ringMCP";   case .pinkyMCP: return "pinkyMCP"
+        }
+    }
 }
 
 // One detected hand. Points are normalized 0...1 in TOP-LEFT origin (already flipped

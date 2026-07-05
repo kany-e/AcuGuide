@@ -1,6 +1,7 @@
 import SceneKit
 import UIKit
 import SwiftUI
+import simd
 
 // Shared SceneKit primitives for the 3D atlas + part drill-downs, so the marker material, the
 // glowing-sphere marker node, the static-GLB mesh load, and the "acu:<id>" tap walk-up live in ONE
@@ -34,6 +35,46 @@ enum AtlasMarkers {
         return node
     }
 
+    // Shortest-arc rotation taking `up` onto `n`, hardened against the two degenerate cases
+    // (parallel → identity, antiparallel → 180° about an arbitrary perpendicular) that make the
+    // stock simd_quatf(from:to:) return NaN.
+    private static func orientation(from up: simd_float3, to n: simd_float3) -> simd_quatf {
+        let d = simd_dot(up, n)
+        if d > 0.9999 { return simd_quatf(angle: 0, axis: simd_float3(1, 0, 0)) }
+        if d < -0.9999 { return simd_quatf(angle: .pi, axis: simd_float3(1, 0, 0)) }
+        return simd_quatf(angle: acos(d), axis: simd_normalize(simd_cross(up, n)))
+    }
+
+    // An acupoint that reads as PART OF THE SURFACE — a "light bulge": a glowing sphere flattened
+    // along the surface normal and sunk slightly into the skin, with a soft flat halo, so it domes
+    // out of the mesh instead of floating above it as a bead. Oriented to `normal`, named
+    // "acu:<id>" for hit-testing. Used by the detailed hand/part drill-downs (via screenMarker).
+    static func domeMarker(id: String, color: UIColor, radius: CGFloat, halo: CGFloat,
+                           at pos: SCNVector3, normal: SCNVector3, depthTested: Bool = false) -> SCNNode {
+        let container = SCNNode()
+        container.position = pos
+        container.name = "acu:" + id
+        container.renderingOrder = 15
+        let n = simd_normalize(simd_float3(Float(normal.x), Float(normal.y), Float(normal.z)))
+        container.simdOrientation = orientation(from: simd_float3(0, 1, 0), to: n)
+
+        // Bright core mound: flattened along the normal (local +Y) → a shallow dome, not a ball;
+        // its base sunk so the rim meets the surface.
+        let bulge = SCNSphere(radius: radius); bulge.firstMaterial = glowMat(color, 1.0, depthTested: depthTested)
+        let b = SCNNode(geometry: bulge)
+        b.scale = SCNVector3(1, 0.4, 1)
+        b.position = SCNVector3(0, -Float(radius) * 0.30, 0)
+        container.addChildNode(b)
+
+        // Soft wash of light around the bulge, flattened flush to the surface.
+        let glow = SCNSphere(radius: halo); glow.firstMaterial = glowMat(color, 0.20, depthTested: depthTested)
+        let g = SCNNode(geometry: glow)
+        g.scale = SCNVector3(1, 0.22, 1)
+        g.renderingOrder = 14
+        container.addChildNode(g)
+        return container
+    }
+
     // Studio lighting shared by the detailed hand/part drill-downs. A warm KEY + cool RIM over a
     // LOW ambient gives the flat low-poly meshes real light/shadow + a warm/cool colour gradient, so
     // the form reads and doesn't merge into one blob at grazing angles.
@@ -54,6 +95,54 @@ enum AtlasMarkers {
         scene.rootNode.addChildNode(rim)
     }
 
+    // Marker placement ROBUST to the model's pose, using PURE GEOMETRY (no view/render dependency, so it
+    // can't be defeated by SwiftUI layout timing). The camera sits at (0,0,cameraZ) looking at the origin,
+    // so a normalized (u,v) fraction of the model's world bounding box (u→right, v→up, ~[-0.5…0.5]) gives
+    // a target on the model's mid-depth plane; we cast a ray from the camera THROUGH it and take the
+    // near hit (or the far hit for `farSide` palm/sole points), so the marker lands on the VISIBLE
+    // surface at that screen position regardless of the model's arbitrary local axes.
+    static func screenMarker(cameraZ: Float, mesh: SCNNode, u: Float, v: Float, farSide: Bool,
+                             id: String, color: UIColor, core: CGFloat, halo: CGFloat) -> SCNNode? {
+        let (lo, hi) = mesh.boundingBox
+        var mn = SIMD3<Float>(repeating: .greatestFiniteMagnitude); var mx = -mn
+        for a in [lo.x, hi.x] { for b in [lo.y, hi.y] { for c in [lo.z, hi.z] {
+            let w = mesh.convertPosition(SCNVector3(a, b, c), to: nil)
+            mn = simd_min(mn, SIMD3(w.x, w.y, w.z)); mx = simd_max(mx, SIMD3(w.x, w.y, w.z))
+        } } }
+        let center = (mn + mx) / 2, ext = mx - mn
+        guard ext.x > 1e-4, ext.y > 1e-4 else { return nil }
+        let target = SIMD3<Float>(center.x + u * ext.x, center.y + v * ext.y, center.z)
+        let cam = SIMD3<Float>(0, 0, cameraZ)
+        let dir = simd_normalize(target - cam)
+        let reach = simd_length(target - cam) + ext.z + 1.0
+        // hitTestWithSegment endpoints are in the node's LOCAL space → convert the world ray in.
+        let fromL = mesh.convertPosition(SCNVector3(cam), from: nil)
+        let toL   = mesh.convertPosition(SCNVector3(cam + dir * reach), from: nil)
+        let hits = mesh.hitTestWithSegment(from: fromL, to: toL, options: [
+            SCNHitTestOption.backFaceCulling.rawValue: false,
+            SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.all.rawValue])
+        let wp: SIMD3<Float>
+        var nrm: SIMD3<Float>
+        if let hit = (farSide ? hits.last : hits.first) {
+            let h = hit.worldCoordinates; wp = SIMD3(h.x, h.y, h.z)
+            let wn = hit.worldNormal;      nrm = SIMD3(wn.x, wn.y, wn.z)   // surface normal → bulge axis
+        } else {
+            // No surface hit (geometry not yet render-ready, or the ray grazed a gap) → place on the
+            // model's near/far AABB plane along the SAME camera ray, so the dot still lands at the (u,v)
+            // screen position (markers draw on top). Keeps placement robust to render timing + pose.
+            let planeZ = farSide ? mn.z : mx.z
+            let t = abs(dir.z) > 1e-5 ? (planeZ - cam.z) / dir.z : reach
+            wp = cam + dir * t
+            nrm = -dir                                                     // no surface → face the camera
+        }
+        // Dome AWAY from the model centre so the bulge always rises off the skin (guards a facet
+        // normal that faces inward or a degenerate zero normal from a grazing hit).
+        if simd_length(nrm) < 1e-4 { nrm = -dir } else { nrm = simd_normalize(nrm) }
+        if simd_dot(nrm, wp - center) < 0 { nrm = -nrm }
+        return domeMarker(id: id, color: color, radius: core, halo: halo,
+                          at: SCNVector3(wp.x, wp.y, wp.z), normal: SCNVector3(nrm.x, nrm.y, nrm.z))
+    }
+
     // Explicit camera at distance `z` for a unit-scaled part mesh, wired as the view's POV.
     static func installCamera(z: Float, in scene: SCNScene, for view: SCNView) {
         let cam = SCNNode(); cam.camera = SCNCamera()
@@ -67,15 +156,30 @@ enum AtlasMarkers {
     // Pull the first geometry out of a loaded GLB scene, re-material it, centre its pivot, and scale
     // it into a unit box. Used by the detailed part/hand drill-downs (which then orient + add
     // markers). Returns nil if the asset has no geometry.
-    static func unitMesh(from gltf: SCNScene, material: SCNMaterial) -> SCNNode? {
+    static func unitMesh(from gltf: SCNScene, material: SCNMaterial, nodeName: String? = nil) -> SCNNode? {
         var found: SCNGeometry? = nil
-        gltf.rootNode.enumerateHierarchy { n, _ in if found == nil { found = n.geometry } }
+        // Multi-part GLBs (e.g. the composite body model) carry several geometry nodes; `nodeName` picks
+        // the one we want (a clean foot), otherwise take the first geometry (single-mesh assets).
+        if let nodeName {
+            gltf.rootNode.enumerateHierarchy { n, _ in if found == nil, n.name == nodeName { found = n.geometry } }
+        }
+        if found == nil {
+            gltf.rootNode.enumerateHierarchy { n, _ in if found == nil { found = n.geometry } }
+        }
         guard let found else { return nil }
         let geo = found.copy() as! SCNGeometry
         geo.materials = [material]
-        let mesh = SCNNode(geometry: geo)
-        let (lo, hi) = mesh.boundingBox
-        mesh.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
+        // Centre the geometry via a child node's POSITION, NOT via `pivot`. SceneKit's coordinate
+        // conversion (convertPosition / worldTransform) — which screenMarker relies on to derive the
+        // mesh's world AABB for marker placement — does NOT honour `pivot`. A pivot-centred mesh whose
+        // RAW geometry sits far from its own origin (head, arm) therefore renders centred but has its
+        // markers placed against a phantom, off-origin box (they flew off the model). Offsetting the
+        // child position keeps render + placement in the SAME frame, so markers land on the surface.
+        let inner = SCNNode(geometry: geo)
+        let (lo, hi) = inner.boundingBox
+        inner.position = SCNVector3(-(lo.x + hi.x) / 2, -(lo.y + hi.y) / 2, -(lo.z + hi.z) / 2)
+        let mesh = SCNNode()
+        mesh.addChildNode(inner)
         let extent = max(hi.x - lo.x, max(hi.y - lo.y, hi.z - lo.z))
         let s = extent > 0 ? 1.0 / extent : 1
         mesh.scale = SCNVector3(s, s, s)

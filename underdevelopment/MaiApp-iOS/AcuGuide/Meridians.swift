@@ -26,23 +26,41 @@ enum BodyAtlas {
 
     // MARK: Channels
 
-    // Build all six channels under one container node, routed along the FULL skeleton chains and
+    // Build the channels under one container node, routed along the FULL skeleton chains and
     // projected onto the body surface (raycast against `mesh`). Added to the body mesh (raw coords).
+    //
+    // Anatomy (Atlas of Acupuncture Points pathways): each arm carries three YIN channels on the
+    // anterior/palmar surface (front) — Lung radial, Pericardium middle, Heart ulnar — and three
+    // YANG channels on the posterior/dorsal surface (back) — Large Intestine radial, Sanjiao middle,
+    // Small Intestine ulnar. This puts every coached hand point on its own drawn channel (TE3/SJ5/
+    // TE4 on Sanjiao-dorsal, SI3 on Small-Intestine-dorsal, PC6/PC7/PC8 on Pericardium-palmar,
+    // HT7 on Heart-palmar). Legs keep Stomach (front-LATERAL — corrected from the old inner-leg
+    // routing) and Gallbladder (lateral). Torso keeps Ren (front midline) and Du (back midline).
     static func channels(on mesh: SCNNode) -> SCNNode {
         let root = SCNNode()
-        let inner: Float = 0.012, outer: Float = 0.016
+        let ax: Float = 0.011, outer: Float = 0.016
         for side in [Side.right, .left] {
             let s = side.sign
             // Both sides are tappable so a tap on whichever limb faces you opens the meridian; the
             // selection reveals that meridian's points (modeled on the right) regardless of side.
-            // Full arm chain off the skeleton: shoulder → upper arm → elbow → wrist.
-            let arm = [b(side.k("Shoulder")), b(side.k("UpperArm")), b(side.k("LowerArm")), b(side.k("Hand"))]
-            root.addChildNode(channel(arm, dx: -s * inner, meridian: "lung",    mesh: mesh, front: true))
-            root.addChildNode(channel(arm, dx:  s * outer, meridian: "li",      mesh: mesh, front: true))
+            // Arm chain shoulder → upper arm → elbow → WRIST. It stops at the wrist (0.7 of the way to
+            // the hand), NOT the hand centre: the six arm channels converge there, and their tap-proxy
+            // tubes would otherwise blanket the Hand region label and swallow taps meant to drill into
+            // the hand (they'd select a meridian instead). Markers still sit on the hand when focused.
+            let wristEnd = mix(b(side.k("LowerArm")), b(side.k("Hand")), 0.7)
+            let arm = [b(side.k("Shoulder")), b(side.k("UpperArm")), b(side.k("LowerArm")), wristEnd]
+            // Yin — anterior (palmar) surface: radial LU, middle PC, ulnar HT.
+            root.addChildNode(channel(arm, dx: -s * ax, meridian: "lung",  mesh: mesh, front: true))
+            root.addChildNode(channel(arm, dx:  0,      meridian: "pc",    mesh: mesh, front: true))
+            root.addChildNode(channel(arm, dx:  s * ax, meridian: "heart", mesh: mesh, front: true))
+            // Yang — posterior (dorsal) surface: radial LI, middle SJ, ulnar SI.
+            root.addChildNode(channel(arm, dx: -s * ax, meridian: "li",    mesh: mesh, front: false))
+            root.addChildNode(channel(arm, dx:  0,      meridian: "sj",    mesh: mesh, front: false))
+            root.addChildNode(channel(arm, dx:  s * ax, meridian: "si",    mesh: mesh, front: false))
             // Full leg chain: hip → thigh → knee → ankle.
             let leg = [b(side.k("UpperLeg")), b(side.k("LowerLeg")), mix(b(side.k("LowerLeg")), b(side.k("Foot")), 0.7)]
-            root.addChildNode(channel(leg, dx: -s * inner, meridian: "stomach", mesh: mesh, front: true))
-            root.addChildNode(channel(leg, dx:  s * outer * 1.3, meridian: "gb", mesh: mesh, front: true))
+            root.addChildNode(channel(leg, dx: s * outer * 0.8, meridian: "stomach", mesh: mesh, front: true)) // front-lateral
+            root.addChildNode(channel(leg, dx: s * outer * 1.5, meridian: "gb",      mesh: mesh, front: true)) // lateral / side
         }
         // Torso midlines: ren (front) and du (back) — single + central, always tappable.
         let spine = [b("Hips"), b("Spine"), b("Chest"), b("Neck")]

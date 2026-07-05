@@ -1,5 +1,9 @@
 # CLAUDE.md — AcuGuide Hand Coach (AcuGuide/ repo)
 
+## Working agreement
+
+- **End every session with a short summary.** When a working session wraps up, give a brief recap: what changed, the current state (build/tests), and what's next. Keep it to a few lines — no need to re-explain everything.
+
 ## 项目状态（截至 June 20, 2026 深夜）
 
 React + Vite + TypeScript + TailwindCSS 应用，已可在 iPhone 上通过 HTTPS 运行。

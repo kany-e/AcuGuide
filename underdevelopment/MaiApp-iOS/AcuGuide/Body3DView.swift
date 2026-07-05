@@ -44,6 +44,7 @@ struct Body3DView: View {
     @State private var handSel: Acupoint? = nil      // a tapped marker on the detailed hand chart
     @State private var detailPart: PartDetail? = nil // head/arm/foot detailed-model drill-down
     @State private var locate: Acupoint? = nil       // front-camera region locator (face / torso)
+    @State private var sourcesFor: Acupoint? = nil   // "Research & sources" sheet from a point card
 
     var body: some View {
         ZStack {
@@ -138,6 +139,15 @@ struct Body3DView: View {
             if FaceAcupoints.isLocatable(pt.id) { FaceAtlasView(focus: pt) { locate = nil } }
             else { TorsoAtlasView(focus: pt) { locate = nil } }
         }
+        // Research & sources for the tapped point (honest AcuTrials evidence + citations).
+        .sheet(item: $sourcesFor) { pt in
+            NavigationStack {
+                SourcesView(focusPointId: pt.id)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) {
+                        Button(AppLocale.pick("完成", "Done")) { sourcesFor = nil }.tint(Ink.gold)
+                    } }
+            }
+        }
     }
 
     // Tapped-marker detail card (bottom). TE3 keeps the validated "Practice with camera" path.
@@ -154,6 +164,10 @@ struct Body3DView: View {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(Ink.textDim)
                     }.accessibilityLabel(AppLocale.pick("关闭", "Close"))
                 }
+                // Standard English name (e.g. "Inner Pass") under the header.
+                if !pt.englishName.isEmpty {
+                    Text(pt.englishName).font(Typo.serif(14)).italic().foregroundStyle(Ink.textDim)
+                }
                 // Meridian chip — tappable when the channel is one we draw (opens its card).
                 Button { if let m = Meridian.by(pt.meridian) { model.selectedPoint = nil; model.pointLabels = []; model.selectedMeridian = m } } label: {
                     HStack(spacing: 6) {
@@ -163,11 +177,29 @@ struct Body3DView: View {
                         }
                     }
                 }.disabled(Meridian.by(pt.meridian) == nil)
+                // Classical role (Five-Shu / Yuan / Luo / Front-Mu …) — traditional framing only.
+                if !pt.role.isEmpty {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "seal").font(.caption2).foregroundStyle(Ink.gold)
+                        Text(pt.role).font(.caption).foregroundStyle(Ink.textDim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 Text(pt.location).font(.subheadline).foregroundStyle(Ink.text)
                     .fixedSize(horizontal: false, vertical: true)
                 if !pt.indications.isEmpty {
                     Text(pt.indications).font(.caption).foregroundStyle(Ink.textDim)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                // Honest research-evidence affordance → the Sources & Evidence screen.
+                if Evidence.forPoint(pt.id) != nil {
+                    Button { sourcesFor = pt } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "text.book.closed").font(.caption2)
+                            Text(AppLocale.pick("研究与来源", "Research & sources")).font(.caption.weight(.medium))
+                            Image(systemName: "chevron.right").font(.caption2.bold())
+                        }.foregroundStyle(Ink.gold)
+                    }.padding(.top, 1)
                 }
                 if !pt.caution.isEmpty {
                     HStack(alignment: .top, spacing: 6) {

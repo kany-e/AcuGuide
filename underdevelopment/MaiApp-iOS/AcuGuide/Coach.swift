@@ -21,6 +21,11 @@ enum CoachConst {
     // a camera stall / app backgrounding can produce a multi-second gap. Clamp dt so a single
     // jumbo frame can't credit seconds of hold/steadiness at once (matches the old min(_,0.1)).
     static let maxFrameDtS           = 0.1
+    // The massaging fingertip is the joint Vision drops most (it's the one doing the occluding —
+    // confirmed unstable in on-device shadow capture). Keep the press dot + engagement alive through
+    // a dropout this brief (the state machine's dropout debounce then governs), instead of instantly
+    // nil-ing the tip / resetting its smoother / disengaging on a single missed frame.
+    static let tipGraceS             = 0.3
 }
 
 // Per-frame temporal input — the native equivalent of engine.js FrameState.contact, so
@@ -168,9 +173,13 @@ final class CoachEngine: ObservableObject {
     // and reset the steadiness run.
     private var lastFaceCorrect = false
 
+    // When the press tip was last actually measured — drives the tipGraceS dropout grace.
+    private var lastTipT = -Double.infinity
+
     // Reset the target smoother (called on a confirmed role swap or a mirror flip — both are
     // coordinate discontinuities that would otherwise spike the One-Euro velocity estimate).
-    func smootherReset() { smoother.reset(); pressSmoother.reset() }
+    // The tip grace drops too: a pre-flip tip is in the wrong coordinate space.
+    func smootherReset() { smoother.reset(); pressSmoother.reset(); lastTipT = -.infinity }
 
     var color: Color {
         switch phase {
@@ -183,7 +192,7 @@ final class CoachEngine: ObservableObject {
 
     func reset() {
         machine.reset(); smoother.reset(); pressSmoother.reset(); roleReset()
-        lastFaceCorrect = false
+        lastFaceCorrect = false; lastTipT = -.infinity
         phase = .noHand; ringCenter = nil; pressTip = nil; progress = 0
         cue = AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
     }
@@ -197,6 +206,7 @@ final class CoachEngine: ObservableObject {
         // 1) No usable hand.
         guard !hands.isEmpty else {
             smoother.reset(); pressSmoother.reset(); roleReset(); lastFaceCorrect = false
+            lastTipT = -.infinity
             ringCenter = nil; pressTip = nil
             apply(machine.step(noHandInput(now)), point: point, hasPresser: false)
             return
@@ -221,6 +231,9 @@ final class CoachEngine: ObservableObject {
             return
         }
         let hs = receiver.handSize
+        // M1 shadow mode: run the learned CoreML head next to the affine target + log the delta. Never
+        // alters the ring/state machine — reads the hand only. See LearnedLocalizer / M1 experiment.
+        ShadowLocalizer.shared.record(hand: receiver, point: point, affine: rawCenter, handSize: hs, pressing: presser != nil)
         let center = smoother.filter(rawCenter, now)   // One-Euro BEFORE hit-test + draw
         let tol = target.toleranceXHandSize * hs
         ringCenter = center
@@ -238,17 +251,27 @@ final class CoachEngine: ObservableObject {
 
         // 5) Press tip + contact. The second (massaging) hand's fingertip is noisy in Vision, so
         // One-Euro-smooth it BEFORE the contact test and before drawing (mirrors the target ring).
+        // The tip is also the joint Vision DROPS most (it's doing the occluding), so a transient
+        // loss gets a short grace (tipGraceS): keep the last dot on screen and step the machine as
+        // inside-the-exit-band with NO offset — engagement survives via the dropout debounce, but
+        // hold time never advances on unverifiable geometry (same rule as receiver occlusion).
+        // Only after the grace expires does the tip clear + the filter reset (a longer gap means
+        // the finger really left; restarting the filter clean avoids a stale-velocity lerp back).
         var inEnter = false, inExit = false, hasPresser = false
         var offN: Double? = nil
         if let presser, let rawTip = presser.p(target.pressFinger) {
             let tip = pressSmoother.filter(rawTip, now)
             pressTip = tip; hasPresser = true
+            lastTipT = now
             let dd = dist(tip, center)
             inEnter = dd < tol
             inExit = dd < tol * CoachConst.exitRadiusMult
             offN = Double(dd / hs)
+        } else if pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {
+            hasPresser = true                       // brief dropout: keep the dot + cue steady
+            inExit = true                           // stay in the exit band → debounce governs
         } else {
-            pressTip = nil; pressSmoother.reset()   // presser dropped — restart the filter clean
+            pressTip = nil; pressSmoother.reset()   // presser really gone — restart the filter clean
         }
 
         let result = machine.step(CoachFrameInput(
@@ -359,8 +382,9 @@ final class CoachEngine: ObservableObject {
                 aIsReceiver = prefAIsReceiver
                 swapVotes = 0
                 // Both roles flip to physically different hands — reset BOTH filters so neither the
-                // ring nor the press tip lerps across the discontinuity.
-                smoother.reset(); pressSmoother.reset()
+                // ring nor the press tip lerps across the discontinuity, and drop the tip grace
+                // (a stale tip must not bridge two different hands).
+                smoother.reset(); pressSmoother.reset(); lastTipT = -.infinity
             }
             return commitRoles(aIsReceiver: aIsReceiver, a: a, b: b)
         }

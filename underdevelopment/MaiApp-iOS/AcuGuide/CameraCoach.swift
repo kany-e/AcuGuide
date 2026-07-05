@@ -104,7 +104,10 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     }
 
     func start() { queue.async { if !self.session.isRunning { self.session.startRunning() } } }
-    func stop()  { queue.async { if self.session.isRunning { self.session.stopRunning() } } }
+    func stop()  {
+        ShadowLocalizer.shared.logSummary()   // dump the session's per-point/regime shadow telemetry
+        queue.async { if self.session.isRunning { self.session.stopRunning() } }
+    }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
@@ -126,22 +129,10 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // Usable-hand gate == engine.js MIN_CONFIDENCE (0.5): reject low-confidence detections
         // so the live path matches the validated fixture path (which gates presence at 0.5).
         guard obs.confidence >= Float(CoachConst.minConfidence) else { return nil }
-
-        let joints: [HandJoint] = [.wrist, .thumbTip, .indexTip, .middleTip, .ringTip, .pinkyTip,
-                                   .indexMCP, .middleMCP, .ringMCP, .pinkyMCP]
-        let flipX = queueMirrored   // capture-queue-confined; matches the mirrored preview
-        var pts: [HandJoint: CGPoint] = [:]
-        for j in joints {
-            guard let rp = try? obs.recognizedPoint(j.vision), rp.confidence > 0.3 else { continue }
-            // Vision: normalized, BOTTOM-left origin. Flip y -> top-left. Mirror x to match
-            // the mirrored preview (data output itself is un-mirrored).
-            var x = rp.location.x
-            let y = 1 - rp.location.y
-            if flipX { x = 1 - x }
-            pts[j] = CGPoint(x: x, y: y)
-        }
-        guard pts[.wrist] != nil else { return nil }
-        return Hand(points: pts, chirality: obs.chirality)
+        // Shared converter (HandVision) → identical points to the M3 label harness (zero skew).
+        // flipX = queueMirrored (capture-queue-confined; matches the mirrored preview).
+        guard let s = HandVision.sample(obs, flipX: queueMirrored) else { return nil }
+        return Hand(points: s.points, chirality: obs.chirality)
     }
 }
 

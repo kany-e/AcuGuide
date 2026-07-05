@@ -42,6 +42,15 @@ struct HandModel3DView: UIViewRepresentable {
             if flipY { v = -v }
             return (centerX + u * 2 * spanX, centerY + v * 2 * spanY)
         }
+        // Normalized (u,v) in ~[-0.5…0.5] — a fraction of the hand's on-screen bounding box, for the
+        // camera-space marker placement (AtlasMarkers.screenMarker).
+        static func uv(_ ax: Float, _ ay: Float) -> (Float, Float) {
+            var u = (ax - Float(axMin)) / Float(axMax - axMin) - 0.5
+            var v = (ay - Float(ayMin)) / Float(ayMax - ayMin) - 0.5
+            if flipX { u = -u }
+            if flipY { v = -v }
+            return (u, v)
+        }
     }
 
     func makeCoordinator() -> AcuTapCoordinator { AcuTapCoordinator(onSelect: onSelect) }
@@ -66,9 +75,8 @@ struct HandModel3DView: UIViewRepresentable {
                     guard let mesh = AtlasMarkers.unitMesh(from: gltf, material: AtlasMarkers.meshMaterial()) else { return }
                     mesh.eulerAngles = SCNVector3(0, 0.72, 0)   // square the posed mesh to a dorsal view
                     scene.rootNode.addChildNode(mesh)
-
-                    placeMarkers(in: scene)                      // raycast atlas points onto the surface
                     AtlasMarkers.installCamera(z: 2.3, in: scene, for: view)
+                    placeMarkers(mesh: mesh, in: scene)
                 }
             }
         }
@@ -80,27 +88,18 @@ struct HandModel3DView: UIViewRepresentable {
 
     func updateUIView(_ uiView: SCNView, context: Context) {}
 
-    // Raycast each in-range hand atlas point onto the dorsal surface and drop a tappable marker.
-    private func placeMarkers(in scene: SCNScene) {
+    // Geometry-based marker placement: cast a ray from the camera through each in-range hand point's
+    // (u,v) fraction of the model (AtlasMarkers.screenMarker) so the dots land on the VISIBLE hand — the
+    // old world-Z raycast missed on this posed mesh, leaving the hand with no markers. Dorsal points hit
+    // the near surface; palmar points (PC8/HT7) take the far (palm) surface. Pure geometry — no view timing.
+    private func placeMarkers(mesh: SCNNode, in scene: SCNScene) {
         for pt in Acupoint.all where pt.region == "hand" && HandMarkerCalib.contains(pt.x, pt.y) {
-            let (X, Y) = HandMarkerCalib.world(Float(pt.x), Float(pt.y))
-            // Dorsal points (requiresDorsal) raycast onto the back (camera-facing) surface; palmar
-            // points (PC8/HT7) raycast onto the far PALM surface so they sit on the palm anatomically.
-            // Markers draw on top (depth-off) so all four are always visible (palmar ones read as
-            // projected dots from the dorsal view, matching the 2D atlas).
-            let fromFront = pt.requiresDorsal
-            let from = SCNVector3(X, Y, fromFront ? 1.5 : -1.5)
-            let to   = SCNVector3(X, Y, fromFront ? -1.5 : 1.5)
-            let hits = scene.rootNode.hitTestWithSegment(from: from, to: to, options: [
-                SCNHitTestOption.backFaceCulling.rawValue: false,
-                SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.closest.rawValue,
-            ])
-            guard let h = hits.first else { continue }
-            let p = h.worldCoordinates
-            let dz: Float = fromFront ? 0.02 : -0.02       // sit just proud of the hit surface
-            scene.rootNode.addChildNode(AtlasMarkers.node(
-                id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
-                coreRadius: 0.022, haloRadius: 0.04, at: SCNVector3(p.x, p.y, p.z + dz)))
+            let (u, v) = HandMarkerCalib.uv(Float(pt.x), Float(pt.y))
+            if let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v, farSide: !pt.requiresDorsal,
+                                                 id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
+                                                 core: 0.022, halo: 0.04) {
+                scene.rootNode.addChildNode(m)
+            }
         }
     }
 }

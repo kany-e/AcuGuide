@@ -89,6 +89,16 @@ func locatorMapFill(_ n: CGPoint, in size: CGSize, frameAspect: CGFloat) -> CGPo
     return CGPoint(x: (size.width - dw) / 2 + n.x * dw, y: (size.height - dh) / 2 + n.y * dh)
 }
 
+// Exact inverse of locatorMapFill: a screen point (aspect-fill preview) → normalized TOP-LEFT. The M3
+// label harness uses it to turn an expert's tap into a label in the SAME normalized space that
+// weightedTarget outputs and the head trains on — so there is no reprojection error in the label.
+func locatorInverseFill(_ p: CGPoint, in size: CGSize, frameAspect: CGFloat) -> CGPoint {
+    let fw = frameAspect, fh: CGFloat = 1
+    let s = max(size.width / fw, size.height / fh)
+    let dw = s * fw, dh = s * fh
+    return CGPoint(x: (p.x - (size.width - dw) / 2) / dw, y: (p.y - (size.height - dh) / 2) / dh)
+}
+
 // Glowing markers + labels over a live camera preview; the tapped point (`focusId`) is enlarged.
 struct LocatorMarkersOverlay: View {
     let marks: [LocatorMark]

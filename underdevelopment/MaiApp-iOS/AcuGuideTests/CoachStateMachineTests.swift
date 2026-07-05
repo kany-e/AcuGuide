@@ -6,6 +6,64 @@ import XCTest
 // test hand-builds a CoachFrameInput stream and asserts the phase / hold-timer behavior, so a
 // regression in enter/exit hysteresis, min-hold-confirm, pause-grace, the dt clamp, or the
 // occlusion handling fails here.
+// Engine-level test for the press-tip dropout grace: Vision drops the massaging fingertip
+// constantly (it's the joint doing the occluding — confirmed unstable in on-device shadow capture),
+// and before tipGraceS a single missed frame nil'd the dot, reset its smoother, and instantly
+// disengaged HOLDING. The grace must keep the dot + engagement through a brief dropout WITHOUT
+// crediting hold time, then clear cleanly once the finger is really gone.
+final class CoachEngineTipGraceTests: XCTestCase {
+    private let dt = 1.0 / 30.0
+    private let base: [HandJoint: CGPoint] = [
+        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
+        .ringMCP: CGPoint(x: 0.56, y: 0.54), .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
+        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30), .pinkyTip: CGPoint(x: 0.66, y: 0.36),
+        .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+
+    func testTipGraceSurvivesBriefPresserDropout() {
+        // This synthetic right hand reads dorsal only under the positive sign — pin the calibration
+        // flag for the test (it's a device-calibration static) and restore it after.
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        XCTAssertEqual(receiver.isDorsal, true, "synthetic receiver must pass the TE3 dorsal gate")
+        let tip = receiver.weightedTarget(target.anchors)!
+        var presserPts: [HandJoint: CGPoint] = [.wrist: CGPoint(x: tip.x + 0.20, y: tip.y + 0.28),
+                                                .middleMCP: CGPoint(x: tip.x + 0.16, y: tip.y + 0.20)]
+        presserPts[target.pressFinger] = tip                     // pressing exactly on target
+        let presser = Hand(points: presserPts, chirality: .left)
+
+        let engine = CoachEngine()
+        var t = 0.0
+        for _ in 0..<10 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.phase, .holding, "steady on-target press must reach HOLDING")
+        XCTAssertNotNil(engine.pressTip)
+        let progressBefore = engine.progress
+        XCTAssertGreaterThan(progressBefore, 0)
+
+        // Presser vanishes for 2 frames (66ms < tipGraceS): dot + engagement survive, hold frozen.
+        for _ in 0..<2 { engine.update(hands: [receiver], point: te3, now: t); t += dt }
+        XCTAssertNotNil(engine.pressTip, "brief tip dropout must not clear the press dot")
+        XCTAssertTrue(engine.phase == .holding || engine.phase == .onTargetUnstable,
+                      "brief tip dropout must not disengage; got \(engine.phase)")
+        XCTAssertEqual(engine.progress, progressBefore, accuracy: 1e-9,
+                       "hold time must not advance on unverifiable geometry")
+
+        // Presser returns: holding resumes and credits again.
+        for _ in 0..<6 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.phase, .holding)
+        XCTAssertGreaterThan(engine.progress, progressBefore, "hold credit must resume after the dropout")
+
+        // Presser gone for good: past grace + debounce the dot clears and the phase falls to PAUSED.
+        for _ in 0..<20 { engine.update(hands: [receiver], point: te3, now: t); t += dt }
+        XCTAssertNil(engine.pressTip, "expired grace must clear the press dot")
+        XCTAssertEqual(engine.phase, .paused, "hold >0 within pause grace → PAUSED, not SEARCHING")
+    }
+}
+
 final class CoachStateMachineTests: XCTestCase {
 
     private let fps = 30.0

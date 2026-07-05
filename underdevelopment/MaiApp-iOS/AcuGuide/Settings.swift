@@ -17,6 +17,22 @@ struct SettingsSheet: View {
                         }
                         .pickerStyle(.segmented)
                     }
+                    Section(AppLocale.pick("参考", "Reference")) {
+                        NavigationLink {
+                            SourcesView()
+                        } label: {
+                            Label(AppLocale.pick("来源与证据", "Sources & Evidence"), systemImage: "text.book.closed")
+                        }
+                    }
+                    // Dev tool (M3): capture owned expert acupoint labels on real frames. English-only,
+                    // shown to whoever runs the collection build.
+                    Section("Developer") {
+                        NavigationLink {
+                            LabelCaptureView()
+                        } label: {
+                            Label("Label capture (\(LabelStore.shared.count))", systemImage: "hand.tap")
+                        }
+                    }
                     Section {
                         Text(AppLocale.pick("仅供养生自我保养，非医疗建议。",
                                             "Wellness self-care only — not medical advice."))

@@ -18,6 +18,7 @@ import simd
 struct PartDetail: Identifiable {
     let id: String                              // region id (head/arm/foot) — also the title key
     let resource: String                        // GLB file name (no extension)
+    let nodeName: String?                        // geometry node to extract from a multi-part GLB (else first)
     let euler: SCNVector3                        // orientation to a sensible canonical view
     let layout: [String: SIMD2<Float>]           // acupoint id → (u, v) in the camera plane
     let back: Set<String>                        // points on the far/under surface (raycast reversed)
@@ -28,21 +29,32 @@ struct PartDetail: Identifiable {
 
     static func forRegion(_ region: String) -> PartDetail? { byRegion[region] }
     static let byRegion: [String: PartDetail] = [
+        // Head/arm/foot all come from the composite body model — its parts (real face, full arm with
+        // hand, proper foot) are far better formed than the standalone single-part GLBs they replaced.
         "head": PartDetail(
-            id: "head", resource: "low_poly_head", euler: SCNVector3(0, 0, 0),
-            layout: ["EX-HN3": [0.00, 0.10], "EX-HN5": [0.22, 0.06], "GV20": [0.00, 0.44], "EX-HN1": [0.00, 0.34]],
+            // Frontal at identity: real eyes/nose/ears, so the face points read anatomically.
+            id: "head", resource: "arms_hands_head_legs_and_feet__low_poly_female",
+            nodeName: "polySurface1_lambert1_0", euler: SCNVector3(0, 0, 0),
+            layout: ["EX-HN3": [0.00, 0.05], "EX-HN5": [0.33, 0.05], "GV20": [0.00, 0.48], "EX-HN1": [0.00, 0.40]],
             back: [],
             titleZh: "头", titleEn: "Head",
             creditZh: "头部模型 · 低多边形（参考用）", creditEn: "Head model · low-poly (reference)"),
         "arm": PartDetail(
-            id: "arm", resource: "lowpoly_arm", euler: SCNVector3(-Float.pi / 2, 0.3, 0),
-            layout: ["LI11": [0.12, 0.40], "LU5": [-0.06, 0.40], "TE4": [0.05, -0.36], "PC7": [0.00, -0.42]],
-            back: [],
+            // Full arm (shoulder → hand), horizontal with the dorsum to the camera (matches the foot's
+            // chart style). Palmar points (LU5 cubital crease / PC7 wrist crease) raycast to the FAR
+            // surface — like KI1 on the sole, they reveal on rotation.
+            id: "arm", resource: "arms_hands_head_legs_and_feet__low_poly_female",
+            nodeName: "polySurface6_lambert1_0", euler: SCNVector3(0, 0.5, -0.8),
+            layout: ["LI11": [0.20, 0.05], "LU5": [0.15, 0.00], "TE4": [-0.23, 0.03], "PC7": [-0.25, -0.05]],
+            back: ["LU5", "PC7"],
             titleZh: "手臂", titleEn: "Arm",
             creditZh: "手臂模型 · 低多边形（参考用）", creditEn: "Arm model · low-poly (reference)"),
+        // Proper foot from the composite body model (polySurface9) — the standalone foot_low_poly asset
+        // was a malformed, stubby lump. 3/4 lateral view (toes right, dorsum to camera).
         "foot": PartDetail(
-            id: "foot", resource: "foot_low_poly", euler: SCNVector3(0, Float.pi / 2, 0),
-            layout: ["LR3": [0.12, 0.12], "ST44": [0.22, 0.08], "KI1": [0.10, -0.20], "KI3": [-0.26, 0.00]],
+            id: "foot", resource: "arms_hands_head_legs_and_feet__low_poly_female",
+            nodeName: "polySurface9_lambert1_0", euler: SCNVector3(-0.4, Float.pi / 2, 0),
+            layout: ["LR3": [0.06, -0.10], "ST44": [0.26, -0.11], "KI1": [0.14, -0.22], "KI3": [-0.22, -0.10]],
             back: ["KI1"],                       // Yongquan is on the sole — raycast onto the under-surface
             titleZh: "足部", titleEn: "Foot",
             creditZh: "足部模型 · 低多边形（参考用）", creditEn: "Foot model · low-poly (reference)"),
@@ -73,12 +85,11 @@ struct PartModel3DView: UIViewRepresentable {
                 guard status == .complete, let asset = maybeAsset else { return }
                 let gltf = SCNScene(gltfAsset: asset)
                 DispatchQueue.main.async {
-                    guard let mesh = AtlasMarkers.unitMesh(from: gltf, material: AtlasMarkers.meshMaterial()) else { return }
+                    guard let mesh = AtlasMarkers.unitMesh(from: gltf, material: AtlasMarkers.meshMaterial(), nodeName: cfg.nodeName) else { return }
                     mesh.eulerAngles = cfg.euler
                     scene.rootNode.addChildNode(mesh)
-
-                    placeMarkers(in: scene, mesh: mesh, config: cfg)
                     AtlasMarkers.installCamera(z: 2.4, in: scene, for: view)
+                    placeMarkers(in: scene, mesh: mesh, config: cfg)
                 }
             }
         }
@@ -90,40 +101,18 @@ struct PartModel3DView: UIViewRepresentable {
 
     func updateUIView(_ uiView: SCNView, context: Context) {}
 
-    // World AABB of the transformed mesh (so the (u,v) layout auto-fits any model's size), then
-    // raycast each layout point along ±Z onto the camera-facing surface (or the far side for `back`
-    // points like a sole point).
+    // Geometry-based marker placement: cast a ray from the camera through each acupoint's (u,v) fraction
+    // of the model (AtlasMarkers.screenMarker) so dots land on the VISIBLE surface regardless of pose —
+    // replaces the old world-Z raycast that drifted off / missed on these arbitrarily-posed GLBs. Pure
+    // geometry, so no dependence on view layout/render timing.
     private func placeMarkers(in scene: SCNScene, mesh: SCNNode, config: PartDetail) {
-        let (lo, hi) = mesh.boundingBox
-        var wlo = SIMD3<Float>(repeating: .greatestFiniteMagnitude)
-        var whi = SIMD3<Float>(repeating: -.greatestFiniteMagnitude)
-        for cx in [lo.x, hi.x] { for cy in [lo.y, hi.y] { for cz in [lo.z, hi.z] {
-            let w = mesh.convertPosition(SCNVector3(cx, cy, cz), to: nil)
-            wlo = simd_min(wlo, SIMD3(w.x, w.y, w.z)); whi = simd_max(whi, SIMD3(w.x, w.y, w.z))
-        } } }
-        let cx = (wlo.x + whi.x) / 2, cy = (wlo.y + whi.y) / 2
-        let w = (whi.x - wlo.x) * 0.92, h = (whi.y - wlo.y) * 0.92
         for pt in config.points {
             guard let uv = config.layout[pt.id] else { continue }
-            let X = cx + uv.x * w, Y = cy + uv.y * h
-            let fromBack = config.back.contains(pt.id)
-            // Raycast the (X,Y) column onto the mesh: front points from beyond +Z (closest hit =
-            // camera-facing surface), back points (e.g. a sole point) from beyond −Z (far surface).
-            let from = SCNVector3(X, Y, fromBack ? wlo.z - 0.6 : whi.z + 0.6)
-            let to   = SCNVector3(X, Y, fromBack ? whi.z + 0.6 : wlo.z - 0.6)
-            let hits = scene.rootNode.hitTestWithSegment(from: from, to: to, options: [
-                SCNHitTestOption.backFaceCulling.rawValue: false,
-                SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.closest.rawValue,
-            ])
-            // On a hit, sit just proud of the surface; if the ray misses (a layout point outside the
-            // silhouette), FALL BACK to the front/back plane so the marker still shows. Markers draw
-            // on top (depth-off), so they're visible either way.
-            let z: Float
-            if let hit = hits.first { z = Float(hit.worldCoordinates.z) + (fromBack ? -0.02 : 0.02) }
-            else { z = (fromBack ? wlo.z - 0.02 : whi.z + 0.02) }
-            scene.rootNode.addChildNode(AtlasMarkers.node(
-                id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
-                coreRadius: 0.03, haloRadius: 0.055, at: SCNVector3(X, Y, z)))
+            if let m = AtlasMarkers.screenMarker(cameraZ: 2.4, mesh: mesh, u: uv.x, v: uv.y, farSide: config.back.contains(pt.id),
+                                                 id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
+                                                 core: 0.03, halo: 0.055) {
+                scene.rootNode.addChildNode(m)
+            }
         }
     }
 }
@@ -149,8 +138,16 @@ struct PartDetailSheet: View {
                                 Text("\(s.id) · \(s.zh)").font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
                                 Text(s.en).font(Typo.code(15)).foregroundStyle(Ink.textDim)
                             }
+                            if !s.role.isEmpty {
+                                Text(s.role).font(.caption2).foregroundStyle(Ink.gold.opacity(0.85))
+                                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                            }
                             Text(s.location).font(.caption).foregroundStyle(Ink.text)
                                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                            if !s.indications.isEmpty {
+                                Text(s.indications).font(.caption2).foregroundStyle(Ink.textDim)
+                                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                            }
                             if !s.caution.isEmpty {
                                 Text(s.caution).font(.caption2).foregroundStyle(Ink.gold.opacity(0.9))
                                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)

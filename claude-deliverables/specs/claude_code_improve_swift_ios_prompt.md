@@ -229,10 +229,174 @@ mountain-water) painting** — light parchment ground, soft sage ink washes, lot
 **Verify Phase 2:** on device, the atlas page is the **light shanshui theme** (parchment ground,
 ink mountains, moon, mist) matching the html; the body is the **real model**, **matte and slightly
 translucent** (not shiny), **small and centered (~1/5)** with working pinch-zoom; **meridians are
-visible** on the limbs/torso; **region labels show and are tappable**, zooming to a part and
-revealing its xueweis, with 手部 opening the hand map; there is **no Hand tab**; the hand is the
-real silhouette. Capture a screen recording: full figure → tap a region label → zoom-in with
-xueweis → tap 手部 → hand map → back.
+visible** on the limbs/torso; **region labels show and are tappable**, zooming the camera in-scene
+to a part and revealing its xueweis; there is **no Hand tab**. Capture a screen recording: full
+figure → tap a region label → in-scene zoom with xueweis → reset.
+
+---
+
+## Phase 2 — Round-2 corrections (additive — each builds on / corrects the item it cites; earlier sections stay)
+
+The user reviewed the build and gave seven concrete fixes. **They are the source of truth — match
+them exactly.**
+
+1. **Language setting (中文 ⇄ English).** The web app is fully bilingual via a `lang` state; the
+   port is English-only. Add an app-wide language setting: a gear/**Settings** entry (toolbar
+   button → sheet, or a small tab) with a 中文 / English control, persisted via
+   `@AppStorage("appLang")` (default from `Locale`), exposed through an `AppSettings:
+   ObservableObject` injected with `.environmentObject`. Port the web `S` string map and the
+   bilingual record fields (`nameZh/nameEn`, `locationZh/En`, meridian names, region labels, safety
+   copy) and switch all user-facing text on it. Keep the safety copy within the non-negotiables in
+   **both** languages.
+2. **Use the html's fonts (the brush/serif look).** The web app loads **Ma Shan Zheng** (brush
+   calligraphy — the region/meridian labels), **Noto Serif SC** (Chinese serif headings/body), and
+   **Cormorant Garamond** (Latin point codes). Bundle these TTFs (all OFL, redistributable) under
+   `underdevelopment/MaiApp-iOS/`, register them in Info.plist (`UIAppFonts`), and use them:
+   `Font.custom("MaShanZheng-Regular", size:)` for `brush`/region labels, Noto Serif SC for
+   headings, Cormorant for codes. Add a `Font` helper so it's one place. This is what makes the
+   labels read as 书法, not system text.
+3. **Body is STILL too shiny — kill the specular (corrects Phase 2 item 2's material note).** The
+   gloss is specular highlight from PBR + bright lights. Force every material fully matte and
+   slightly translucent, and remove hard lights:
+   ```swift
+   func matteify(_ root: SCNNode) {
+       root.enumerateHierarchy { n, _ in
+           n.geometry?.materials.forEach { m in
+               m.lightingModel   = .physicallyBased
+               m.metalness.contents = 0.0
+               m.roughness.contents = 1.0            // fully matte: no hotspot
+               m.clearCoat.contents = 0.0
+               m.diffuse.contents   = UIColor(Ink.bodySage)
+               m.emission.contents  = UIColor(Ink.bodyEmission); m.emission.intensity = 0.12
+               m.transparency       = 0.85           // a little see-through
+           }
+       }
+   }
+   ```
+   And: `scnView.autoenablesDefaultLighting = false` (its omni light is a big culprit); light only
+   with a soft **ambient** (~700) + a low fill, **no bright directional**; keep
+   `scene.lightingEnvironment.intensity` low. If it still glints, drop `lightingModel` to `.lambert`
+   (zero specular by definition).
+4. **Meridians are too rigid — smooth them (corrects Phase 2 item 3).** Straight tube segments
+   through a few points look wrong. Match `Body3D.jsx`: **densify** each limb chain to many points,
+   run **centripetal Catmull-Rom** (`curveOf`) + a few **Laplacian smoothing** passes (`smoothPts`),
+   then build a thin tube (radius ≈ 0.0016, low opacity, meridian color) along the smoothed curve so
+   the channel flows along the limb contour instead of zig-zagging. Sample ≥ 32–64 points per
+   channel.
+5. **Hand-face detection is inverted — front is read as back (Phase 1 item 6).** Flip the calibrated
+   sign: invert the default of `HandCalibration.dorsalWhenSignedPositive` (or negate the `isDorsal`
+   comparison) so palm-toward-camera reads palmar and back-toward-camera reads dorsal. Re-verify the
+   WRONG_FACE gate on-device after flipping; keep the single toggle so it can be re-inverted if a
+   given device disagrees.
+6. **Label tap = in-scene 3D zoom, hand stays attached to the body (corrects Phase 2 items 4–6).**
+   Do **not** switch to a separate 2D hand view. Tapping a region label **animates the SceneKit
+   camera** (`pointOfView`) to frame that body part **within the same scene**; the whole figure
+   stays one node you can still **drag/rotate and pinch** (`allowsCameraControl` stays on) — one
+   coherent piece, exactly like the body. Show that region's acupoints as **3D marker nodes on the
+   model surface** (small glowing spheres, meridian-colored, with a tappable label). A "全身 / Whole
+   body" control animates the camera back out. The hand is just the zoom-to-hand case (TE3, SI3,
+   PC8… on the 3D hand); keep "Practice with camera" reachable from the TE3 marker. Retire the 2D
+   `HandView` drill-down (you may keep the hand silhouette only as an optional flat inset, not the
+   primary path).
+7. **Fix the acupoint locations — use the sourced table below (corrects the placeholder coords).**
+   The current dots are inaccurate. Place each 3D marker (and any 2D inset) per the cited anatomy.
+   Surfaces matter: dorsal points go on the back of the hand/forearm, palmar on the palm/anterior
+   forearm — the 3D model can show this correctly (the flat SVG could not). **Exclude LI4.**
+
+### Sourced acupoint locations (cite these in `Acupoints.swift` comments)
+
+| Point | Surface | Location (standard references) | Place the marker… |
+|---|---|---|---|
+| **TE3 中渚** (AR) | dorsal hand | Dorsum of hand, **between the 4th & 5th metacarpals, in the depression proximal to the 4th metacarpophalangeal (knuckle) joint** (Shu-stream pt). | Back of hand, between ring & pinky knuckles, just **proximal** to the ring knuckle. For the AR anchors, bias toward ring + proximal, e.g. ringMCP ≈ 0.45, pinkyMCP ≈ 0.30, wrist ≈ 0.25 — then eyeball it sits in the proximal groove. |
+| **SI3 后溪** | dorsal/ulnar hand | **Ulnar border of the hand, in the depression proximal to the 5th metacarpophalangeal joint**, at the end of the major palmar crease when a loose fist is made (red/white skin junction). | Pinky-side edge of the hand, just proximal to the pinky knuckle. |
+| **PC8 劳宫** | palmar | **Center of the palm, between the 2nd & 3rd metacarpals, on the radial side of the 3rd metacarpal** — where the middle-finger tip lands when making a fist. | Middle of the palm. |
+| **HT7 神门** | palmar/ulnar wrist | At the wrist, **radial side of the flexor carpi ulnaris tendon, in the depression at the proximal border of the pisiform bone** (ulnar end of the palmar wrist crease). | Pinky-side end of the palmar wrist crease. |
+| **PC6 内关** | palmar forearm | Anterior forearm, **2 cun (≈ 3 finger-widths) proximal to the palmar wrist crease, between the tendons of palmaris longus & flexor carpi radialis**. | Up the **inner forearm**, not on the hand — place it on the forearm and label the 2-cun offset. |
+| **SJ5 / TE5 外关** | dorsal forearm | Posterior forearm, **2 cun proximal to the dorsal wrist crease, between the radius & ulna**, directly opposite PC6. | Up the **back of the forearm**, opposite PC6. |
+
+Sources (record in code comments + README): TE3 — [Acupoints.org](https://www.acupoints.org/te3-acupuncture-point/), [TCM Wiki](https://tcmwiki.com/wiki/te3); SI3 — [Evidence Based Acupuncture](https://www.evidencebasedacupuncture.org/smallintestine/si3-hou-xi/), [Sacred Lotus](https://www.sacredlotus.com/go/acupuncture/point/si-03-hou-xi-back-ravine); PC8 — [Me&Qi](https://www.meandqi.com/knowledge-base/acupuncture/pericardium-meridian/laogong-pc-8); HT7 — [Evidence Based Acupuncture](https://www.evidencebasedacupuncture.org/heart/ht7-shen-men/); PC6 — [Me&Qi](https://www.meandqi.com/knowledge-base/acupuncture/pericardium-meridian/neiguan-pc-6); TE5 — [Me&Qi](https://www.meandqi.com/knowledge-base/acupuncture/triple-burner-meridian/waiguan-sj-5/). These align with the WHO *Standard Acupuncture Point Locations in the Western Pacific Region* descriptions; cite WHO if you add the official text.
+
+**Verify Round-2:** language toggle flips every screen 中文⇄EN and persists; labels render in the
+brush font; the body reads matte (no glossy highlight) and slightly translucent; meridians curve
+smoothly along the limbs; the face gate reads palm-as-palmar / back-as-dorsal correctly; tapping a
+label zooms the camera in-scene while the figure stays one draggable piece with 3D acupoint markers;
+each marker's position matches the sourced table.
+
+---
+
+## Phase 2 — Round-3 corrections (from the running build; file/line refs are current on `IOS-APP`)
+
+**How to read this:** this is an *additive* layer — do **not** rewrite or delete the earlier Phase
+0–4 / round-2 sections. Those instructions still stand and the round-2 work is already shipped; this
+section just records what the running build got **wrong** and the **targeted fix** for each, against
+the current code. Apply these as deltas on top of what's there.
+
+Round-2 shipped, but the review surfaced six concrete defects. Each is grounded in the actual code —
+what's wrong, then what to change.
+
+1. **Zoom must actually *frame* the part, and manual pinch must not push the body off-screen.**
+   In `Body3DView.swift` `Coordinator.focus(_:)` the dolly distance is `radius * 2.4` where `radius`
+   is the **whole-body** bounding sphere — so a small part (the hand) barely grows ("it only shows
+   the acupoints, doesn't zoom in"). Instead, **frame the focused region's own extent**: compute the
+   region subtree's bounding sphere (e.g. the hand/forearm marker cluster or the hand bone's local
+   box) and set `distance = regionRadius / tan(fov/2) * margin` (margin ≈ 1.3) so the part fills
+   ~70% of the view. Separately, the **orbit pivot drifts**: `defaultCameraController.target` is only
+   set inside `focus`/`unfocus`, so in full-body mode a manual pinch dollies toward scene origin and
+   the figure slides out of frame. Set `view.defaultCameraController.target` to the **body center**
+   in full-body mode (right after the camera is installed) and to the **region center** when
+   focused, so pinch/drag always orbit-and-zoom around what's on screen. Keep `allowsCameraControl`.
+2. **Hand label = same brush style as the others, with a hover/press affordance (corrects the
+   round-2 hand label — change only the hotspot branch).** In `Body3DView.swift` `regionLabel(_:)`,
+   the `if r.isHand { … pulsing gold capsule }` branch makes the hand look different. Remove just
+   that branch — render **every** region (hand included) with
+   `Typo.brush(19)` + `Ink.brush` + the parchment-halo shadow. Then add the interaction the user
+   described to **all** labels: on hover (pointer via `.onHover`) **and** on touch-down, scale to
+   ≈1.12 and add a soft gold glow (`.shadow(color: Ink.gold.opacity(0.8), radius: 6)`); on tap, keep
+   the current `model.tap(r)` zoom. A small reusable `BrushLabel` view or a `ButtonStyle` reading
+   `isPressed` + `@State hovering` keeps it one place. The hand's tap still zooms to the hand (no
+   separate styling, no 2D drill-down).
+3. **Meridians: route on the full skeleton, project onto the surface, and never disappear.** In
+   `Meridians.swift`, `channels()` uses only **2–3 sparse bone points per limb** plus a *constant*
+   front push (`frontArm = -0.035`), so the lines float beside the limb and "don't align with the
+   anatomy." Two fixes: (a) **add control points** (shoulder→upper-arm→elbow→wrist; hip→thigh→knee→
+   ankle) and **project each smoothed point onto the body surface** by raycasting inward against the
+   mesh (`SCNNode.hitTestWithSegment(from:to:options:)` from just outside the limb toward its axis),
+   then nudge ~0.006 back out — the SceneKit analogue of the web's `projectChain`, so the channel
+   lies *on* the limb. (b) **Stop them vanishing at angles:** the line materials set depth-read off
+   but have **no `renderingOrder`**, so the 0.85-translucent body blends over them in the transparent
+   pass from some views. Give the channel container a high `renderingOrder` (e.g. 10, above the body)
+   like the markers, keep `isDoubleSided = true`, and prefer one continuous `SCNGeometry` tube per
+   channel over the disjoint `SCNCylinder` segments (the segments go edge-on/invisible at grazing
+   angles and leave gaps).
+4. **The hand needs finger detail.** `model.glb`'s hand is a low-poly mitten (`acuMarkers` are
+   literally "tuned visually against the small low-poly hand"), so you can't see fingers and the
+   acupoints can't sit on real knuckles. Bring in a **higher-detail hand mesh with articulated
+   fingers** for the hand view — either swap/attach a dedicated hand model at the wrist when focused
+   on the hand, or use a fuller-detail body model. With real fingers, re-place TE3/SI3/PC8/HT7 on the
+   actual geometry. If no detailed 3D hand asset is available, fall back to the 2D hand silhouette
+   inset **for the hand region only** (it has fingers) so the points are anatomically legible.
+5. **Second (massaging) hand is noisy — smooth the press tip.** In `Coach.swift` `update(...)` the
+   pressing fingertip is the **raw** landmark: `pressTip = tip` and the enter/exit contact test
+   (`dd = dist(tip, center)`) both use it, so Vision's jitter on the second hand drives both the
+   drawn dot and the state machine. Add a dedicated `private let pressSmoother = OneEuroPoint()`,
+   smooth `tip` **before** computing `dd`/`inEnter`/`inExit` and before publishing `pressTip`, and
+   `pressSmoother.reset()` when the presser drops (the `else { pressTip = nil }` branch) and on a
+   confirmed role swap. Optionally raise the press-finger confidence gate (it's `rp.confidence > 0.3`
+   in `CameraCoach.swift`) and add a 1–2-frame presence debounce so a flickering second-hand
+   detection doesn't thrash the contact.
+6. **TE3 is still off — reduce the proximal pull (and re-place the 3D marker).** The AR anchors in
+   `Acupoints.swift` are `ringMCP 0.45 / pinkyMCP 0.30 / wrist 0.25`; the **0.25 wrist** weight drags
+   the target ~25% of the way to the wrist (mid-metacarpal), but TE3 sits *just* proximal to the 4th
+   knuckle. Shift weight off the wrist and keep the ring bias — try **ringMCP 0.52 / pinkyMCP 0.33 /
+   wrist 0.15** (≈15% proximal, biased to the 4th/5th groove) and confirm with the on-device
+   calibration overlay. Then re-tune the 3D `acuMarkers` TE3 position in `Meridians.swift` once the
+   detailed hand (fix #4) is in, so it lands in the 4th/5th metacarpal groove on real geometry.
+
+**Verify Round-3:** tapping the hand (or any region) dollies the camera so that part fills the view,
+and pinch/drag keep it centered (the body never slides off); the hand label looks/behaves like the
+others (brush font; enlarges + glows on hover/press; tap zooms); meridians lie on the limbs and stay
+visible from every angle; the hand shows fingers; the pressing-hand dot and contact are steady (no
+jitter); TE3 sits in the groove just behind the ring knuckle.
 
 ## Phase 3 — Native features (after Phase 0–2 are solid)
 

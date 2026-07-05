@@ -53,8 +53,28 @@ struct Acupoint: Identifiable, Hashable {
     var indications: String  { AppLocale.pick(indicationsZh, indicationsEn) }
     var caution: String      { AppLocale.pick(cautionZh, cautionEn) }
     var meridianName: String { AppLocale.pick(meridianZh, meridianEn) }
-    var coachAlignL: String  { AppLocale.pick(coachAlignZh.isEmpty ? coachAlign : coachAlignZh, coachAlign) }
-    var coachHoldL: String   { AppLocale.pick(coachHoldZh.isEmpty ? coachHold : coachHoldZh, coachHold) }
+    // AR cue accessors: prefer the point's own stored cue (TE3), else the shared per-point cue table
+    // (the other 7 coachable points), so the searching-phase cue can be point-specific. See
+    // Acupoint.coachCues. Sourced/verified: claude-deliverables/references/acuguide_source_upgrade.md.
+    var coachAlignL: String {
+        let t = Acupoint.coachCues[id]
+        let zh = coachAlignZh.isEmpty ? (t?.alignZh ?? "") : coachAlignZh
+        let en = coachAlign.isEmpty  ? (t?.alignEn ?? "") : coachAlign
+        return AppLocale.pick(zh.isEmpty ? en : zh, en)
+    }
+    var coachHoldL: String {
+        let t = Acupoint.coachCues[id]
+        let zh = coachHoldZh.isEmpty ? (t?.holdZh ?? "") : coachHoldZh
+        let en = coachHold.isEmpty  ? (t?.holdEn ?? "") : coachHold
+        return AppLocale.pick(zh.isEmpty ? en : zh, en)
+    }
+    // Standard English name translation (e.g. "Inner Pass") + classical point role (Five-Shu, Yuan,
+    // Luo, Front-Mu …). Both are factual TCM reference data drawn from a side table (below), so the
+    // 27 point literals stay untouched. Cultural/traditional framing only — no medical claims.
+    var englishName: String { Acupoint.englishNames[id] ?? "" }
+    var roleEn: String { Acupoint.classicalRole[id]?.en ?? "" }
+    var roleZh: String { Acupoint.classicalRole[id]?.zh ?? "" }
+    var role: String { AppLocale.pick(roleZh, roleEn) }
 
     static let all: [Acupoint] = [
         // ── The one validated AR-coached point. ──────────────────────────────────────────────
@@ -420,6 +440,86 @@ struct Acupoint: Identifiable, Hashable {
 
     // Id → point index, so tap hit-tests and lookups don't linear-scan `all` every time.
     static let byId: [String: Acupoint] = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+
+    // ── Reference side tables (factual TCM data; sourced + verified) ──────────────────────────────
+    // See claude-deliverables/references/acuguide_source_upgrade.md. Kept out of the 27 point
+    // literals so a data refresh is one edit here. No treat/cure/heal/diagnose copy (test-enforced).
+
+    // Standard English name translations of the point names (Deadman / WHO-style).
+    static let englishNames: [String: String] = [
+        "TE3": "Central Islet", "PC6": "Inner Pass", "SJ5": "Outer Pass", "PC8": "Palace of Toil",
+        "HT7": "Spirit Gate", "SI3": "Back Ravine", "EX-HN3": "Hall of Impression",
+        // EX-HN5 (太阳) has no separate translation — its recognised name IS "Taiyang" (the point's `en`).
+        "GV20": "Hundred Meetings", "EX-HN1": "Four Alert Spirits", "CV17": "Chest Centre", "KI27": "Shu Mansion",
+        "CV12": "Central Venter", "ST25": "Celestial Pivot", "LI11": "Pool at the Bend", "LU5": "Cubit Marsh",
+        "TE4": "Yang Pool", "PC7": "Great Mound", "ST36": "Leg Three Li", "GB34": "Yang Mound Spring",
+        "SP10": "Sea of Blood", "ST34": "Beam Hill", "ST35": "Calf's Nose", "LR3": "Supreme Surge",
+        "ST44": "Inner Court", "KI1": "Gushing Spring", "KI3": "Supreme Stream",
+    ]
+
+    // Classical point category / role (Yin Yang House, each verified live; corroborated by the Atlas
+    // command-point tables). Cultural framing of a point's traditional role and channel — not a claim.
+    static let classicalRole: [String: (en: String, zh: String)] = [
+        "TE3": ("Shu-Stream (Wood) point of the Sanjiao channel", "手少阳三焦经 输(木)穴"),
+        "PC6": ("Luo-Connecting & Command point of the Pericardium; Master point of the Yin Wei vessel (paired with SP4)", "手厥阴心包经 络穴、八脉交会穴(通阴维脉,配公孙)"),
+        "SJ5": ("Luo-Connecting point of the Sanjiao; Master point of the Yang Wei vessel (paired with GB41)", "手少阳三焦经 络穴、八脉交会穴(通阳维脉,配足临泣)"),
+        "PC8": ("Ying-Spring (Fire) point of the Pericardium; also its Exit and a Ghost point", "手厥阴心包经 荥(火)穴、出穴、鬼穴"),
+        "HT7": ("Yuan-Source & Shu-Stream (Earth) point of the Heart", "手少阴心经 原穴、输(土)穴"),
+        "SI3": ("Shu-Stream (Wood) & Tonification point of the Small Intestine; Master point of the Governing Vessel (paired with BL62)", "手太阳小肠经 输(木)穴、补穴;八脉交会穴(通督脉,配申脉)"),
+        "EX-HN3": ("Extra (non-channel) point between the eyebrows", "经外奇穴（印堂）"),
+        "EX-HN5": ("Extra (non-channel) point at the temple", "经外奇穴（太阳）"),
+        "GV20": ("Sea-of-Marrow point; meeting of the Governing Vessel with the yang channels", "督脉 百会;髓海、诸阳之会"),
+        "EX-HN1": ("Four extra (non-channel) points around GV20 at the vertex", "经外奇穴（四神聪）"),
+        "CV17": ("Hui-Meeting (Influential) point of Qi; Front-Mu point of the Pericardium", "任脉 气会、心包募穴"),
+        "CV12": ("Front-Mu point of the Stomach; Hui-Meeting (Influential) point of the Fu organs", "任脉 胃募穴、腑会"),
+        "ST25": ("Front-Mu point of the Large Intestine", "足阳明胃经 大肠募穴"),
+        "LI11": ("He-Sea (Earth) & Tonification point of the Large Intestine; also a Ghost point", "手阳明大肠经 合(土)穴、补穴、鬼穴"),
+        "LU5": ("He-Sea (Water) point of the Lung", "手太阴肺经 合(水)穴"),
+        "TE4": ("Yuan-Source point of the Sanjiao", "手少阳三焦经 原穴"),
+        "PC7": ("Shu-Stream (Earth) & Yuan-Source point of the Pericardium; also a Ghost point", "手厥阴心包经 输(土)穴、原穴、鬼穴"),
+        "ST36": ("He-Sea (Earth) & Lower-He-Sea point of the Stomach; Sea of Water & Grain; Command point of the abdomen", "足阳明胃经 合(土)穴、下合穴;水谷之海、四总穴(肚腹)"),
+        "GB34": ("He-Sea (Earth) & Lower-He-Sea point of the Gallbladder; Hui-Meeting (Influential) point of the sinews", "足少阳胆经 合(土)穴、下合穴、筋会"),
+        "SP10": ("A point of the Spleen channel", "足太阴脾经（血海）"),
+        "ST34": ("Xi-Cleft (Accumulation) point of the Stomach", "足阳明胃经 郄穴"),
+        "LR3": ("Shu-Stream (Earth) & Yuan-Source point of the Liver", "足厥阴肝经 输(土)穴、原穴"),
+        "ST44": ("Ying-Spring (Water) point of the Stomach", "足阳明胃经 荥(水)穴"),
+        "KI1": ("Jing-Well (Wood) point of the Kidney", "足少阴肾经 井(木)穴"),
+        "KI3": ("Shu-Stream (Earth) & Yuan-Source point of the Kidney", "足少阴肾经 输(土)穴、原穴"),
+    ]
+
+    // Per-point AR alignment + hold cues for the 8 coachable hand/wrist points (TE3 keeps its own in
+    // the literal). Sharpened with Yin Yang House self-location tricks; the WHO-anchored math is
+    // unchanged. Fed into the live searching-phase cue via coachAlignL / coachHoldL.
+    static let coachCues: [String: (alignEn: String, holdEn: String, alignZh: String, holdZh: String)] = [
+        "PC6": ("Palm up. Three finger-widths above the wrist crease, in the groove between the two central tendons.",
+                "Good — steady, comfortable pressure with slow breathing.",
+                "掌心朝上。腕横纹上三横指，两条中央肌腱之间的凹沟处。",
+                "很好 — 稳定舒适地按压，配合缓慢呼吸。"),
+        "SJ5": ("Back of the forearm up. Three finger-widths above the wrist crease, between the two bones — directly opposite Neiguan.",
+                "Good — gentle, steady pressure with slow breaths.",
+                "前臂背面朝上。腕背横纹上三横指，两骨之间，正对内关。",
+                "很好 — 轻柔而稳定地按压，缓慢呼吸。"),
+        "PC8": ("Palm up. Curl your middle finger to the palm — press where its tip lands, in the centre.",
+                "Good — soft, steady pressure, breathing slowly.",
+                "掌心朝上。将中指弯向掌心，指尖所落的掌心中央处即是。",
+                "很好 — 柔和而稳定地按压，缓慢呼吸。"),
+        "HT7": ("Palm up. Find the small round bone at the little-finger base of the palm; the point sits just inside it on the wrist crease.",
+                "Good — light, steady pressure with slow breathing.",
+                "掌心朝上。找到小指侧掌根的小圆骨，穴位就在其内侧的腕横纹上。",
+                "很好 — 轻柔而稳定地按压，配合缓慢呼吸。"),
+        "SI3": ("Make a loose fist. Find the very end of the palm crease on the little-finger side, where the skin colour changes.",
+                "Good — steady, comfortable pressure with slow breaths.",
+                "轻轻握拳。找到小指侧掌横纹的尽头、赤白肉际处。",
+                "很好 — 稳定舒适地按压，缓慢呼吸。"),
+        "TE4": ("Back of the wrist up. On the wrist crease, in the hollow toward the little-finger side of the central tendon.",
+                "Good — gentle, steady pressure, breathing slowly.",
+                "手腕背面朝上。腕背横纹上，中央肌腱靠小指侧的凹陷处。",
+                "很好 — 轻柔而稳定地按压，缓慢呼吸。"),
+        "PC7": ("Palm up. The middle of the wrist crease, in the hollow between the two central tendons.",
+                "Good — light, steady pressure with slow breathing.",
+                "掌心朝上。腕掌横纹正中，两条中央肌腱之间的凹陷处。",
+                "很好 — 轻柔而稳定地按压，配合缓慢呼吸。"),
+    ]
 }
 
 // Meridian colors from data.js MERIDIAN_COLORS.
@@ -456,47 +556,47 @@ struct Meridian: Identifiable, Hashable {
 
     static let all: [Meridian] = [
         Meridian(id: "lung", zh: "手太阴肺经", en: "Lung", ab: "LU",
-            descZh: "起于胸中，沿手臂内侧前缘下行至拇指。传统中医将其与肺及呼吸相联系，沿经穴位传统上用于咳嗽、气喘与咽喉不适的相关调理。",
-            descEn: "Runs from the chest along the inner edge of the arm to the thumb. In traditional Chinese medicine it is associated with the lungs and breathing; its points are traditionally associated with cough, wheezing, and throat discomfort."),
+            descZh: "起于胸部近腋处，沿上肢内侧前缘下行至腕部桡侧，止于拇指桡侧端。传统中医将其与肺与呼吸相联系，沿经穴位传统上与咳嗽、气喘及咽喉舒适相关联。",
+            descEn: "Runs from the chest near the armpit down the anterior-inner edge of the arm to the radial (thumb) side of the wrist, ending at the thumb. In traditional Chinese medicine it is associated with the lungs and breathing; its points are traditionally linked with cough, wheezing, and throat comfort."),
         Meridian(id: "li", zh: "手阳明大肠经", en: "Large Intestine", ab: "LI",
-            descZh: "起于食指，沿手臂外侧上行至面部。传统上与大肠相关，其穴位常与面部、牙齿及肠胃方面的调理相关联。",
-            descEn: "Travels from the index finger up the outer arm to the face. Traditionally linked to the large intestine; its points are classically associated with facial, dental, and digestive concerns."),
+            descZh: "起于食指，沿前臂背侧桡缘与上肢外侧上行至肩、颈与面颊，止于鼻旁。传统上与大肠相关，其穴位常与面、鼻、齿及肠胃方面的调理相关联。",
+            descEn: "Travels from the index finger up the back-outer (radial) forearm and the lateral arm to the shoulder, neck, and cheek, ending beside the nose. Traditionally linked to the large intestine; its points are classically associated with the face, nose, teeth, and digestive comfort."),
         Meridian(id: "stomach", zh: "足阳明胃经", en: "Stomach", ab: "ST",
-            descZh: "起于面部，沿身体前侧与腿部前缘下行至第二趾。传统理论中与胃和消化相关。",
-            descEn: "Descends from the face down the front of the torso and the front of the leg to the second toe. Associated with the stomach and digestion in traditional theory."),
+            descZh: "起于面部，沿身体前面与下肢前外侧下行至第二趾。传统理论中与胃和消化相关。",
+            descEn: "Descends from the face down the front of the torso and the front-outer aspect of the leg to the second toe. Associated with the stomach and digestion in traditional theory."),
         Meridian(id: "spleen", zh: "足太阴脾经", en: "Spleen", ab: "SP",
-            descZh: "起于足大趾，沿腿内侧上行至胸部。传统上与脾、消化及运化水谷相关。",
-            descEn: "Ascends from the big toe up the inner leg to the chest. Associated with the spleen, digestion, and the transformation of food in traditional theory."),
+            descZh: "起于足大趾内侧，沿足与下肢内侧（赤白肉际）上行，经大腿前内侧入腹，上行至胸侧。传统上与脾、消化及运化水谷相关。",
+            descEn: "Ascends from the inner big toe along the inner foot and leg (at the red-white skin line), through the inner thigh to the abdomen and the side of the chest. Associated with the spleen, digestion, and the transformation of food in traditional theory."),
         Meridian(id: "heart", zh: "手少阴心经", en: "Heart", ab: "HT",
-            descZh: "起于腋下，沿手臂内侧后缘下行至小指。传统上与心及神志相关。",
-            descEn: "Runs from the armpit down the inner arm to the little finger. Traditionally linked to the heart and the mind."),
+            descZh: "起于腋窝中央，沿上肢内侧后缘下行，经腕部尺侧至小指桡侧端。传统上与心及神志相关。",
+            descEn: "Runs from the centre of the armpit down the inner-back edge of the arm, past the little-finger side of the wrist, to the tip of the little finger. Traditionally linked to the heart and the mind."),
         Meridian(id: "si", zh: "手太阳小肠经", en: "Small Intestine", ab: "SI",
-            descZh: "起于小指，沿手臂后侧上行至面部与耳前。传统上与小肠相关。",
-            descEn: "Travels from the little finger up the back of the arm to the face and ear. Associated with the small intestine."),
+            descZh: "起于小指尺侧，沿手掌尺缘与上肢后外侧上行至肩胛，再经颈、颊上行至耳前。传统上与小肠相关。",
+            descEn: "Travels from the little finger along the outer (ulnar) edge of the hand and the back of the arm to the shoulder blade, then up the neck and cheek to the front of the ear. Associated with the small intestine."),
         Meridian(id: "bladder", zh: "足太阳膀胱经", en: "Bladder", ab: "BL",
-            descZh: "为十二经中最长者，起于内眼角，经头顶、背部两侧与腿后侧下行至小趾。传统上与膀胱相关。",
-            descEn: "The longest of the twelve channels: from the inner eye over the head and down the back and leg to the little toe. Associated with the bladder."),
+            descZh: "为十二经中最长者，起于内眼角，过头顶后沿背部两线下行，经下肢后侧至小趾。传统上与膀胱相关。",
+            descEn: "The longest of the twelve channels: from the inner corner of the eye over the vertex and down the back in two lines, along the back of the leg to the little toe. Associated with the bladder."),
         Meridian(id: "kidney", zh: "足少阴肾经", en: "Kidney", ab: "KI",
-            descZh: "起于足底，沿腿内侧上行至胸部。传统理论中与肾及人体根本之气相关。",
-            descEn: "Rises from the sole of the foot up the inner leg to the chest. Associated with the kidneys and the body’s foundational vitality in traditional theory."),
+            descZh: "起于足底，经内踝后方沿下肢内侧上行至腹部，止于锁骨下缘凹陷处。传统理论中与肾及人体根本之气相关。",
+            descEn: "Rises from the sole of the foot, behind the inner ankle and up the inner leg to the abdomen, ending in the hollow below the collarbone. Associated with the kidneys and the body’s foundational vitality in traditional theory."),
         Meridian(id: "pc", zh: "手厥阴心包经", en: "Pericardium", ab: "PC",
-            descZh: "起于胸中，沿手臂内侧中线下行至中指。传统上与心包相关，护卫心脏。",
-            descEn: "Runs from the chest along the middle of the inner arm to the middle finger. Associated with the pericardium, which is said to protect the heart."),
+            descZh: "起于胸部乳旁，沿上肢内侧中线下行，经前臂两筋之间过手掌，止于中指尖。传统上与心包相关，护卫心脏。",
+            descEn: "Runs from the chest beside the nipple down the middle of the inner arm, between the two forearm tendons, across the palm to the tip of the middle finger. Associated with the pericardium, which is said to protect the heart."),
         Meridian(id: "sj", zh: "手少阳三焦经", en: "Sanjiao", ab: "SJ",
-            descZh: "起于无名指，沿手臂后侧中线上行至头侧。传统上与“三焦”即人体水液与气机的通道相关。",
-            descEn: "Travels from the ring finger up the back of the arm to the side of the head. Linked to the “triple burner”, the traditional passages for the body’s fluids and qi."),
+            descZh: "起于无名指，经第4、5掌骨之间沿腕背与前臂背侧上行，过肘沿上肢外侧至肩，再上行至颈，环绕耳部。传统上与“三焦”即人体水液与气机的通道相关。",
+            descEn: "Travels from the ring finger between the 4th and 5th knuckles, up the back of the wrist and forearm, past the elbow and along the outer arm to the shoulder, then up the neck to circle the ear. Linked to the “triple burner”, the traditional passages for the body’s fluids and qi."),
         Meridian(id: "gb", zh: "足少阳胆经", en: "Gallbladder", ab: "GB",
-            descZh: "沿头部与身体侧面下行，经腿外侧至第四趾。传统上与胆及身体两侧相关。",
-            descEn: "Runs along the side of the head and body, down the outer leg to the fourth toe. Traditionally associated with the gallbladder and the sides of the body."),
+            descZh: "起于外眼角，绕耳与颞部、越头顶后沿颈与躯干侧面及下肢外侧下行至第四趾。传统上与胆及身体两侧相关。",
+            descEn: "Zig-zags from the outer corner of the eye around the ear and over the head, down the side of the neck and trunk and the outer leg to the fourth toe. Traditionally associated with the gallbladder and the sides of the body."),
         Meridian(id: "liver", zh: "足厥阴肝经", en: "Liver", ab: "LR",
-            descZh: "起于足大趾，沿腿内侧上行至胁肋。传统上与肝及气机的疏泄相关。",
-            descEn: "Ascends from the big toe up the inner leg to the ribs. Associated with the liver and the smooth flow of qi in traditional theory."),
+            descZh: "起于足大趾，经足背沿下肢内侧上行，过外阴至小腹与胁肋。传统上与肝及气机的疏泄相关。",
+            descEn: "Ascends from the big toe over the top of the foot and up the inner leg, past the genitals to the lower abdomen and ribs. Associated with the liver and the smooth flow of qi in traditional theory."),
         Meridian(id: "ren", zh: "任脉", en: "Ren Mai", ab: "RN",
-            descZh: "任脉行于身体前正中线，自小腹上行至下颌。传统理论称其为“阴脉之海”，统领诸阴经。",
-            descEn: "The Conception Vessel, running up the front midline from the lower abdomen to the chin. Considered the “sea of the yin channels” in traditional theory."),
+            descZh: "任脉自会阴沿身体前正中线上行，过腹、胸至咽喉与颏部。传统理论称其为“阴脉之海”，统领诸阴经。",
+            descEn: "The Conception Vessel, running from the perineum up the front midline through the abdomen and chest to the throat and chin. Considered the “sea of the yin channels” in traditional theory."),
         Meridian(id: "du", zh: "督脉", en: "Du Mai", ab: "GV",
-            descZh: "督脉行于背部正中线，沿脊柱上行至头顶。传统理论称其为“阳脉之海”，统领诸阳经。",
-            descEn: "The Governing Vessel, running up the back midline along the spine to the head. Considered the “sea of the yang channels” in traditional theory."),
+            descZh: "督脉自尾骨沿脊柱上行至项，越头顶后沿前额与鼻下行至上唇。传统理论称其为“阳脉之海”，统领诸阳经。",
+            descEn: "The Governing Vessel, running from the tailbone up the spine to the nape, over the vertex and down the forehead and nose to the upper lip. Considered the “sea of the yang channels” in traditional theory."),
     ]
     static func by(_ id: String) -> Meridian? { all.first { $0.id == id } }
 }

@@ -1,0 +1,5 @@
+.venv/
+__pycache__/
+*.pyc
+# Keep the small artifacts (head.pt ~0.6MB, AcupointHead.mlpackage ~314KB, test_vectors.json) —
+# they are the M1 deliverable. Only the heavy venv + caches are ignored.
