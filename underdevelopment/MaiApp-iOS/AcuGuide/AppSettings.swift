@@ -18,8 +18,30 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(llmChat, forKey: Self.llmKey) }
     }
 
+    // First-run onboarding shown once.
+    @Published var seenOnboarding: Bool {
+        didSet { UserDefaults.standard.set(seenOnboarding, forKey: Self.onboardingKey) }
+    }
+
+    // Spoken coach cues muted — persisted so the choice survives sessions (was per-session state).
+    @Published var voiceMuted: Bool {
+        didSet { UserDefaults.standard.set(voiceMuted, forKey: Self.voiceKey) }
+    }
+
+    // Optional daily practice reminder (local notification), minutes past midnight (default 20:00).
+    @Published var reminderOn: Bool {
+        didSet { UserDefaults.standard.set(reminderOn, forKey: Self.reminderOnKey) }
+    }
+    @Published var reminderMinutes: Int {
+        didSet { UserDefaults.standard.set(reminderMinutes, forKey: Self.reminderMinKey) }
+    }
+
     private static let key = "appLang"
     private static let llmKey = "llmChat"
+    private static let onboardingKey = "seenOnboarding"
+    private static let voiceKey = "voiceMuted"
+    private static let reminderOnKey = "reminderOn"
+    private static let reminderMinKey = "reminderMinutes"
 
     private init() {
         if let s = UserDefaults.standard.string(forKey: Self.key), let l = Lang(rawValue: s) {
@@ -30,5 +52,9 @@ final class AppSettings: ObservableObject {
             lang = code.hasPrefix("zh") ? .zh : .en
         }
         llmChat = UserDefaults.standard.object(forKey: Self.llmKey) as? Bool ?? true
+        seenOnboarding = UserDefaults.standard.bool(forKey: Self.onboardingKey)
+        voiceMuted = UserDefaults.standard.bool(forKey: Self.voiceKey)
+        reminderOn = UserDefaults.standard.bool(forKey: Self.reminderOnKey)
+        reminderMinutes = UserDefaults.standard.object(forKey: Self.reminderMinKey) as? Int ?? 20 * 60
     }
 }

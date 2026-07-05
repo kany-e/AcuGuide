@@ -12,6 +12,7 @@ struct ARCoachView: View {
     @State private var acknowledged = false
     @State private var endedEarly = false          // "End" pressed — recap with partial rounds (normal, not failure)
     @State private var feeling: String? = nil      // stable key: "relief" | "nochange" | "worse"
+    @State private var practiceRecordId: String? = nil   // history record for this session (saved once)
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
 
@@ -28,11 +29,14 @@ struct ARCoachView: View {
         ZStack {
             ShanshuiBackground()
             if !acknowledged {
-                SafetyGate { acknowledged = true; camera.start() }
+                SafetyGate { acknowledged = true }
             } else if engine.phase == .complete || endedEarly || feeling != nil {
-                recap
+                recap.onAppear(perform: savePractice)
             } else {
-                coachLayer
+                // Permission gate AFTER the safety gate: the system prompt arrives in context, a
+                // denial gets an open-Settings hand-off instead of a black screen, and the capture
+                // session only ever starts once authorized.
+                CameraGate(onAuthorized: { camera.start() }) { coachLayer }
             }
         }
         // Drive voice + haptics off phase TRANSITIONS only (debounced by the engine), and stop the
@@ -61,6 +65,17 @@ struct ARCoachView: View {
     private func endSession() {
         camera.stop(); voice.reset()
         endedEarly = true
+    }
+
+    // One history record per session, written when the recap first appears; the self-reported
+    // feeling attaches to the same record when chosen. Local-only (PracticeStore).
+    private func savePractice() {
+        guard practiceRecordId == nil else { return }
+        let rec = PracticeRecord(id: UUID().uuidString, date: Date(), pointId: acupoint.id,
+                                 rounds: engine.roundsDone, roundsTarget: engine.roundsTarget,
+                                 heldS: engine.totalHeldS, feeling: nil)
+        PracticeStore.shared.add(rec)
+        practiceRecordId = rec.id
     }
 
     // Map a normalized landmark (top-left origin) through the preview's aspect-fill crop, so the
@@ -188,7 +203,10 @@ struct ARCoachView: View {
                 ForEach([("relief", AppLocale.pick("有所缓解", "Some relief")),
                          ("nochange", AppLocale.pick("没有变化", "No change")),
                          ("worse", AppLocale.pick("感觉更糟", "Felt worse"))], id: \.0) { item in
-                    Button(item.1) { feeling = item.0 }.buttonStyle(GoldButtonStyle())
+                    Button(item.1) {
+                        feeling = item.0
+                        if let id = practiceRecordId { PracticeStore.shared.setFeeling(id: id, feeling: item.0) }
+                    }.buttonStyle(GoldButtonStyle())
                         .accessibilityHint(AppLocale.pick("记录练习后的感受", "Records how you feel after the routine"))
                 }
             }

@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @State private var startCoach: Acupoint? = nil
     @ObservedObject private var settings = AppSettings.shared   // re-render tab labels on toggle
+    @State private var showOnboarding = !AppSettings.shared.seenOnboarding
 
     var body: some View {
         // No separate "Hand" tab — the hand is a drill-down from the 3D body (web parity).
@@ -26,6 +27,10 @@ struct RootView: View {
                     } }
             }
         }
+        // First run: what the app is (and isn't), how the coach works, the privacy story.
+        .fullScreenCover(isPresented: $showOnboarding) {
+            OnboardingView { settings.seenOnboarding = true; showOnboarding = false }
+        }
     }
 }
 
@@ -47,6 +52,7 @@ struct AtlasTab: View {
 struct ARCoachLauncher: View {
     @Binding var startCoach: Acupoint?
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var practice = PracticeStore.shared
     private var coachable: [Acupoint] { Acupoint.all.filter { $0.mediapipeTarget != nil } }
 
     var body: some View {
@@ -89,6 +95,30 @@ struct ARCoachLauncher: View {
                         }
                         .buttonStyle(.plain)
                         .panel()
+                    }
+
+                    if !practice.records.isEmpty {
+                        Text(AppLocale.pick("最近练习", "Recent practice"))
+                            .font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
+                            .padding(.top, 6)
+                        if practice.streakDays >= 2 {
+                            Text(AppLocale.pick("已连续练习 \(practice.streakDays) 天", "\(practice.streakDays)-day streak"))
+                                .font(.caption).foregroundStyle(Ink.jade)
+                        }
+                        ForEach(practice.records.suffix(3).reversed()) { r in
+                            HStack(spacing: 10) {
+                                Circle().fill(MeridianColors.color(Acupoint.byId[r.pointId]?.meridian ?? "extra"))
+                                    .frame(width: 8, height: 8)
+                                Text("\(r.pointId) · \(Acupoint.byId[r.pointId].map { AppLocale.pick($0.zh, $0.en) } ?? "")")
+                                    .font(.subheadline).foregroundStyle(Ink.text)
+                                Spacer()
+                                Text(AppLocale.pick("\(r.rounds)/\(r.roundsTarget) 轮", "\(r.rounds)/\(r.roundsTarget) rounds"))
+                                    .font(.caption).foregroundStyle(Ink.textDim)
+                                Text(r.date.formatted(.relative(presentation: .named)))
+                                    .font(.caption2).foregroundStyle(Ink.textDim)
+                            }
+                            .padding(12).panel()
+                        }
                     }
 
                     Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))

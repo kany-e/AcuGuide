@@ -24,7 +24,7 @@ struct FaceAtlasView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
+            CameraGate(onAuthorized: { camera.start() }) { ZStack {
                 Color.black.ignoresSafeArea()
                 CameraPreview(session: camera.session, mirrored: camera.mirrored)
                     .ignoresSafeArea().accessibilityHidden(true)
@@ -53,14 +53,13 @@ struct FaceAtlasView: View {
                     .background(RoundedRectangle(cornerRadius: 14).fill(.black.opacity(0.4)))
                     .padding().padding(.bottom, 8)
                 }
-            }
+            } }
             .navigationTitle(AppLocale.pick("面部定位 · \(focus.zh)", "On your face · \(focus.en)"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) {
                 Button(AppLocale.pick("完成", "Done")) { onClose() }.tint(Ink.gold)
             } }
         }
-        .onAppear { camera.start() }
-        .onDisappear { camera.stop() }
+        .onDisappear { camera.stop() }   // start happens via CameraGate.onAuthorized
     }
 }

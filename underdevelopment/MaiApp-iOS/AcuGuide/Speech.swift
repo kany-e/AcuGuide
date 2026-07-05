@@ -5,8 +5,12 @@ import AVFoundation
 // copy stays in English; the spoken phrase is a short localized line per phase so a zh device
 // hears Chinese. All copy stays within the non-negotiables (no treat/cure/heal/diagnose).
 final class CoachVoice: ObservableObject {
-    @Published var muted = false {
-        didSet { if muted { synth.stopSpeaking(at: .immediate) } }
+    // Persisted via AppSettings so the choice survives sessions (was per-session state).
+    @Published var muted = AppSettings.shared.voiceMuted {
+        didSet {
+            AppSettings.shared.voiceMuted = muted
+            if muted { synth.stopSpeaking(at: .immediate) }
+        }
     }
 
     private let synth = AVSpeechSynthesizer()

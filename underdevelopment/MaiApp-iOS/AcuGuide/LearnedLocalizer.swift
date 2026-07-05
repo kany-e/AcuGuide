@@ -33,7 +33,13 @@ struct CanonicalFrame {
 
 final class ShadowLocalizer {
     static let shared = ShadowLocalizer()
-    static var enabled = true                     // master switch (shadow only: logging, no behavior change)
+    // Master switch (shadow only: logging, no behavior change). Debug builds only — release users
+    // shouldn't pay the (small) inference cost for telemetry no one reads.
+    #if DEBUG
+    static var enabled = true
+    #else
+    static var enabled = false
+    #endif
     static let inferEveryNFrames = 3              // throttle inference cost while still sampling
 
     // Feature/point order MUST match train.py exactly (JOINTS / POINTS).

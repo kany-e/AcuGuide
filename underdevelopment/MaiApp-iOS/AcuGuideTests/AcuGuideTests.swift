@@ -306,3 +306,45 @@ final class ChatLLMTests: XCTestCase {
         XCTAssertTrue(a.text.contains("fourteen meridians"))
     }
 }
+
+// On-device practice history: persistence round-trip, feeling attachment, cap, and the streak rule.
+final class PracticeStoreTests: XCTestCase {
+    private func freshStore() -> PracticeStore {
+        let d = UserDefaults(suiteName: "practice-tests-\(UUID().uuidString)")!
+        return PracticeStore(defaults: d)
+    }
+    private func rec(_ id: String, daysAgo: Int = 0, point: String = "TE3") -> PracticeRecord {
+        PracticeRecord(id: id, date: Calendar.current.date(byAdding: .day, value: -daysAgo, to: Date())!,
+                       pointId: point, rounds: 2, roundsTarget: 4, heldS: 61, feeling: nil)
+    }
+
+    func testAddAndFeelingPersist() {
+        let d = UserDefaults(suiteName: "practice-tests-persist")!
+        d.removePersistentDomain(forName: "practice-tests-persist")
+        let store = PracticeStore(defaults: d)
+        store.add(rec("a"))
+        store.setFeeling(id: "a", feeling: "relief")
+        // A new store over the SAME defaults must read the record + feeling back.
+        let reloaded = PracticeStore(defaults: d)
+        XCTAssertEqual(reloaded.records.count, 1)
+        XCTAssertEqual(reloaded.records.first?.feeling, "relief")
+        XCTAssertEqual(reloaded.records.first?.pointId, "TE3")
+    }
+
+    func testCapKeepsNewest() {
+        let store = freshStore()
+        for i in 0..<310 { store.add(rec("r\(i)")) }
+        XCTAssertEqual(store.records.count, 300, "history is capped")
+        XCTAssertEqual(store.records.last?.id, "r309", "newest records survive the cap")
+        XCTAssertEqual(store.records.first?.id, "r10", "oldest records are dropped")
+    }
+
+    func testStreakCountsConsecutiveDaysEndingToday() {
+        let store = freshStore()
+        XCTAssertEqual(store.streakDays, 0)
+        store.add(rec("t", daysAgo: 0))
+        store.add(rec("y", daysAgo: 1))
+        store.add(rec("g", daysAgo: 3))     // gap at 2 days ago breaks the run
+        XCTAssertEqual(store.streakDays, 2, "today + yesterday, broken by the gap")
+    }
+}
