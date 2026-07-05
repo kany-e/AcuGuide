@@ -37,6 +37,49 @@ final class DetailSnapshotTests: XCTestCase {
         return (mn, mx)
     }
 
+    // Same contract for the detailed HAND: every region=="hand" point inside the calib box must land
+    // on the hand mesh (dorsal near-side / palmar far-side), exactly as HandModel3DView places them.
+    // Renders detail_hand.png for eyeballing.
+    func testHandViewPlacesMarkersOnModel() throws {
+        guard let mesh = loadUnitMesh("hand_low_poly") else { XCTFail("no hand mesh"); return }
+        let scene = SCNScene()
+        scene.background.contents = UIColor(white: 0.90, alpha: 1)
+        AtlasMarkers.addStudioLighting(to: scene)
+        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)   // == HandModel3DView's chart pose
+        scene.rootNode.addChildNode(mesh)
+        let cam = SCNNode(); cam.camera = SCNCamera()
+        cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
+        cam.position = SCNVector3(0, 0, 2.3)
+        scene.rootNode.addChildNode(cam)
+
+        let (mn, mx) = worldAABB(mesh)
+        let pad: Float = 0.12
+        var placed = 0
+        typealias Calib = HandModel3DView.HandMarkerCalib
+        for pt in Acupoint.all where pt.region == "hand" && Calib.contains(pt.x, pt.y) {
+            let (u, v) = Calib.uv(for: pt)
+            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v,
+                                                    farSide: !pt.requiresDorsal, id: pt.id,
+                                                    color: UIColor(MeridianColors.color(pt.meridian)),
+                                                    core: 0.022, halo: 0.04) else {
+                XCTFail("hand/\(pt.id) produced no marker"); continue }
+            let p = SIMD3<Float>(Float(m.position.x), Float(m.position.y), Float(m.position.z))
+            XCTAssertTrue(all(p .>= mn - pad) && all(p .<= mx + pad),
+                          "hand/\(pt.id) marker \(p) fell outside the hand box \(mn)…\(mx)")
+            scene.rootNode.addChildNode(m)
+            placed += 1
+        }
+        XCTAssertGreaterThanOrEqual(placed, 10, "the enlarged hand set should place ≥10 points on the mesh")
+
+        let img = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil).also {
+            $0.scene = scene; $0.pointOfView = cam
+        }.snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
+        let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("detail_hand.png")
+        try img.pngData()!.write(to: out)
+        print("SNAPSHOT wrote \(out.path)")
+    }
+
     func testDetailViewsPlaceMarkersOnModel() throws {
         for (id, cfg) in PartDetail.byRegion.sorted(by: { $0.key < $1.key }) {
             guard let mesh = loadUnitMesh(cfg.resource, nodeName: cfg.nodeName) else { XCTFail("no mesh for \(id)"); continue }

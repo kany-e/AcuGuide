@@ -195,6 +195,80 @@ struct Acupoint: Identifiable, Hashable {
             ], toleranceXHandSize: 0.15, pressFinger: .indexTip)
         ),
 
+        // ── Additional hand atlas points (2D chart + 3D hand drill-down; no AR coaching). ───────
+        // WHO Standard 2008 locations; fingertip-safe, none pregnancy-contraindicated (LI4 remains
+        // excluded entirely). Shown wherever region=="hand" is listed (HandAtlasView + the 3D hand);
+        // NOT added to the full-body mitten markers (Meridians.acuMarkers) — the low-poly body hand
+        // has no fingers to place them against; the drill-down is the hand's canonical chart.
+        Acupoint(
+            id: "TE2", zh: "液门", en: "Yemen", pinyin: "Yèmén",
+            meridian: "sj", meridianZh: "手少阳三焦经", meridianEn: "Sanjiao Meridian",
+            x: 238, y: 128, requiresDorsal: true,
+            locationZh: "在手背，第4、5指缝间，指蹼缘后方赤白肉际处。",
+            locationEn: "On the back of the hand, between the ring and little fingers, just proximal to the margin of the web.",
+            indicationsZh: "传统上常用于头侧不适、耳部不适、咽喉不适等相关调理。",
+            indicationsEn: "Traditionally used in acupuncture practice for side-of-head discomfort, ear discomfort, and throat discomfort.",
+            coachAlign: "", coachHold: "",
+            mediapipeTarget: nil
+        ),
+        Acupoint(
+            id: "HT8", zh: "少府", en: "Shaofu", pinyin: "Shàofǔ",
+            meridian: "heart", meridianZh: "手少阴心经", meridianEn: "Heart Meridian",
+            x: 222, y: 196, requiresDorsal: false,
+            locationZh: "在手掌，第4、5掌骨之间，握拳时小指尖所指处。",
+            locationEn: "On the palm, between the fourth and fifth metacarpal bones — where the tip of the little finger lands when a fist is made.",
+            indicationsZh: "传统上常与心烦、掌心发热、睡眠不安等相关联。",
+            indicationsEn: "Commonly associated in acupuncture practice with restlessness, warmth in the palm, and unsettled sleep.",
+            coachAlign: "", coachHold: "",
+            mediapipeTarget: nil
+        ),
+        Acupoint(
+            id: "LU10", zh: "鱼际", en: "Yuji", pinyin: "Yújì",
+            meridian: "lung", meridianZh: "手太阴肺经", meridianEn: "Lung Meridian",
+            x: 128, y: 232, requiresDorsal: false,
+            locationZh: "在手掌，第1掌骨中点桡侧，赤白肉际处（大鱼际隆起边缘）。",
+            locationEn: "On the palm, at the midpoint of the first metacarpal bone on its radial side, at the border of the thenar eminence.",
+            indicationsZh: "传统上常用于咽喉不适、咳嗽、掌心发热等相关调理。",
+            indicationsEn: "Traditionally used in acupuncture practice for throat discomfort, cough, and warmth in the palm.",
+            coachAlign: "", coachHold: "",
+            mediapipeTarget: nil
+        ),
+        Acupoint(
+            id: "LU9", zh: "太渊", en: "Taiyuan", pinyin: "Tàiyuān",
+            meridian: "lung", meridianZh: "手太阴肺经", meridianEn: "Lung Meridian",
+            x: 148, y: 266, requiresDorsal: false,
+            locationZh: "在腕部，腕掌侧横纹桡侧端，桡动脉搏动处的凹陷中。",
+            locationEn: "At the wrist, on the radial end of the palmar crease, in the depression beside the radial artery.",
+            indicationsZh: "传统上常与咳嗽、气短、腕部酸楚等相关联。",
+            indicationsEn: "Commonly associated in acupuncture practice with cough, shortness of breath, and aching of the wrist.",
+            coachAlign: "", coachHold: "",
+            mediapipeTarget: nil,
+            cautionZh: "此处可触及桡动脉搏动，按压需轻柔，勿用力压迫脉搏。",
+            cautionEn: "The radial pulse runs here — keep pressure light and avoid pressing hard on the artery."
+        ),
+        Acupoint(
+            id: "LI5", zh: "阳溪", en: "Yangxi", pinyin: "Yángxī",
+            meridian: "li", meridianZh: "手阳明大肠经", meridianEn: "Large Intestine Meridian",
+            x: 140, y: 252, requiresDorsal: true,
+            locationZh: "在腕背侧横纹桡侧，拇指上翘时两条肌腱之间的凹陷（鼻烟窝）中。",
+            locationEn: "On the radial side of the dorsal wrist crease, in the hollow between the two tendons that appears when the thumb is raised (the anatomical snuffbox).",
+            indicationsZh: "传统上常用于腕部不适、拇指侧紧张、头面不适等相关调理。",
+            indicationsEn: "Traditionally used in acupuncture practice for wrist discomfort, thumb-side tension, and discomfort of the head and face.",
+            coachAlign: "", coachHold: "",
+            mediapipeTarget: nil
+        ),
+        Acupoint(
+            id: "SI4", zh: "腕骨", en: "Wangu", pinyin: "Wàngǔ",
+            meridian: "si", meridianZh: "手太阳小肠经", meridianEn: "Small Intestine Meridian",
+            x: 240, y: 224, requiresDorsal: true,
+            locationZh: "在手尺侧，第5掌骨底与三角骨之间的凹陷处，赤白肉际。",
+            locationEn: "On the ulnar side of the hand, in the depression between the base of the fifth metacarpal bone and the triquetrum.",
+            indicationsZh: "传统上常与腕尺侧不适、颈项强紧等相关联。",
+            indicationsEn: "Commonly associated in acupuncture practice with discomfort on the ulnar side of the wrist and neck stiffness.",
+            coachAlign: "", coachHold: "",
+            mediapipeTarget: nil
+        ),
+
         // ── Body-region atlas points (display + tappable 3D markers; no AR coaching). ──────────
         // WHO Standard 2008 locations; all gentle, fingertip-safe points. Pregnancy-contraindicated
         // points (LI4/SP6/GB21/BL60/BL67) are excluded entirely; abdominal/strong points carry an
@@ -455,6 +529,8 @@ struct Acupoint: Identifiable, Hashable {
         "TE4": "Yang Pool", "PC7": "Great Mound", "ST36": "Leg Three Li", "GB34": "Yang Mound Spring",
         "SP10": "Sea of Blood", "ST34": "Beam Hill", "ST35": "Calf's Nose", "LR3": "Supreme Surge",
         "ST44": "Inner Court", "KI1": "Gushing Spring", "KI3": "Supreme Stream",
+        "TE2": "Fluid Gate", "HT8": "Lesser Mansion", "LU10": "Fish Border",
+        "LU9": "Supreme Abyss", "LI5": "Yang Ravine", "SI4": "Wrist Bone",
     ]
 
     // Classical point category / role (Yin Yang House, each verified live; corroborated by the Atlas
@@ -485,6 +561,12 @@ struct Acupoint: Identifiable, Hashable {
         "ST44": ("Ying-Spring (Water) point of the Stomach", "足阳明胃经 荥(水)穴"),
         "KI1": ("Jing-Well (Wood) point of the Kidney", "足少阴肾经 井(木)穴"),
         "KI3": ("Shu-Stream (Earth) & Yuan-Source point of the Kidney", "足少阴肾经 输(土)穴、原穴"),
+        "TE2": ("Ying-Spring (Water) point of the Sanjiao", "手少阳三焦经 荥(水)穴"),
+        "HT8": ("Ying-Spring (Fire) point of the Heart", "手少阴心经 荥(火)穴"),
+        "LU10": ("Ying-Spring (Fire) point of the Lung", "手太阴肺经 荥(火)穴"),
+        "LU9": ("Yuan-Source & Shu-Stream (Earth) point of the Lung; Hui-Meeting (Influential) point of the vessels", "手太阴肺经 原穴、输(土)穴;脉会"),
+        "LI5": ("Jing-River (Fire) point of the Large Intestine", "手阳明大肠经 经(火)穴"),
+        "SI4": ("Yuan-Source point of the Small Intestine", "手太阳小肠经 原穴"),
     ]
 
     // Per-point AR alignment + hold cues for the 8 coachable hand/wrist points (TE3 keeps its own in

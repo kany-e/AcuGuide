@@ -30,7 +30,10 @@ struct HandModel3DView: UIViewRepresentable {
         static let spanY: Float = 0.42          // world half-height the atlas y-range maps onto
         static let centerX: Float = 0
         static let centerY: Float = 0.0
-        static let axMin: Double = 88,  axMax: Double = 248   // atlas x extent of the hand
+        // Calibrated against the CENTERED unit mesh in the chart pose (fingers up, thumb left): the
+        // thumb widens the screen bbox, so the atlas x-range maps onto a WIDER virtual box (0…320)
+        // to compress the ulnar column back onto the hand. Tuned via the DetailSnapshotTests render.
+        static let axMin: Double = 0,   axMax: Double = 320   // atlas x range mapped onto the bbox
         static let ayMin: Double = 45,  ayMax: Double = 300   // atlas y extent of the hand
         static func contains(_ ax: Double, _ ay: Double) -> Bool {
             ax >= axMin && ax <= axMax && ay >= ayMin && ay <= ayMax
@@ -49,6 +52,19 @@ struct HandModel3DView: UIViewRepresentable {
             var v = (ay - Float(ayMin)) / Float(ayMax - ayMin) - 0.5
             if flipX { u = -u }
             if flipY { v = -v }
+            return (u, v)
+        }
+
+        // Per-point visual nudges (in u,v) on TOP of the linear map: the mesh's ulnar border slants
+        // toward the wrist, which a linear atlas→bbox map can't follow — and the atlas (x,y) can't
+        // move because the 2D chart is calibrated to it. Same one-time-nudge philosophy as
+        // PartDetail.layout. Tuned via DetailSnapshotTests' detail_hand.png render.
+        static let nudge: [String: SIMD2<Float>] = ["HT7": [-0.10, 0.01], "SI4": [-0.05, 0.00]]
+
+        // Final placement mapping for a hand point: linear atlas→bbox map + its visual nudge.
+        static func uv(for pt: Acupoint) -> (Float, Float) {
+            var (u, v) = uv(Float(pt.x), Float(pt.y))
+            if let n = nudge[pt.id] { u += n.x; v += n.y }
             return (u, v)
         }
     }
@@ -73,7 +89,9 @@ struct HandModel3DView: UIViewRepresentable {
                 let gltf = SCNScene(gltfAsset: asset)
                 DispatchQueue.main.async {
                     guard let mesh = AtlasMarkers.unitMesh(from: gltf, material: AtlasMarkers.meshMaterial()) else { return }
-                    mesh.eulerAngles = SCNVector3(0, 0.72, 0)   // square the posed mesh to a dorsal view
+                    // Chart pose: fingers up, thumb left, dorsum to the camera — matches the 2D hand
+                    // atlas convention, so the atlas (x,y)→(u,v) mapping lands on the same anatomy.
+                    mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
                     scene.rootNode.addChildNode(mesh)
                     AtlasMarkers.installCamera(z: 2.3, in: scene, for: view)
                     placeMarkers(mesh: mesh, in: scene)
@@ -94,7 +112,7 @@ struct HandModel3DView: UIViewRepresentable {
     // the near surface; palmar points (PC8/HT7) take the far (palm) surface. Pure geometry — no view timing.
     private func placeMarkers(mesh: SCNNode, in scene: SCNScene) {
         for pt in Acupoint.all where pt.region == "hand" && HandMarkerCalib.contains(pt.x, pt.y) {
-            let (u, v) = HandMarkerCalib.uv(Float(pt.x), Float(pt.y))
+            let (u, v) = HandMarkerCalib.uv(for: pt)
             if let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v, farSide: !pt.requiresDorsal,
                                                  id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
                                                  core: 0.022, halo: 0.04) {
