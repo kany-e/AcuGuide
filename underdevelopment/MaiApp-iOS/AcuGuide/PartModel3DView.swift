@@ -38,7 +38,7 @@ struct PartDetail: Identifiable {
             layout: ["EX-HN3": [0.00, 0.05], "EX-HN5": [0.33, 0.05], "GV20": [0.00, 0.48], "EX-HN1": [0.00, 0.40]],
             back: [],
             titleZh: "头", titleEn: "Head",
-            creditZh: "头部模型 · 低多边形（参考用）", creditEn: "Head model · low-poly (reference)"),
+            creditZh: "头部模型 · pnhtuan（CC-BY 4.0）", creditEn: "Head model · pnhtuan (CC-BY 4.0)"),
         "arm": PartDetail(
             // Full arm (shoulder → hand), horizontal with the dorsum to the camera (matches the foot's
             // chart style). Palmar points (LU5 cubital crease / PC7 wrist crease) raycast to the FAR
@@ -48,7 +48,7 @@ struct PartDetail: Identifiable {
             layout: ["LI11": [0.20, 0.05], "LU5": [0.15, 0.00], "TE4": [-0.23, 0.03], "PC7": [-0.25, -0.05]],
             back: ["LU5", "PC7"],
             titleZh: "手臂", titleEn: "Arm",
-            creditZh: "手臂模型 · 低多边形（参考用）", creditEn: "Arm model · low-poly (reference)"),
+            creditZh: "手臂模型 · pnhtuan（CC-BY 4.0）", creditEn: "Arm model · pnhtuan (CC-BY 4.0)"),
         // Proper foot from the composite body model (polySurface9) — the standalone foot_low_poly asset
         // was a malformed, stubby lump. 3/4 lateral view (toes right, dorsum to camera).
         "foot": PartDetail(
@@ -57,7 +57,7 @@ struct PartDetail: Identifiable {
             layout: ["LR3": [0.06, -0.10], "ST44": [0.26, -0.11], "KI1": [0.14, -0.22], "KI3": [-0.22, -0.10]],
             back: ["KI1"],                       // Yongquan is on the sole — raycast onto the under-surface
             titleZh: "足部", titleEn: "Foot",
-            creditZh: "足部模型 · 低多边形（参考用）", creditEn: "Foot model · low-poly (reference)"),
+            creditZh: "足部模型 · pnhtuan（CC-BY 4.0）", creditEn: "Foot model · pnhtuan (CC-BY 4.0)"),
     ]
 }
 
