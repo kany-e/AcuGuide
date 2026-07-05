@@ -212,8 +212,21 @@ final class CoachEngine: ObservableObject {
             return
         }
 
-        // 2) Assign receiver / presser with stickiness.
-        let (receiver, presser) = assignRoles(hands, target: target)
+        // 2) Assign receiver / presser with stickiness. A nil receiver means only the MASSAGING hand
+        // survived detection (it sits on top mid-press and occludes the receiver) — keep the last
+        // ring and step as present-but-unverifiable, exactly like the anchor-occlusion path, so
+        // PAUSE-grace governs instead of the ring snapping onto the massaging hand.
+        let (receiverOpt, presser) = assignRoles(hands, target: target)
+        guard let receiver = receiverOpt else {
+            if let presser, let rawTip = presser.p(target.pressFinger) {
+                pressTip = pressSmoother.filter(rawTip, now); lastTipT = now
+            }
+            let result = machine.step(CoachFrameInput(
+                t: now, present: true, faceCorrect: true,
+                insideEnterRadius: false, insideExitRadius: true, offsetXHandSize: nil))
+            apply(result, point: point, hasPresser: presser != nil)
+            return
+        }
 
         // 3) Geometry. The receiving hand IS present but a target anchor may be momentarily
         // unresolvable (e.g. the pressing finger occludes the ring/pinky knuckles — the exact
@@ -349,13 +362,28 @@ final class CoachEngine: ObservableObject {
 
     private func roleReset() { lastReceiverWrist = nil; lastPresserWrist = nil; swapVotes = 0 }
 
-    private func assignRoles(_ hands: [Hand], target: MediaPipeTarget) -> (Hand, Hand?) {
+    private func assignRoles(_ hands: [Hand], target: MediaPipeTarget) -> (Hand?, Hand?) {
         // One hand: keep the sticky receiver/presser wrist anchors (a brief drop to one hand —
         // reaching, repositioning — should NOT discard the identity hysteresis; cleared only when
         // NO hands are present, via roleReset in update). But DO reset swapVotes: the one-hand gap
         // breaks the "consecutive disagreement" streak, so a partial count must not carry over and
         // trigger an early/spurious swap when the second hand returns.
-        guard hands.count >= 2 else { swapVotes = 0; return (hands[0], nil) }
+        guard hands.count >= 2 else {
+            swapVotes = 0
+            let h = hands[0]
+            // Identify WHICH hand survived by wrist proximity to the sticky anchors. Mid-press it is
+            // usually the MASSAGING hand that survives detection (it sits on top and occludes the
+            // receiver) — crowning it receiver snapped the ring onto the massaging hand
+            // (user-reported on multiple points). A lone presser means the receiver is occluded,
+            // NOT that roles changed.
+            if let lrw = lastReceiverWrist, let lpw = lastPresserWrist, let w = h.p(.wrist),
+               dist(w, lpw) < dist(w, lrw) {
+                lastPresserWrist = w                 // track its drift while it is alone in frame
+                return (nil, h)
+            }
+            if let w = h.p(.wrist) { lastReceiverWrist = w }
+            return (h, nil)
+        }
         let a = hands[0], b = hands[1]
 
         // Heuristic preference: receiver = the hand whose target zone is nearest the
@@ -365,7 +393,8 @@ final class CoachEngine: ObservableObject {
                   let tip = other.p(target.pressFinger) else { return .greatestFiniteMagnitude }
             return dist(t, tip)
         }
-        let prefAIsReceiver = score(a, b) <= score(b, a)
+        let sA = score(a, b), sB = score(b, a)
+        let prefAIsReceiver = sA <= sB
 
         // Match the two current hands to the previous roles by wrist proximity (Vision
         // does not give stable IDs across frames), then only flip on sustained disagreement.
@@ -375,15 +404,20 @@ final class CoachEngine: ObservableObject {
             let cost2 = dist(bw, lrw) + dist(aw, lpw)   // b=receiver, a=presser
             let stickyAIsReceiver = cost1 <= cost2
 
-            // ROLE LOCK while engaged on the point (on-target / holding): mid-press the two hands
-            // overlap so much that the nearest-target preference oscillates — on the forearm points
-            // (PC6/SJ5, target extrapolated past the wrist) it repeatedly flipped the ring onto the
-            // MASSAGING hand. Nobody swaps hands mid-press: while engaged, keep the sticky roles and
-            // don't accumulate swap votes. Swaps are only confirmed while searching/paused.
-            let engaged = phase == .holding || phase == .onTargetUnstable
+            // ROLE LOCK while engaged on the point (on-target / holding / pause-grace): mid-press the
+            // two hands overlap so much that the nearest-target preference oscillates — on the forearm
+            // points (PC6/SJ5, target extrapolated past the wrist) it repeatedly flipped the ring onto
+            // the MASSAGING hand. Nobody swaps hands mid-press: while engaged, keep the sticky roles
+            // and don't accumulate swap votes. Swaps confirm only while genuinely searching.
+            let engaged = phase == .holding || phase == .onTargetUnstable || phase == .paused
             if engaged { swapVotes = 0; return commitRoles(aIsReceiver: stickyAIsReceiver, a: a, b: b) }
 
-            if prefAIsReceiver == stickyAIsReceiver { swapVotes = 0 } else { swapVotes += 1 }
+            // While searching, a disagreement only counts toward a swap when the swapped assignment
+            // is CLEARLY better — near-tie geometry (overlapping hands) must not oscillate the ring.
+            let stickyScore = stickyAIsReceiver ? sA : sB
+            let prefScore   = stickyAIsReceiver ? sB : sA
+            let clearlyBetter = prefScore < stickyScore * 0.65 && stickyScore - prefScore > 0.03
+            if prefAIsReceiver == stickyAIsReceiver || !clearlyBetter { swapVotes = 0 } else { swapVotes += 1 }
 
             var aIsReceiver = stickyAIsReceiver
             if swapVotes >= CoachConst.swapConfirmFrames {

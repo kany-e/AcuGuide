@@ -118,6 +118,47 @@ final class CoachEngineRoleLockTests: XCTestCase {
         XCTAssertTrue(engine.phase == .holding || engine.phase == .onTargetUnstable,
                       "engagement must survive the ambiguity; got \(engine.phase)")
     }
+
+    // The OTHER jump mechanism (user-reported on multiple points): mid-press Vision often loses the
+    // occluded RECEIVING hand and reports only the massaging hand. The old single-hand branch crowned
+    // whatever hand it saw as receiver — snapping the ring onto the massaging hand instantly, no swap
+    // votes involved. A lone hand matching the sticky PRESSER anchor must be treated as
+    // "receiver occluded", keeping the last ring and pausing within grace.
+    func testLonePresserFrameDoesNotStealRing() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let tR = receiver.weightedTarget(target.anchors)!
+        var presserPts = base
+        for (j, p) in presserPts { presserPts[j] = CGPoint(x: p.x + 0.30, y: p.y - 0.15) }
+        presserPts[target.pressFinger] = tR
+        let presser = Hand(points: presserPts, chirality: .left)
+
+        let engine = CoachEngine()
+        var t = 0.0
+        for _ in 0..<10 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.phase, .holding)
+        let progressBefore = engine.progress
+
+        // Receiver drops out; ONLY the massaging hand stays detected for half a second.
+        for _ in 0..<15 { engine.update(hands: [presser], point: te3, now: t); t += dt }
+        let ring = engine.ringCenter!
+        XCTAssertEqual(Double(hypot(ring.x - tR.x, ring.y - tR.y)), 0, accuracy: 0.02,
+                       "lone-presser frames must keep the last ring, not move it to the massaging hand")
+        XCTAssertEqual(engine.progress, progressBefore, accuracy: 1e-9,
+                       "no hold credit while the receiver is unverifiable")
+        XCTAssertTrue(engine.phase == .paused || engine.phase == .holding || engine.phase == .onTargetUnstable,
+                      "occluded receiver must pause within grace; got \(engine.phase)")
+
+        // Receiver returns → the hold resumes and credits again.
+        for _ in 0..<10 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.phase, .holding)
+        XCTAssertGreaterThan(engine.progress, progressBefore)
+    }
 }
 
 final class CoachStateMachineTests: XCTestCase {
