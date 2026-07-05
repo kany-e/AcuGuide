@@ -46,6 +46,7 @@ final class CoachVoice: ObservableObject {
         case .searching:        return AppLocale.pick("移动到高亮区域。", "Move toward the highlighted area.")
         case .onTargetUnstable: return AppLocale.pick("保持稳定。", "Hold it steady.")
         case .holding:          return AppLocale.pick("很好，稳定地用力。", "Good — firm, steady pressure.")
+        case .resting:          return AppLocale.pick("松开手指，放松呼吸。", "Release — and breathe.")
         case .paused:           return AppLocale.pick("快好了，回到穴位上。", "Almost — move back onto the point.")
         case .complete:         return AppLocale.pick("保持得很好，完成了。", "Nicely held — all done.")
         }

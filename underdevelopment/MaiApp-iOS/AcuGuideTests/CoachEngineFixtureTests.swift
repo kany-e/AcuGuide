@@ -71,6 +71,7 @@ final class CoachEngineFixtureTests: XCTestCase {
         case .searching:        return "SEARCHING"
         case .onTargetUnstable: return "ON_TARGET_UNSTABLE"
         case .holding:          return "HOLDING"
+        case .resting:          return "RESTING"   // engine-level round gap; the machine never emits it
         case .paused:           return "PAUSED"
         case .complete:         return "COMPLETE"
         }

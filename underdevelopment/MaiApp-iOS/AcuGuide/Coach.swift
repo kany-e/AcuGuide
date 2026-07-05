@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum CoachPhase { case noHand, wrongFace, searching, onTargetUnstable, holding, paused, complete }
+enum CoachPhase { case noHand, wrongFace, searching, onTargetUnstable, holding, resting, paused, complete }
 
 // ---------------------------------------------------------------------------
 // Tunable constants — mirror engine.js `CONST` and useCoachingState.ts. engine.js
@@ -13,7 +13,15 @@ enum CoachConst {
     static let pauseGraceS           = 1.5    // == GRACE_MS: keep timer PAUSED (not reset) after leaving
     static let stabilityWindowS      = 0.2    // trailing window for the steadiness std
     static let stabilityStdThreshold = 0.06   // std of offset (in handSize units) below this = steady
-    static let holdTargetS           = 30.0   // accumulated HOLDING seconds to COMPLETE
+    // Session shape: repeated press/release ROUNDS, not one long hold — matching published self-care
+    // guidance (30s–3min per point in repeated bouts with releases; MSK's P6 handout uses 2–3min of
+    // circular pressure, general handouts 30s–2min, interval protocols press ~10s / release ~5s for
+    // 1–3min) and this app's own FAQ ("30–60 seconds per point … repeat after a short rest").
+    // 4 × 30s ≈ 2 minutes of press — mid-range. The user can END the session at any round; the recap
+    // reports rounds/seconds honestly (quitting early is normal, not failure).
+    static let holdTargetS           = 30.0   // accumulated HOLDING seconds to complete ONE round
+    static let restS                 = 10.0   // release-and-breathe gap between rounds
+    static let sessionRounds         = 4      // rounds per coached session
     static let exitRadiusMult        = 1.6    // exit radius = 1.6x the enter radius (hysteresis)
     static let swapConfirmFrames     = 6      // role reassignment must be "wrong" this many frames
     static let minConfidence         = 0.5    // == engine.js MIN_CONFIDENCE: usable-hand gate
@@ -156,10 +164,29 @@ final class CoachEngine: ObservableObject {
     @Published var ringCenter: CGPoint? = nil      // normalized, top-left origin (smoothed)
     @Published var ringRadius: CGFloat = 0          // normalized
     @Published var pressTip: CGPoint? = nil
-    @Published var progress: Double = 0             // 0...1 hold completion
+    @Published var progress: Double = 0             // 0...1 hold completion of the CURRENT round
     @Published var cue: String = "Bring your hand into the frame."
 
-    private let machine = CoachStateMachine()
+    // Session layer: repeated press/release rounds on top of the validated per-round state machine
+    // (the machine itself stays a pure single-hold automaton — fixtures still validate it).
+    @Published private(set) var roundsDone = 0
+    @Published private(set) var sessionComplete = false
+    let roundsTarget: Int
+    private let restS: Double
+    private var restUntil: Double? = nil            // non-nil while in the release gap
+    private var restRemaining = 0                   // whole seconds, for the rest cue
+    private var heldAccum = 0.0                     // banked hold seconds from finished rounds
+    var totalHeldS: Double { heldAccum + machine.holdTime }   // for the recap (quit-anytime honest)
+
+    private let machine: CoachStateMachine
+
+    init(roundsTarget: Int = CoachConst.sessionRounds,
+         roundHoldS: Double = CoachConst.holdTargetS,
+         restS: Double = CoachConst.restS) {
+        self.roundsTarget = roundsTarget
+        self.restS = restS
+        self.machine = CoachStateMachine(holdTargetS: roundHoldS)
+    }
     private let smoother = OneEuroPoint()        // target ring
     private let pressSmoother = OneEuroPoint()   // second-hand press tip (Vision is noisy on it)
 
@@ -183,16 +210,17 @@ final class CoachEngine: ObservableObject {
 
     var color: Color {
         switch phase {
-        case .holding, .complete:   return Ink.good
-        case .wrongFace, .paused:   return Ink.warn
-        case .onTargetUnstable:     return Ink.warn
-        case .searching, .noHand:   return Ink.hint
+        case .holding, .complete, .resting: return Ink.good
+        case .wrongFace, .paused:           return Ink.warn
+        case .onTargetUnstable:             return Ink.warn
+        case .searching, .noHand:           return Ink.hint
         }
     }
 
     func reset() {
         machine.reset(); smoother.reset(); pressSmoother.reset(); roleReset()
         lastFaceCorrect = false; lastTipT = -.infinity
+        roundsDone = 0; sessionComplete = false; restUntil = nil; heldAccum = 0
         phase = .noHand; ringCenter = nil; pressTip = nil; progress = 0
         cue = AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
     }
@@ -201,6 +229,20 @@ final class CoachEngine: ObservableObject {
         guard let target = point.mediapipeTarget else {
             // Atlas-only point — never AR-coached. Defensive: should not be reachable.
             phase = .searching; ringCenter = nil; pressTip = nil; return
+        }
+
+        // Release gap between rounds — timer-driven, NOT machine-driven: the user is told to let go,
+        // so hands leaving the frame is expected and must not flash NO_HAND. The last ring stays on
+        // screen (dim) as the guide back; the round machine restarts clean when the gap ends.
+        if let until = restUntil {
+            if now < until {
+                restRemaining = Int((until - now).rounded(.up))
+                pressTip = nil
+                apply(.resting, point: point, hasPresser: false)
+                return
+            }
+            restUntil = nil                                            // machine was reset when the gap began
+            smoother.reset(); pressSmoother.reset(); lastTipT = -.infinity
         }
 
         // 1) No usable hand.
@@ -291,6 +333,26 @@ final class CoachEngine: ObservableObject {
             t: now, present: true, faceCorrect: faceCorrect,
             insideEnterRadius: inEnter, insideExitRadius: inExit, offsetXHandSize: offN))
 
+        // Round finished: bank its hold seconds, then either the whole SESSION is done or the
+        // release-and-breathe gap starts. (Only this fully-measured path can newly complete a
+        // round — the occlusion paths step with no offset, which never advances the hold.)
+        if result == .complete && !sessionComplete {
+            roundsDone += 1
+            if roundsDone >= roundsTarget {
+                sessionComplete = true      // machine stays latched; totalHeldS still reads its holdTime
+            } else {
+                // Bank the round's hold and reset the machine NOW (it is never stepped during the
+                // gap), so totalHeldS = banked + live never double-counts a finished round.
+                heldAccum += machine.holdTime
+                machine.reset()
+                restUntil = now + restS
+                restRemaining = Int(restS.rounded(.up))
+                pressTip = nil
+                apply(.resting, point: point, hasPresser: false)
+                return
+            }
+        }
+
         if result == .wrongFace { pressTip = nil }   // ring stays to guide the flip
         apply(result, point: point, hasPresser: hasPresser)
     }
@@ -315,6 +377,9 @@ final class CoachEngine: ObservableObject {
                                                      "Bring your pressing finger into the zone — keep both hands in view.")
         case .onTargetUnstable: return AppLocale.pick("保持稳定。", "Hold it steady.")
         case .holding:          return holdCue(point)
+        case .resting:          return AppLocale.pick(
+                                    "很好 — 松开手指，缓慢呼吸。\(restRemaining) 秒后开始第 \(min(roundsDone + 1, roundsTarget))/\(roundsTarget) 轮。",
+                                    "Nice — release and breathe. Round \(min(roundsDone + 1, roundsTarget)) of \(roundsTarget) starts in \(restRemaining)s.")
         case .paused:           return alignCue(point)
         case .complete:         return AppLocale.pick("完成 — 保持得很好。", "Done — nicely held.")
         }

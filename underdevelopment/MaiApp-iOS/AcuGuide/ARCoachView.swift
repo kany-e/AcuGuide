@@ -10,6 +10,7 @@ struct ARCoachView: View {
     @StateObject private var haptics = CoachHaptics()
     @ObservedObject private var settings = AppSettings.shared
     @State private var acknowledged = false
+    @State private var endedEarly = false          // "End" pressed — recap with partial rounds (normal, not failure)
     @State private var feeling: String? = nil      // stable key: "relief" | "nochange" | "worse"
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
@@ -28,7 +29,7 @@ struct ARCoachView: View {
             ShanshuiBackground()
             if !acknowledged {
                 SafetyGate { acknowledged = true; camera.start() }
-            } else if engine.phase == .complete || feeling != nil {
+            } else if engine.phase == .complete || endedEarly || feeling != nil {
                 recap
             } else {
                 coachLayer
@@ -44,14 +45,22 @@ struct ARCoachView: View {
         voice.update(phase: phase, requiresDorsal: acupoint.requiresDorsal)
 
         // Haptics: a light tick the first time the finger enters the target zone (not on every
-        // unstable wobble), and a success pattern at COMPLETE. Nothing on NO_HAND / WRONG_FACE.
+        // unstable wobble), a tick when a round completes (→ RESTING), and the success pattern at
+        // session COMPLETE. Nothing on NO_HAND / WRONG_FACE.
         let wasOnTarget = prevPhase == .onTargetUnstable || prevPhase == .holding
         let isOnTarget = phase == .onTargetUnstable || phase == .holding
         if isOnTarget && !wasOnTarget { haptics.enterTick() }
+        if phase == .resting && prevPhase != .resting { haptics.enterTick() }
         if phase == .complete && prevPhase != .complete { haptics.complete() }
 
         if phase == .complete { camera.stop() }
         prevPhase = phase
+    }
+
+    // End the session at any point — quitting early is a normal outcome; the recap reports honestly.
+    private func endSession() {
+        camera.stop(); voice.reset()
+        endedEarly = true
     }
 
     // Map a normalized landmark (top-left origin) through the preview's aspect-fill crop, so the
@@ -140,11 +149,21 @@ struct ARCoachView: View {
                     .rotationEffect(.degrees(-90)).frame(width: 46, height: 46)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(acupoint.id + " · " + acupoint.zh).font(.caption).foregroundStyle(Ink.gold)
+                HStack(spacing: 6) {
+                    Text(acupoint.id + " · " + acupoint.zh).font(.caption).foregroundStyle(Ink.gold)
+                    Text(AppLocale.pick("第 \(min(engine.roundsDone + 1, engine.roundsTarget))/\(engine.roundsTarget) 轮",
+                                        "Round \(min(engine.roundsDone + 1, engine.roundsTarget)) of \(engine.roundsTarget)"))
+                        .font(.caption2).foregroundStyle(Ink.textDim)
+                }
                 Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
                     .lineLimit(3).minimumScaleFactor(0.7)
             }
             Spacer()
+            Button(AppLocale.pick("结束", "End")) { endSession() }
+                .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(Capsule().stroke(Ink.line, lineWidth: 1))
+                .accessibilityHint(AppLocale.pick("随时结束本次练习并查看小结", "End this session now and see your recap"))
         }
         .padding(14).panel().padding()
         // One VoiceOver element that re-announces the cue + hold progress as the phase changes.
@@ -155,10 +174,14 @@ struct ARCoachView: View {
     }
 
     private var recap: some View {
-        VStack(spacing: 20) {
-            Text(AppLocale.pick("保持得很好", "Nicely held")).font(.title2).foregroundStyle(Ink.gold)
-            Text(AppLocale.pick("你在 \(acupoint.id)（\(acupoint.zh)）上稳定地保持了。",
-                                "You stayed on \(acupoint.id) (\(acupoint.zh)) steadily."))
+        let held = Int(engine.totalHeldS.rounded())
+        let full = engine.sessionComplete
+        return VStack(spacing: 20) {
+            Text(full ? AppLocale.pick("保持得很好", "Nicely held")
+                      : AppLocale.pick("练习结束", "Good session")).font(.title2).foregroundStyle(Ink.gold)
+            Text(AppLocale.pick(
+                "你在 \(acupoint.id)（\(acupoint.zh)）上完成了 \(engine.roundsDone)/\(engine.roundsTarget) 轮，累计稳定按压约 \(held) 秒。想停就停，本来就该如此。",
+                "You did \(engine.roundsDone) of \(engine.roundsTarget) rounds on \(acupoint.id) (\(acupoint.zh)) — about \(held) seconds of steady press. Stopping whenever you like is exactly right."))
                 .foregroundStyle(Ink.text).multilineTextAlignment(.center)
             Text(AppLocale.pick("感觉如何？", "How do you feel?")).font(.headline).foregroundStyle(Ink.text)
             HStack {

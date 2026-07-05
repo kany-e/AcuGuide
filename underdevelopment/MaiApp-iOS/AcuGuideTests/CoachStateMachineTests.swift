@@ -161,6 +161,89 @@ final class CoachEngineRoleLockTests: XCTestCase {
     }
 }
 
+// Session layer: repeated press/release ROUNDS (matching published self-care guidance + the app's own
+// FAQ) on top of the per-round machine. A round's completion must bank its hold, enter a timer-driven
+// RESTING gap (hands may leave — no NO_HAND flash), restart clean, and only the LAST round yields
+// session COMPLETE. totalHeldS must never double-count a banked round.
+final class CoachEngineSessionTests: XCTestCase {
+    private let dt = 1.0 / 30.0
+    private let base: [HandJoint: CGPoint] = [
+        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
+        .ringMCP: CGPoint(x: 0.56, y: 0.54), .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
+        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30), .pinkyTip: CGPoint(x: 0.66, y: 0.36),
+        .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+
+    func testSessionRoundsRestThenComplete() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let tR = receiver.weightedTarget(target.anchors)!
+        var presserPts = base
+        for (j, p) in presserPts { presserPts[j] = CGPoint(x: p.x + 0.30, y: p.y - 0.15) }
+        presserPts[target.pressFinger] = tR
+        let presser = Hand(points: presserPts, chirality: .left)
+
+        let engine = CoachEngine(roundsTarget: 2, roundHoldS: 0.4, restS: 0.3)
+        var t = 0.0
+        var sawResting = false, restFrames = 0, maxProgressDuringRest = 0.0
+        var framesToComplete = 0
+        for i in 0..<300 {
+            engine.update(hands: [receiver, presser], point: te3, now: t); t += dt
+            if engine.phase == .resting {
+                sawResting = true; restFrames += 1
+                maxProgressDuringRest = max(maxProgressDuringRest, engine.progress)
+                XCTAssertEqual(engine.roundsDone, 1, "the gap comes after exactly one banked round")
+            }
+            if engine.phase == .complete { framesToComplete = i; break }
+        }
+
+        XCTAssertTrue(sawResting, "a release gap must separate the rounds")
+        XCTAssertEqual(engine.phase, .complete, "two rounds must finish the session")
+        XCTAssertTrue(engine.sessionComplete)
+        XCTAssertEqual(engine.roundsDone, 2)
+        XCTAssertGreaterThan(framesToComplete, 0)
+        // The gap is timer-driven at restS≈0.3s (≈9 frames at 30fps; ±2 for boundary rounding).
+        XCTAssertTrue((7...12).contains(restFrames), "rest gap should last ≈0.3s; got \(restFrames) frames")
+        XCTAssertEqual(maxProgressDuringRest, 0, accuracy: 1e-9, "the next round starts from zero progress")
+        // Two 0.4s rounds: banked + latched hold, each overshooting by at most ~one frame.
+        XCTAssertEqual(engine.totalHeldS, 0.8, accuracy: 0.12,
+                       "totalHeldS must be ≈ two rounds, never double-counting a banked round")
+    }
+
+    // Ending mid-session is a first-class outcome: partial rounds + live partial hold are reported.
+    func testQuitAnytimeReportsPartialHonestly() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let tR = receiver.weightedTarget(target.anchors)!
+        var presserPts = base
+        for (j, p) in presserPts { presserPts[j] = CGPoint(x: p.x + 0.30, y: p.y - 0.15) }
+        presserPts[target.pressFinger] = tR
+        let presser = Hand(points: presserPts, chirality: .left)
+
+        let engine = CoachEngine(roundsTarget: 4, roundHoldS: 0.4, restS: 0.2)
+        var t = 0.0
+        // Drive until round 1 is banked and round 2 is PARTWAY through (condition-driven, so the
+        // test can't drift past round 2's completion), then "quit" and check the honest partials.
+        var i = 0
+        while !(engine.roundsDone == 1 && engine.phase == .holding && engine.progress > 0.2) && i < 150 {
+            engine.update(hands: [receiver, presser], point: te3, now: t); t += dt; i += 1
+        }
+        XCTAssertEqual(engine.roundsDone, 1, "one round banked by now")
+        XCTAssertFalse(engine.sessionComplete)
+        XCTAssertGreaterThan(engine.totalHeldS, 0.4, "banked round + live partial hold")
+        XCTAssertLessThan(engine.totalHeldS, 0.8, "must not have double-counted the banked round")
+    }
+}
+
 final class CoachStateMachineTests: XCTestCase {
 
     private let fps = 30.0
