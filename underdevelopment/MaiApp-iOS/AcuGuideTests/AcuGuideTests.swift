@@ -12,6 +12,10 @@ final class AcuGuideTests: XCTestCase {
     override func setUp() {
         super.setUp()
         AppSettings.shared.lang = .en
+        // Pin the chat's deterministic paths: no default on-device generator in tests (a host sim
+        // MAY have Apple Intelligence, which would make the free-form fallback nondeterministic).
+        // LLM behavior is tested separately with an injected mock (ChatLLMTests).
+        ChatService.defaultGeneratorEnabled = false
     }
 
     // The AR-coached set = the 8 documented hand/wrist points (TE3 + the others, sourced to WHO 2008).
@@ -243,5 +247,62 @@ final class AcuGuideTests: XCTestCase {
         XCTAssertEqual(back.target, [0.44, 0.30])
         XCTAssertEqual(back.affine, [0.45, 0.31])
         XCTAssertTrue(back.mirrored)
+    }
+}
+
+// The on-device-LLM chat layer, tested with an injected mock so no Apple Intelligence device is
+// needed: the safety shell around the model is what must hold, not the model itself.
+final class ChatLLMTests: XCTestCase {
+    final class MockGen: ChatGenerator {
+        var isAvailable = true
+        var reply: String
+        private(set) var calls = 0
+        init(reply: String) { self.reply = reply }
+        func generate(query: String, history: [ChatMessage]) async throws -> String { calls += 1; return reply }
+    }
+
+    override func setUp() { super.setUp(); AppSettings.shared.lang = .en }
+
+    // The red-flag screen runs BEFORE the model and can never be overridden by it.
+    func testRedFlagNeverReachesModel() async {
+        let mock = MockGen(reply: "should never be used")
+        let a = await ChatService(generator: mock).reply(to: "I'm pregnant, is SI3 ok?", history: [])
+        XCTAssertEqual(mock.calls, 0, "red-flag input must never reach the model")
+        XCTAssertTrue(a.text.lowercased().contains("professional"))
+    }
+
+    // Deterministic lookups win over the model — a point query stays a validated card.
+    func testDeterministicMatchSkipsModel() async {
+        let mock = MockGen(reply: "should never be used")
+        let a = await ChatService(generator: mock).reply(to: "TE3", history: [])
+        XCTAssertEqual(mock.calls, 0, "a direct point lookup must not consult the model")
+        XCTAssertTrue(a.text.contains("Location:"))
+    }
+
+    // Model output violating the banned-claim rule is rejected wholesale → canned general reply.
+    func testBannedOutputFallsBackToCannedReply() async {
+        let mock = MockGen(reply: "Pressing TE3 will cure your headache quickly.")
+        let a = await ChatService(generator: mock).reply(to: "tell me something nice", history: [])
+        XCTAssertEqual(mock.calls, 1)
+        XCTAssertFalse(a.text.lowercased().contains("cure"), "banned output must never surface")
+        XCTAssertTrue(a.text.contains("fourteen meridians"), "must fall back to the canned general reply")
+    }
+
+    // Clean model output surfaces with the on-device-AI label and mentioned points become buttons.
+    func testCleanOutputIsLabeledAndSuggestsMentionedPoints() async {
+        let mock = MockGen(reply: "Many people find a quiet PC6 press relaxing before travel.")
+        let a = await ChatService(generator: mock).reply(to: "any calm ritual before a trip?", history: [])
+        XCTAssertEqual(mock.calls, 1)
+        XCTAssertTrue(a.text.contains("PC6 press relaxing"))
+        XCTAssertTrue(a.text.contains("On-device AI"), "generative replies must be labeled")
+        XCTAssertTrue(a.suggestions.contains { $0.id == "PC6" }, "mentioned coachable points become buttons")
+    }
+
+    // Generator unavailable (no Apple Intelligence / toggle off) → exactly the old behavior.
+    func testUnavailableGeneratorFallsBack() async {
+        let mock = MockGen(reply: "should never be used"); mock.isAvailable = false
+        let a = await ChatService(generator: mock).reply(to: "tell me something nice", history: [])
+        XCTAssertEqual(mock.calls, 0)
+        XCTAssertTrue(a.text.contains("fourteen meridians"))
     }
 }

@@ -17,6 +17,14 @@ struct SettingsSheet: View {
                         }
                         .pickerStyle(.segmented)
                     }
+                    Section(AppLocale.pick("AI 教练", "Coach AI")) {
+                        Toggle(AppLocale.pick("设备端 AI 回答", "On-device AI answers"), isOn: $settings.llmChat)
+                            .tint(Ink.gold)
+                        Text(AppLocale.pick(
+                            "在支持 Apple 智能的设备上，教练用完全离线的设备端模型回答图谱之外的自由提问。安全筛查始终优先，生成内容会明确标注。",
+                            "On Apple Intelligence-capable devices, the coach answers free-form questions with a fully offline on-device model. The safety screen always runs first, and generated replies are labeled."))
+                            .font(.footnote).foregroundStyle(Ink.textDim)
+                    }
                     Section(AppLocale.pick("参考", "Reference")) {
                         NavigationLink {
                             SourcesView()

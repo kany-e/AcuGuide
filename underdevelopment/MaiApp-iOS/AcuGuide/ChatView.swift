@@ -17,8 +17,19 @@ struct CoachFAQ { let topic: String; let keywords: [String]; let aZh: String; le
 // posture is enforced directly here: it never diagnoses/treats/cures, and red-flag symptoms
 // always route to a stop-and-seek-care reply (matching the web app).
 final class ChatService {
-    // Order matters: SAFETY first, then the most specific lookup that matched, then general help.
-    // Each branch may attach practiceable points the UI turns into "Practice with camera" buttons.
+    // Tests pin the deterministic paths by disabling the default on-device generator (an injected
+    // mock always wins). The live app constructs ChatService() → FoundationModels when available.
+    static var defaultGeneratorEnabled = true
+    private let generator: ChatGenerator?
+
+    init(generator: ChatGenerator? = nil) {
+        self.generator = generator ?? (Self.defaultGeneratorEnabled ? ChatLLM.makeDefault() : nil)
+    }
+
+    // Order matters: SAFETY first, then the most specific lookup that matched, then the on-device
+    // model for free-form questions, then general help. The red-flag screen runs BEFORE the model
+    // (never overridable), and model output is rejected wholesale if it violates the banned-claim
+    // rule. Each branch may attach practiceable points the UI turns into "Practice" buttons.
     func reply(to user: String, history: [ChatMessage]) async -> CoachAnswer {
         let raw = user
         let q = user.lowercased()
@@ -33,6 +44,13 @@ final class ChatService {
             return CoachAnswer(text: meridianReply(mer), suggestions: practiceable(mer.points))
         }
         if let faq = matchFAQ(raw: raw, lowered: q) { return CoachAnswer(text: faq.answer, suggestions: []) }
+        // Free-form question → on-device model (grounded in the atlas, history-aware), post-filtered.
+        if let gen = generator, gen.isAvailable,
+           let out = try? await gen.generate(query: raw, history: history),
+           ChatSafety.allowed(out) {
+            let mentioned = Acupoint.all.filter { out.contains($0.id) || out.contains($0.zh) }
+            return CoachAnswer(text: ChatSafety.labeled(out), suggestions: practiceable(mentioned))
+        }
         return CoachAnswer(text: generalReply(), suggestions: practiceable(headlinePoints))
     }
 

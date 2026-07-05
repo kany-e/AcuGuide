@@ -12,7 +12,14 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(lang.rawValue, forKey: Self.key) }
     }
 
+    // On-device AI answers in the chat coach (FoundationModels; only used where available).
+    // Default ON — the model is fully offline/private and the safety screen runs regardless.
+    @Published var llmChat: Bool {
+        didSet { UserDefaults.standard.set(llmChat, forKey: Self.llmKey) }
+    }
+
     private static let key = "appLang"
+    private static let llmKey = "llmChat"
 
     private init() {
         if let s = UserDefaults.standard.string(forKey: Self.key), let l = Lang(rawValue: s) {
@@ -22,5 +29,6 @@ final class AppSettings: ObservableObject {
             let code = Locale.current.language.languageCode?.identifier ?? "en"
             lang = code.hasPrefix("zh") ? .zh : .en
         }
+        llmChat = UserDefaults.standard.object(forKey: Self.llmKey) as? Bool ?? true
     }
 }
