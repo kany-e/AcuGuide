@@ -64,6 +64,62 @@ final class CoachEngineTipGraceTests: XCTestCase {
     }
 }
 
+// Engine-level test for the mid-press ROLE LOCK: on the forearm points (SJ5/PC6) the target is
+// extrapolated past the wrist, and mid-press the hands overlap enough that the nearest-target role
+// preference oscillates — live, the ring visibly jumped onto the MASSAGING hand (user-reported on
+// Waiguan). While engaged, roles must stay locked no matter how long the preference disagrees.
+final class CoachEngineRoleLockTests: XCTestCase {
+    private let dt = 1.0 / 30.0
+    private let base: [HandJoint: CGPoint] = [
+        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
+        .ringMCP: CGPoint(x: 0.56, y: 0.54), .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
+        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30), .pinkyTip: CGPoint(x: 0.66, y: 0.36),
+        .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+
+    func testRoleLockPreventsMidPressSwap() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true      // synthetic right hand reads dorsal
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let sj5 = Acupoint.byId["SJ5"]!
+        let target = sj5.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let tR = receiver.weightedTarget(target.anchors)!    // forearm target, past the wrist
+
+        // Presser: a second full hand to the side; its OWN extrapolated forearm target is tP.
+        var presserPts = base
+        for (j, p) in presserPts { presserPts[j] = CGPoint(x: p.x + 0.35, y: p.y - 0.20) }
+        presserPts[target.pressFinger] = CGPoint(x: tR.x + 0.003, y: tR.y)   // pressing tR (ε off-centre)
+        let presser = Hand(points: presserPts, chirality: .left)
+        let tP = presser.weightedTarget(target.anchors)!
+
+        let engine = CoachEngine()
+        var t = 0.0
+        // Phase A — unambiguous: receiver's fingertip far from tP → preference agrees. Reach HOLDING.
+        for _ in 0..<10 { engine.update(hands: [receiver, presser], point: sj5, now: t); t += dt }
+        XCTAssertEqual(engine.phase, .holding)
+        let ringA = engine.ringCenter!
+        XCTAssertEqual(Double(hypot(ringA.x - tR.x, ringA.y - tR.y)), 0, accuracy: 0.02,
+                       "ring must start on the RECEIVER's forearm target")
+
+        // Phase B — ambiguity begins mid-hold: the receiver's relaxed fingertip drifts onto the
+        // PRESSER's own forearm target (hands crossed — exactly the live Waiguan posture), so the
+        // nearest-target preference now prefers the swapped roles EVERY frame.
+        var crossed = base
+        crossed[target.pressFinger] = tP
+        let receiverCrossed = Hand(points: crossed, chirality: .right)
+        for _ in 0..<12 { engine.update(hands: [receiverCrossed, presser], point: sj5, now: t); t += dt }
+
+        // 12 frames > swapConfirmFrames (6): without the engaged-role-lock the swap fires and the
+        // ring jumps to the massaging hand's forearm (tP). With the lock it must stay on tR.
+        let ringB = engine.ringCenter!
+        XCTAssertEqual(Double(hypot(ringB.x - tR.x, ringB.y - tR.y)), 0, accuracy: 0.02,
+                       "mid-press role swap: ring jumped off the receiver (toward \(tP))")
+        XCTAssertTrue(engine.phase == .holding || engine.phase == .onTargetUnstable,
+                      "engagement must survive the ambiguity; got \(engine.phase)")
+    }
+}
+
 final class CoachStateMachineTests: XCTestCase {
 
     private let fps = 30.0

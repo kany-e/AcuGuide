@@ -375,6 +375,14 @@ final class CoachEngine: ObservableObject {
             let cost2 = dist(bw, lrw) + dist(aw, lpw)   // b=receiver, a=presser
             let stickyAIsReceiver = cost1 <= cost2
 
+            // ROLE LOCK while engaged on the point (on-target / holding): mid-press the two hands
+            // overlap so much that the nearest-target preference oscillates — on the forearm points
+            // (PC6/SJ5, target extrapolated past the wrist) it repeatedly flipped the ring onto the
+            // MASSAGING hand. Nobody swaps hands mid-press: while engaged, keep the sticky roles and
+            // don't accumulate swap votes. Swaps are only confirmed while searching/paused.
+            let engaged = phase == .holding || phase == .onTargetUnstable
+            if engaged { swapVotes = 0; return commitRoles(aIsReceiver: stickyAIsReceiver, a: a, b: b) }
+
             if prefAIsReceiver == stickyAIsReceiver { swapVotes = 0 } else { swapVotes += 1 }
 
             var aIsReceiver = stickyAIsReceiver

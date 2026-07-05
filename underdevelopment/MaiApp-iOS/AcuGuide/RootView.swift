@@ -42,25 +42,62 @@ struct AtlasTab: View {
     }
 }
 
-// The Coach tab: defaults to the validated TE3 routine.
+// The Coach tab: pick any AR-coachable point (the 8 documented hand/wrist points), then launch
+// the camera coach for it. TE3 leads — it's the validated routine.
 struct ARCoachLauncher: View {
     @Binding var startCoach: Acupoint?
     @ObservedObject private var settings = AppSettings.shared
-    private var te3: Acupoint { Acupoint.all.first { $0.id == "TE3" } ?? Acupoint.all[0] }
+    private var coachable: [Acupoint] { Acupoint.all.filter { $0.mediapipeTarget != nil } }
+
     var body: some View {
         ZStack {
             ShanshuiBackground()
-            VStack(spacing: 18) {
-                Text(AppLocale.pick("紧张性头痛调理", "Tension-headache routine"))
-                    .font(Typo.serif(20, weight: .semibold)).foregroundStyle(Ink.gold)
-                Text(AppLocale.pick("中渚 TE3 — 在手背、无名指与小指掌指关节后方的凹沟处按压。",
-                                    "TE3 · 中渚 — press the groove behind your ring and pinky knuckles, on the back of the hand."))
-                    .foregroundStyle(Ink.text).multilineTextAlignment(.center).padding(.horizontal)
-                Button(AppLocale.pick("开始相机引导", "Start camera coach")) { startCoach = te3 }
-                    .buttonStyle(GoldButtonStyle())
-                Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
-                    .font(.caption2).foregroundStyle(Ink.textDim)
-            }.padding()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(AppLocale.pick("相机引导", "Camera coach"))
+                        .font(Typo.serif(22, weight: .semibold)).foregroundStyle(Ink.gold)
+                        .frame(maxWidth: .infinity)
+                    Text(AppLocale.pick("选择一个穴位，摄像头会引导你的按压。", "Pick a point — the camera guides your press."))
+                        .font(.subheadline).foregroundStyle(Ink.textDim)
+                        .frame(maxWidth: .infinity)
+
+                    ForEach(coachable) { pt in
+                        Button { startCoach = pt } label: {
+                            HStack(spacing: 12) {
+                                Circle().fill(MeridianColors.color(pt.meridian)).frame(width: 10, height: 10)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack(spacing: 6) {
+                                        Text("\(pt.id) · \(pt.zh)")
+                                            .font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
+                                        Text(pt.en).font(Typo.code(14)).foregroundStyle(Ink.textDim)
+                                        if pt.id == "TE3" {
+                                            Text(AppLocale.pick("推荐", "suggested"))
+                                                .font(.caption2).foregroundStyle(Ink.paperLight)
+                                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                                .background(Capsule().fill(Ink.gold.opacity(0.9)))
+                                        }
+                                    }
+                                    Text(pt.location)
+                                        .font(.caption).foregroundStyle(Ink.text)
+                                        .multilineTextAlignment(.leading).lineLimit(2)
+                                }
+                                Spacer()
+                                Image(systemName: "camera.viewfinder")
+                                    .font(.callout).foregroundStyle(Ink.gold.opacity(0.8))
+                            }
+                            .padding(14)
+                        }
+                        .buttonStyle(.plain)
+                        .panel()
+                    }
+
+                    Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
+                        .font(.caption2).foregroundStyle(Ink.textDim)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 4)
+                }
+                .padding()
+            }
         }
     }
 }
