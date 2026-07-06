@@ -51,6 +51,11 @@ struct Hand {
     // front-camera convention every fixture/test was built in.
     var mirroredCoords: Bool = true
 
+    // Below-receiver-grade detection (whole-hand confidence 0.3–0.5): typically the foreshortened /
+    // awkwardly-posed MASSAGING hand, which Vision scores low but still localizes. Weak hands may
+    // only serve as the presser — their geometry is too unreliable to anchor the target ring.
+    var weak: Bool = false
+
     func p(_ j: HandJoint) -> CGPoint? { points[j] }
 
     // Press-tip estimate + its measurement confidence. The RAW fingertip wins whenever Vision

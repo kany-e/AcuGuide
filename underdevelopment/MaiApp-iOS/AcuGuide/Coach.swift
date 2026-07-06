@@ -281,13 +281,35 @@ final class CoachEngine: ObservableObject {
         // returns, roles reset and the surviving hand becomes the receiver by the single-hand rule
         // — otherwise this state froze the stale ring forever and, because the presser anchor used
         // to track the lone hand, could permanently misclassify a receiving hand as the presser.
-        var (receiverOpt, presser) = assignRoles(hands, target: target)
+        // Weak-tier hands (whole-hand confidence 0.3–0.5 — typically the foreshortened massaging
+        // hand) may ONLY press: role assignment sees strong hands, and a weak hand fills the
+        // presser slot afterwards. A weak hand must never anchor the ring, and weak-only frames
+        // decay to "no usable hand" rather than promoting one to receiver.
+        let strongHands = hands.filter { !$0.weak }
+        var receiverOpt: Hand?
+        var presser: Hand?
+        if strongHands.isEmpty {
+            (receiverOpt, presser) = (nil, hands.first)
+        } else {
+            (receiverOpt, presser) = assignRoles(strongHands, target: target)
+            if presser == nil, receiverOpt != nil { presser = hands.first(where: { $0.weak }) }
+        }
         if receiverOpt == nil {
             let since = lonePresserSince ?? now
             lonePresserSince = since
             if now - since > CoachConst.lonePresserGraceS {
+                if strongHands.isEmpty {
+                    // Only weak hands remain past the grace: nothing here can hold the ring.
+                    // Read as "no usable receiving hand" (keep `lonePresserSince` stale so this
+                    // doesn't re-arm a fresh grace every frame while weak-only persists).
+                    smoother.reset(); pressSmoother.reset(); roleReset(); lastFaceCorrect = false
+                    lastTipT = -.infinity
+                    ringCenter = nil; pressTip = nil
+                    apply(machine.step(noHandInput(now)), point: point, hasPresser: false)
+                    return
+                }
                 roleReset(); lonePresserSince = nil
-                (receiverOpt, presser) = assignRoles(hands, target: target)   // fresh: lone hand = receiver
+                (receiverOpt, presser) = assignRoles(strongHands, target: target)   // lone strong hand = receiver
             }
         } else {
             lonePresserSince = nil

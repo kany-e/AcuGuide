@@ -212,6 +212,10 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             }
         }
 
+        // Strong (receiver-eligible) hands first — the engine reads at most two, and a weak
+        // presser candidate must never displace a full detection.
+        hands.sort { !$0.weak && $1.weak }
+
         let now = CACurrentMediaTime()
         DispatchQueue.main.async { self.engine.update(hands: hands, point: self.acupoint, now: now) }
     }
@@ -227,9 +231,12 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     }
 
     private func buildHand(_ obs: VNHumanHandPoseObservation, rotated180: Bool = false) -> Hand? {
-        // Usable-hand gate == engine.js MIN_CONFIDENCE (0.5): reject low-confidence detections
-        // so the live path matches the validated fixture path (which gates presence at 0.5).
-        guard obs.confidence >= Float(CoachConst.minConfidence) else { return nil }
+        // TWO-TIER acceptance. ≥0.5 (engine.js MIN_CONFIDENCE) = full hand, receiver-eligible —
+        // matches the validated fixture path. 0.3–0.5 = WEAK tier, presser-only: a foreshortened /
+        // tips-away massaging hand routinely scores here and used to be discarded outright, which
+        // read as "the massaging hand cannot be detected at all" (user-reported). The engine never
+        // lets a weak hand anchor the ring, and the palm-glaze gate still vets its tip.
+        guard obs.confidence >= 0.3 else { return nil }
         // Shared converter (HandVision) → identical points to the M3 label harness (zero skew).
         // flipX = queueMirrored (capture-queue-confined; matches the mirrored preview);
         // rotated180 folds the inverted-pass coordinates back into the upright frame.
@@ -237,7 +244,8 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // mirroredCoords: isDorsal's sign convention needs the coordinate parity — chirality never
         // flips with our manual mirror, so back-camera (un-mirrored) frames negate the cross product.
         return Hand(points: s.points, chirality: obs.chirality, confidence: s.confidence,
-                    mirroredCoords: queueMirrored)
+                    mirroredCoords: queueMirrored,
+                    weak: obs.confidence < Float(CoachConst.minConfidence))
     }
 }
 

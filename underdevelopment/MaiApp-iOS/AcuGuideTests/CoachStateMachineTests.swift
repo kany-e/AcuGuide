@@ -160,6 +160,51 @@ final class CoachEngineRoleLockTests: XCTestCase {
         XCTAssertGreaterThan(engine.progress, progressBefore)
     }
 
+    // Weak-tier hands (Vision whole-hand confidence 0.3–0.5, e.g. the foreshortened massaging hand)
+    // must be able to PRESS — discarding them entirely was the "massaging hand cannot be detected"
+    // report — but must never anchor the ring, alone or otherwise.
+    func testWeakHandPressesButNeverAnchorsRing() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let tR = receiver.weightedTarget(target.anchors)!
+        var presserPts = base
+        for (j, p) in presserPts { presserPts[j] = CGPoint(x: p.x + 0.30, y: p.y - 0.15) }
+        presserPts[target.pressFinger] = tR
+        let weakPresser = Hand(points: presserPts, chirality: .left, weak: true)
+
+        // Strong receiver + WEAK presser → the weak hand drives contact and the session holds.
+        let engine = CoachEngine()
+        var t = 0.0
+        for _ in 0..<10 { engine.update(hands: [receiver, weakPresser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.phase, .holding, "a weak presser must still be able to press")
+        let ring = engine.ringCenter!
+        XCTAssertEqual(Double(hypot(ring.x - tR.x, ring.y - tR.y)), 0, accuracy: 0.02,
+                       "the ring anchors to the STRONG receiver")
+    }
+
+    // A weak hand ALONE must never be promoted to receiver — past the lone-presser grace the
+    // engine reads the frame as having no usable receiving hand.
+    func testWeakOnlyHandNeverBecomesReceiver() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let weakOnly = Hand(points: base, chirality: .right, weak: true)
+        let engine = CoachEngine()
+        var t = 0.0
+        for _ in 0..<80 { // ≈2.7s, well past lonePresserGraceS
+            engine.update(hands: [weakOnly], point: te3, now: t); t += dt
+            XCTAssertNil(engine.ringCenter, "a weak hand must never anchor the ring")
+        }
+        XCTAssertEqual(engine.phase, .noHand, "weak-only frames decay to no-usable-hand")
+    }
+
     // The lone-presser assumption must DECAY: if the "occluded receiver" never comes back, roles
     // reset after lonePresserGraceS and the surviving hand becomes the receiver — before this, the
     // state was unbounded (stale ring + 'keep both hands in view' forever) and the presser anchor
