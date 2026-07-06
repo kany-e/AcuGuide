@@ -96,7 +96,8 @@ struct ARCoachView: View {
             // kept OUTSIDE this and respects the safe area (status bar / home indicator).
             GeometryReader { geo in
                 ZStack {
-                    CameraPreview(session: camera.session, mirrored: camera.mirrored)
+                    CameraPreview(session: camera.session, mirrored: camera.mirrored,
+                                  configGeneration: camera.configGeneration)
                         .accessibilityHidden(true)
 
                     Group {
@@ -148,6 +149,9 @@ struct ARCoachView: View {
                     .padding(8).background(Circle().fill(.black.opacity(0.35)))
             }
             .accessibilityLabel(voice.muted ? "Unmute voice cues" : "Mute voice cues")
+            #if DEBUG
+            // Field-calibration switches (debug builds only): flip the landmark mirroring or invert
+            // the palm/dorsal gate in one place if either fires backwards on a given device.
             Menu {
                 Toggle("Mirror preview", isOn: Binding(
                     get: { camera.mirrorFlip }, set: { camera.mirrorFlip = $0 }))
@@ -160,6 +164,7 @@ struct ARCoachView: View {
                     .padding(8).background(Circle().fill(.black.opacity(0.35)))
             }
             .accessibilityLabel("Calibration")
+            #endif
         }
         .padding(.horizontal).padding(.top, 8)
     }

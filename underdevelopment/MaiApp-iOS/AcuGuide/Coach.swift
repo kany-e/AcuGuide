@@ -322,7 +322,14 @@ final class CoachEngine: ObservableObject {
             pressTip = tip; hasPresser = true
             lastTipT = now
             let dd = dist(tip, center)
-            inEnter = dd < tol
+            // Palm-glaze gate (user-reported: "whatever hand part glazes over the area, it tracks"):
+            // when a palm covers the target, Vision still hallucinates a LOW-confidence tip under it,
+            // which used to start engagement. A NEW engagement now needs a confident tip; an ongoing
+            // hold doesn't (mid-press confidence dips must not break HOLDING — hysteresis as usual).
+            // Fixture/test hands carry no confidences → default reliable, so the validated paths hold.
+            let wasEngaged = phase == .holding || phase == .onTargetUnstable
+            let tipReliable = (presser.confidence[target.pressFinger] ?? 1) >= 0.4
+            inEnter = dd < tol && (tipReliable || wasEngaged)
             inExit = dd < tol * CoachConst.exitRadiusMult
             offN = Double(dd / hs)
         } else if pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {

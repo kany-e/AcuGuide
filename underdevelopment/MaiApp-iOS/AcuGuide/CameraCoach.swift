@@ -20,6 +20,12 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     // the camera watches the receiver) — un-mirrored, like any rear-camera view.
     @Published private(set) var usingFront = true
 
+    // Bumped on the main thread AFTER a flip's session reconfigure commits. The preview layer's
+    // connection is RECREATED by the reconfigure — after SwiftUI already re-rendered for the
+    // usingFront change — so without this second render pass the fresh connection never gets its
+    // portrait rotation re-applied and the view comes up upside down (user-reported).
+    @Published private(set) var configGeneration = 0
+
     // SINGLE SOURCE OF TRUTH for mirroring. `mirrored` (main thread) drives the preview
     // connection; `queueMirrored` is the capture-queue-confined copy that drives the landmark
     // x-flip — so the flag is never read across threads (no data race). Flipping the debug
@@ -135,6 +141,9 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
                 conn.setMirrored(false)   // data output stays un-mirrored; the PREVIEW mirrors
             }
             self.session.commitConfiguration()
+            // Second render pass so CameraPreview re-applies portrait+mirroring to the connection
+            // that was just recreated (see configGeneration).
+            DispatchQueue.main.async { self.configGeneration += 1 }
         }
     }
 
@@ -187,6 +196,7 @@ extension AVCaptureConnection {
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     let mirrored: Bool
+    var configGeneration = 0   // changes force updateUIView AFTER a flip's reconfigure (fresh connection)
 
     func makeUIView(context: Context) -> PreviewView {
         let v = PreviewView()

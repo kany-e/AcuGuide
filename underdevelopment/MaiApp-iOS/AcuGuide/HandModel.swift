@@ -48,19 +48,15 @@ struct Hand {
 
     func p(_ j: HandJoint) -> CGPoint? { points[j] }
 
-    // Press-tip estimate robust to the press ITSELF: the fingertip is the joint Vision loses and
-    // wanders on most mid-press — it's foreshortened against the other hand's skin (user-reported
-    // drift). When the tip's confidence is weak, rebuild it by extending the distal index segment
-    // (DIP + k·(DIP−PIP)) — those joints ride above the contact and stay visible. Falls back to
-    // the raw tip when the distal joints aren't tracked (or for non-index press fingers).
+    // Press-tip estimate. The RAW fingertip wins whenever Vision reports one — device testing showed
+    // it tracks the intended massage point better than any reconstruction (a pressing finger is BENT
+    // at the DIP, so extending the distal segment overshoots the nail — user-confirmed regression).
+    // Only when the tip is entirely absent (didn't pass the extraction gate) is it rebuilt from the
+    // distal index segment (DIP + k·(DIP−PIP)), which stays visible above the contact.
     func pressTip(_ finger: HandJoint) -> CGPoint? {
-        guard finger == .indexTip else { return p(finger) }
-        let tipConf = confidence[.indexTip] ?? 0
-        if tipConf >= 0.55, let tip = p(.indexTip) { return tip }
-        if let dip = p(.indexDIP), let pip = p(.indexPIP) {
-            return CGPoint(x: dip.x + 0.9 * (dip.x - pip.x), y: dip.y + 0.9 * (dip.y - pip.y))
-        }
-        return p(.indexTip)
+        if let tip = p(finger) { return tip }
+        guard finger == .indexTip, let dip = p(.indexDIP), let pip = p(.indexPIP) else { return nil }
+        return CGPoint(x: dip.x + 0.9 * (dip.x - pip.x), y: dip.y + 0.9 * (dip.y - pip.y))
     }
 
     // Scale unit, invariant-ish to finger spread (wrist -> middle MCP).

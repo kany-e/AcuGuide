@@ -231,25 +231,30 @@ final class AcuGuideTests: XCTestCase {
         }
     }
 
-    // The press-tip estimator: raw tip when confident; distal-segment extrapolation when the tip is
-    // unreliable (the mid-press occlusion that made the dot drift); raw tip when nothing better exists.
-    func testPressTipFallbackUsesDistalSegment() {
+    // The press-tip estimator — RAW tip first (device-confirmed it tracks the intended massage point
+    // best; a pressing finger is bent, so extrapolation overshoots); the distal-segment rebuild is
+    // ONLY the total-dropout fallback; nil when the finger isn't tracked at all.
+    func testPressTipPrefersRawTipAndFallsBackOnDropout() {
         var pts: [HandJoint: CGPoint] = [
             .wrist: CGPoint(x: 0.5, y: 0.8), .indexTip: CGPoint(x: 0.30, y: 0.30),
             .indexDIP: CGPoint(x: 0.40, y: 0.40), .indexPIP: CGPoint(x: 0.44, y: 0.46)]
+        // Tip present — even at LOW confidence the raw tip wins (extrapolation was a regression).
         let low = Hand(points: pts, chirality: .right,
                        confidence: [.indexTip: 0.35, .indexDIP: 0.9, .indexPIP: 0.9])
-        let t = low.pressTip(.indexTip)!
+        XCTAssertEqual(low.pressTip(.indexTip), pts[.indexTip], "present tip always wins")
+
+        // Tip fully dropped → rebuild from the distal segment.
+        pts[.indexTip] = nil
+        let dropped = Hand(points: pts, chirality: .right, confidence: [.indexDIP: 0.9, .indexPIP: 0.9])
+        let t = dropped.pressTip(.indexTip)!
         XCTAssertEqual(Double(t.x), 0.40 + 0.9 * (0.40 - 0.44), accuracy: 1e-9,
-                       "weak tip → extend the DIP−PIP segment")
+                       "missing tip → extend the DIP−PIP segment")
         XCTAssertEqual(Double(t.y), 0.40 + 0.9 * (0.40 - 0.46), accuracy: 1e-9)
 
-        let high = Hand(points: pts, chirality: .right, confidence: [.indexTip: 0.9])
-        XCTAssertEqual(high.pressTip(.indexTip), pts[.indexTip], "confident tip → use it directly")
-
+        // Nothing tracked on the finger → nil (the tip-grace path handles the gap).
         pts[.indexDIP] = nil; pts[.indexPIP] = nil
-        let bare = Hand(points: pts, chirality: .right, confidence: [.indexTip: 0.2])
-        XCTAssertEqual(bare.pressTip(.indexTip), pts[.indexTip], "no distal joints → raw tip fallback")
+        let bare = Hand(points: pts, chirality: .right)
+        XCTAssertNil(bare.pressTip(.indexTip))
     }
 
     // M3 label harness: the inverse aspect-fill map MUST exactly undo the forward map, or every tapped
