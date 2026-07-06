@@ -442,3 +442,96 @@ final class PracticeStoreTests: XCTestCase {
         XCTAssertEqual(store.streakDays, 2, "today + yesterday, broken by the gap")
     }
 }
+
+// Routines: every step resolves to a real atlas point; the CAMERA-coached surface stays exactly
+// the documented 8 (routines may add timer-guided points but can never grow the AR set); all copy
+// obeys the banned-claims rule; LI4 can never sneak in through a routine.
+final class RoutineTests: XCTestCase {
+    func testRoutineStepsResolveAndRespectTheCoachedSet() {
+        let coached = Set(Acupoint.all.filter { $0.mediapipeTarget != nil }.map(\.id))
+        XCTAssertEqual(coached.count, 8, "the camera-coached set must stay the documented 8")
+        for r in Routine.all {
+            XCTAssertFalse(r.steps.isEmpty)
+            XCTAssertGreaterThan(r.minutes, 0)
+            for step in r.steps {
+                XCTAssertNotNil(Acupoint.byId[step.pointId], "\(r.id) references unknown point \(step.pointId)")
+                XCTAssertGreaterThan(step.rounds, 0)
+                XCTAssertNotEqual(step.pointId, "LI4", "LI4 must never appear in a routine")
+            }
+        }
+    }
+
+    func testRoutineCopyHasNoForbiddenClaims() {
+        let banned = ["treat", "cure", "heal", "diagnos"]
+        for r in Routine.all {
+            let blob = [r.zh, r.en, r.descZh, r.descEn].joined(separator: " ").lowercased()
+            for term in banned {
+                XCTAssertFalse(blob.contains(term), "routine \(r.id) copy contains forbidden term '\(term)'")
+            }
+        }
+    }
+}
+
+// The guided timer session: rounds → rest → next round → complete, with an honest clock (banked
+// hold never double-counts) and scene-pause that freezes it.
+final class TimerSessionTests: XCTestCase {
+    func testRoundsRestCompleteCycle() {
+        let s = TimerSession(roundsTarget: 2, roundHoldS: 0.4, restS: 0.3)
+        XCTAssertEqual(s.coachPhase, .searching)   // ready
+        s.start()
+        XCTAssertEqual(s.phase, .holding)
+        for _ in 0..<4 { s.tick(0.1) }              // 0.4s → round 1 done
+        XCTAssertEqual(s.roundsDone, 1)
+        XCTAssertEqual(s.phase, .resting)
+        XCTAssertEqual(s.progress, 0, "next round starts from zero")
+        XCTAssertEqual(s.totalHeldS, 0.4, accuracy: 1e-9, "banked exactly one round — no double count")
+        for _ in 0..<3 { s.tick(0.1) }              // 0.3s rest → holding again
+        XCTAssertEqual(s.phase, .holding)
+        for _ in 0..<4 { s.tick(0.1) }              // round 2 → complete
+        XCTAssertTrue(s.sessionComplete)
+        XCTAssertEqual(s.roundsDone, 2)
+        XCTAssertEqual(s.totalHeldS, 0.8, accuracy: 1e-9)
+        s.tick(0.1)                                  // ticks after completion change nothing
+        XCTAssertEqual(s.totalHeldS, 0.8, accuracy: 1e-9)
+    }
+
+    func testScenePauseFreezesTheClock() {
+        let s = TimerSession(roundsTarget: 1, roundHoldS: 0.4, restS: 0.2)
+        s.start()
+        s.tick(0.2)
+        s.scenePaused()                              // background: ticker gone; manual tick still counts,
+        let heldAtPause = s.totalHeldS               // but the app's Timer is invalidated — assert state
+        XCTAssertEqual(heldAtPause, 0.2, accuracy: 1e-9)
+        s.sceneResumed()
+        s.tick(0.2)
+        XCTAssertTrue(s.sessionComplete)
+    }
+}
+
+// Practice insights: week window and the feelings tally.
+final class PracticeInsightTests: XCTestCase {
+    private func store() -> PracticeStore {
+        PracticeStore(defaults: UserDefaults(suiteName: "insights-\(UUID().uuidString)")!)
+    }
+    private func rec(daysAgo: Int, feeling: String? = nil) -> PracticeRecord {
+        PracticeRecord(id: UUID().uuidString,
+                       date: Calendar.current.date(byAdding: .day, value: -daysAgo, to: Date())!,
+                       pointId: "TE3", rounds: 2, roundsTarget: 4, heldS: 60, feeling: feeling)
+    }
+
+    func testWeekCountAndFeelingTally() {
+        let s = store()
+        s.add(rec(daysAgo: 0, feeling: "relief"))
+        s.add(rec(daysAgo: 2, feeling: "relief"))
+        s.add(rec(daysAgo: 6, feeling: "worse"))
+        s.add(rec(daysAgo: 10, feeling: "nochange"))   // outside the week, inside 30d
+        s.add(rec(daysAgo: 40, feeling: "relief"))     // outside 30d entirely
+        XCTAssertEqual(s.weekCount, 3)
+        let tally = s.feelingTally()
+        XCTAssertEqual(tally.relief, 2)
+        XCTAssertEqual(tally.nochange, 1)
+        XCTAssertEqual(tally.worse, 1)
+        XCTAssertFalse(s.exportJSON().isEmpty)
+        XCTAssertTrue(s.exportJSON().contains("TE3"))
+    }
+}

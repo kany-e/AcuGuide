@@ -100,10 +100,10 @@ struct Body3DView: View {
                                 }
                                 Text(s.location).font(.caption).foregroundStyle(Ink.text)
                                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                                if s.mediapipeTarget != nil {
-                                    Button(AppLocale.pick("用相机练习", "Practice with camera")) { handChartCoach = s }
+                                Button(s.mediapipeTarget != nil
+                                       ? AppLocale.pick("用相机练习", "Practice with camera")
+                                       : AppLocale.pick("计时引导练习", "Guided practice (timer)")) { handChartCoach = s }
                                         .buttonStyle(GoldButtonStyle())
-                                }
                             } else {
                                 Text(AppLocale.pick("点按手上的穴位查看详情：中渚 TE3 · 后溪 SI3 · 劳宫 PC8 · 神门 HT7",
                                                     "Tap a point on the hand for detail: TE3 · SI3 · PC8 · HT7"))
@@ -208,11 +208,11 @@ struct Body3DView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                if pt.mediapipeTarget != nil {
-                    Button(AppLocale.pick("用相机练习", "Practice with camera")) {
+                Button(pt.mediapipeTarget != nil
+                       ? AppLocale.pick("用相机练习", "Practice with camera")
+                       : AppLocale.pick("计时引导练习", "Guided practice (timer)")) {
                         let p = pt; model.clearSelection(); onPractice(p)
                     }.buttonStyle(GoldButtonStyle())
-                }
                 if FaceAcupoints.isLocatable(pt.id) {
                     Button(AppLocale.pick("在我的脸上定位", "Find on my face")) {
                         let p = pt; model.clearSelection(); locate = p

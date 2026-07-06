@@ -1,0 +1,33 @@
+# CI for the iOS app: regenerate the project from project.yml and run the full unit-test suite on
+# a simulator. Runs on pushes/PRs that touch the app. NOTE: runner Xcode/simulator versions drift —
+# if the destination fails to resolve, check `xcrun simctl list devices available` in the log and
+# adjust the device name.
+name: ios-tests
+
+on:
+  push:
+    paths: ["underdevelopment/MaiApp-iOS/**", ".github/workflows/ios-tests.yml"]
+  pull_request:
+    paths: ["underdevelopment/MaiApp-iOS/**"]
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: underdevelopment/MaiApp-iOS
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Run tests
+        run: |
+          DEST=$(xcrun simctl list devices available | grep -m1 -oE "iPhone [0-9]+[^(]*" | head -1 | xargs)
+          echo "Using simulator: $DEST"
+          set -o pipefail
+          xcodebuild test -scheme AcuGuide \
+            -destination "platform=iOS Simulator,name=$DEST" \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tail -200

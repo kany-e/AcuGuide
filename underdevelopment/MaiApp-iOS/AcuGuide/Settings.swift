@@ -77,6 +77,14 @@ struct SettingsSheet: View {
                         } label: {
                             Label(AppLocale.pick("许可与致谢", "Licenses & credits"), systemImage: "text.badge.checkmark")
                         }
+                        // History lives only on this device (by design) — the export is the user's
+                        // own backup path.
+                        if !PracticeStore.shared.records.isEmpty {
+                            ShareLink(item: PracticeStore.shared.exportJSON(),
+                                      preview: SharePreview("AcuGuide practice history")) {
+                                Label(AppLocale.pick("导出练习记录", "Export practice history"), systemImage: "square.and.arrow.up")
+                            }
+                        }
                     }
                     #if DEBUG
                     // Dev tool (M3): capture owned expert acupoint labels on real frames. English-only,

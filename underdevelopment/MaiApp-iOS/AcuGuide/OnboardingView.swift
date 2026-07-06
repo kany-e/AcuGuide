@@ -4,7 +4,7 @@ import SwiftUI
 // front), how the camera coach works, and the privacy story before any permission is ever asked.
 // Shown once (AppSettings.seenOnboarding).
 struct OnboardingView: View {
-    var onDone: () -> Void
+    var onDone: (_ quickTry: Bool) -> Void   // quickTry: launch one 30s coached round right away
     @State private var page = 0
 
     var body: some View {
@@ -38,10 +38,17 @@ struct OnboardingView: View {
                 .indexViewStyle(.page(backgroundDisplayMode: .always))
 
                 Button(page < 2 ? AppLocale.pick("继续", "Continue") : AppLocale.pick("开始使用", "Get started")) {
-                    if page < 2 { withAnimation { page += 1 } } else { onDone() }
+                    if page < 2 { withAnimation { page += 1 } } else { onDone(false) }
                 }
                 .buttonStyle(GoldButtonStyle())
-                .padding(.horizontal, 28).padding(.bottom, 8)
+                .padding(.horizontal, 28).padding(.bottom, 4)
+
+                // The first-success shortcut: straight into one 30-second coached round.
+                if page == 2 {
+                    Button(AppLocale.pick("先试一轮（30 秒）", "Try one round first (30s)")) { onDone(true) }
+                        .font(.subheadline).tint(Ink.gold)
+                        .padding(.bottom, 4)
+                }
 
                 Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
                     .font(.caption2).foregroundStyle(Ink.textDim)

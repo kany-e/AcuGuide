@@ -58,16 +58,20 @@ enum AtlasMarkers {
         let n = simd_normalize(simd_float3(Float(normal.x), Float(normal.y), Float(normal.z)))
         container.simdOrientation = orientation(from: simd_float3(0, 1, 0), to: n)
 
-        // Bright core mound: flattened along the normal (local +Y) → a shallow dome, not a ball;
-        // its base sunk so the rim meets the surface.
+        // Bright core mound: flattened along the normal (local +Y) → a shallow dome, not a ball.
+        // Centered ON the surface: the under-surface half is hidden by the mesh when depth-tested
+        // (so the visible part is a true half-dome rising off the skin), and reads the same when not.
         let bulge = SCNSphere(radius: radius); bulge.firstMaterial = glowMat(color, 1.0, depthTested: depthTested)
         let b = SCNNode(geometry: bulge)
         b.scale = SCNVector3(1, 0.4, 1)
-        b.position = SCNVector3(0, -Float(radius) * 0.30, 0)
         container.addChildNode(b)
 
-        // Soft wash of light around the bulge, flattened flush to the surface.
-        let glow = SCNSphere(radius: halo); glow.firstMaterial = glowMat(color, 0.20, depthTested: depthTested)
+        // Soft wash of light around the bulge, flattened flush to the surface. It READS depth (so
+        // the mesh occludes it) but never WRITES it — a translucent wash writing depth would
+        // occlude its own core sphere drawn after it.
+        let haloMat = glowMat(color, 0.20, depthTested: depthTested)
+        haloMat.writesToDepthBuffer = false
+        let glow = SCNSphere(radius: halo); glow.firstMaterial = haloMat
         let g = SCNNode(geometry: glow)
         g.scale = SCNVector3(1, 0.22, 1)
         g.renderingOrder = 14
@@ -139,8 +143,12 @@ enum AtlasMarkers {
         // normal that faces inward or a degenerate zero normal from a grazing hit).
         if simd_length(nrm) < 1e-4 { nrm = -dir } else { nrm = simd_normalize(nrm) }
         if simd_dot(nrm, wp - center) < 0 { nrm = -nrm }
+        // depthTested: detail-view markers are OCCLUDED by the mesh — a far-side point (sole,
+        // palm, cubital crease) stays hidden until the model is rotated to face it, exactly like
+        // a real feature of the surface (previously they glowed through the body).
         return domeMarker(id: id, color: color, radius: core, halo: halo,
-                          at: SCNVector3(wp.x, wp.y, wp.z), normal: SCNVector3(nrm.x, nrm.y, nrm.z))
+                          at: SCNVector3(wp.x, wp.y, wp.z), normal: SCNVector3(nrm.x, nrm.y, nrm.z),
+                          depthTested: true)
     }
 
     // Explicit camera at distance `z` for a unit-scaled part mesh, wired as the view's POV.

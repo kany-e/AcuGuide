@@ -45,6 +45,37 @@ final class PracticeStore: ObservableObject {
 
     var sessionCount: Int { records.count }
 
+    // Sessions in the trailing 7 days — the "this week" insight.
+    var weekCount: Int {
+        guard let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: Date()) else { return 0 }
+        return records.filter { $0.date > cutoff }.count
+    }
+
+    // Self-reported feelings over the trailing `days` — the user's own honest evidence.
+    func feelingTally(days: Int = 30) -> (relief: Int, nochange: Int, worse: Int) {
+        guard let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) else { return (0, 0, 0) }
+        var relief = 0, nochange = 0, worse = 0
+        for r in records where r.date > cutoff {
+            switch r.feeling {
+            case "relief": relief += 1
+            case "nochange": nochange += 1
+            case "worse": worse += 1
+            default: break
+            }
+        }
+        return (relief, nochange, worse)
+    }
+
+    // Pretty-printed JSON of the whole history — for the user's own export (local-only data means
+    // a lost phone would otherwise erase it).
+    func exportJSON() -> String {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        enc.dateEncodingStrategy = .iso8601
+        guard let data = try? enc.encode(records) else { return "[]" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     // Consecutive calendar days with at least one session, counting back from today (0 = none today).
     var streakDays: Int {
         let cal = Calendar.current

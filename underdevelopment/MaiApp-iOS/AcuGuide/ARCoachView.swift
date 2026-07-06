@@ -4,11 +4,13 @@ import SwiftUI
 // Demo point = TE3 (the validated one). Safety gate is the immutable rule (no skip).
 struct ARCoachView: View {
     let acupoint: Acupoint
+    var onNext: (label: String, action: () -> Void)? = nil   // set when running inside a routine
     @StateObject private var engine: CoachEngine
     @StateObject private var camera: CameraCoach
     @StateObject private var voice = CoachVoice()
     @StateObject private var haptics = CoachHaptics()
     @ObservedObject private var settings = AppSettings.shared
+    @Environment(\.scenePhase) private var scenePhase
     @State private var acknowledged = false
     @State private var endedEarly = false          // "End" pressed — recap with partial rounds (normal, not failure)
     @State private var feeling: String? = nil      // stable key: "relief" | "nochange" | "worse"
@@ -16,13 +18,20 @@ struct ARCoachView: View {
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
 
-    init(acupoint: Acupoint) {
+    init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
+         onNext: (label: String, action: () -> Void)? = nil,
+         acknowledgedInitially: Bool = false) {
         self.acupoint = acupoint
+        self.onNext = onNext
         // Build the engine first, then hand the SAME instance to the camera (assign-before-use,
-        // no redundant default StateObject).
-        let eng = CoachEngine()
+        // no redundant default StateObject). roundsTarget: 1 for the first-run quick try; a
+        // routine step's rounds otherwise. acknowledgedInitially: steps ≥2 of a ROUTINE run —
+        // the safety gate was confirmed at step 1 of the same continuous session (never skipped
+        // for a fresh session).
+        let eng = CoachEngine(roundsTarget: roundsTarget)
         _engine = StateObject(wrappedValue: eng)
         _camera = StateObject(wrappedValue: CameraCoach(engine: eng, acupoint: acupoint))
+        _acknowledged = State(initialValue: acknowledgedInitially)
     }
 
     var body: some View {
@@ -42,6 +51,13 @@ struct ARCoachView: View {
         // Drive voice + haptics off phase TRANSITIONS only (debounced by the engine), and stop the
         // camera as soon as the routine completes so nothing keeps running behind the recap.
         .onChange(of: engine.phase) { handlePhaseChange(to: $0) }
+        // Interruption robustness: a call / app-switch stops the camera (no capture in the
+        // background); returning restarts it (start is idempotent + authorization-gated). The
+        // machine's pause-grace and dt clamp make the gap read as a pause, never a credit jump.
+        .onChange(of: scenePhase) { sp in
+            guard acknowledged, engine.phase != .complete, !endedEarly else { return }
+            if sp == .background { camera.stop() } else if sp == .active { camera.start() }
+        }
         .onDisappear { camera.stop(); voice.reset() }
     }
 
@@ -232,6 +248,11 @@ struct ARCoachView: View {
                 Text(AppLocale.pick("请暂时停止。如果症状严重或持续，请考虑就医。",
                                     "Please stop for now. If symptoms are severe or persistent, consider seeing a professional."))
                     .font(.footnote).foregroundStyle(Ink.terracotta).multilineTextAlignment(.center).padding()
+            }
+            // Routine flow: hand off to the next step (suppressed after "Felt worse" — never
+            // encourage continuing past discomfort).
+            if let next = onNext, feeling != "worse" {
+                Button(next.label) { next.action() }.buttonStyle(GoldButtonStyle())
             }
             Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
                 .font(.caption2).foregroundStyle(Ink.textDim)
