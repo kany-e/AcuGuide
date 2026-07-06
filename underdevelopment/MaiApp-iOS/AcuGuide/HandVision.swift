@@ -14,18 +14,29 @@ enum HandVision {
 
     struct Sample { var points: [HandJoint: CGPoint]; var confidence: [HandJoint: Float] }
 
+    // Vision landmark → our normalized TOP-LEFT convention, as ONE pure (testable) mapping:
+    // `rotated180` undoes an inverted-frame detection pass (the observation came from the buffer
+    // rotated 180°, so its coords rotate back: (x,y) → (1−x, 1−y)); then Vision's bottom-left
+    // origin flips to top-left; then `flipX` mirrors to match the selfie preview. A 180° rotation
+    // is two mirrors — parity is PRESERVED — so chirality and the isDorsal sign stay valid.
+    static func normalize(_ loc: CGPoint, rotated180: Bool, flipX: Bool) -> CGPoint {
+        var x = loc.x, y = loc.y
+        if rotated180 { x = 1 - x; y = 1 - y }
+        y = 1 - y
+        if flipX { x = 1 - x }
+        return CGPoint(x: x, y: y)
+    }
+
     // Normalized TOP-LEFT points (+ per-joint Vision confidence), x-mirrored when `flipX` (to match the
-    // mirrored selfie preview). Per-joint gate 0.3 == the coach's. Returns nil if the wrist wasn't found
-    // (every downstream frame/handSize needs the wrist).
-    static func sample(_ obs: VNHumanHandPoseObservation, flipX: Bool) -> Sample? {
+    // mirrored selfie preview); `rotated180` for observations from the inverted-frame pass. Per-joint
+    // gate 0.3 == the coach's. Returns nil if the wrist wasn't found (every downstream frame/handSize
+    // needs the wrist).
+    static func sample(_ obs: VNHumanHandPoseObservation, flipX: Bool, rotated180: Bool = false) -> Sample? {
         var pts: [HandJoint: CGPoint] = [:]; var conf: [HandJoint: Float] = [:]
         for j in joints {
             guard let rp = try? obs.recognizedPoint(j.vision), rp.confidence > 0.3 else { continue }
-            // Vision: normalized, BOTTOM-left origin. Flip y → top-left; mirror x to match the preview.
-            var x = rp.location.x
-            let y = 1 - rp.location.y
-            if flipX { x = 1 - x }
-            pts[j] = CGPoint(x: x, y: y); conf[j] = rp.confidence
+            pts[j] = normalize(rp.location, rotated180: rotated180, flipX: flipX)
+            conf[j] = rp.confidence
         }
         guard pts[.wrist] != nil else { return nil }
         return Sample(points: pts, confidence: conf)

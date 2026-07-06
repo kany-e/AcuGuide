@@ -47,6 +47,16 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         r.maximumHandCount = 2
         return r
     }()
+    // Second-chance pass for INVERTED hands: Vision's hand model is weak on fingers-down /
+    // tips-away hands (the massaging hand reaching in from the top of frame — user-reported as
+    // undetectable). When the primary pass finds fewer than two hands, the frame is re-run
+    // rotated 180° (where an inverted hand looks upright) and results fold back. Separate request
+    // instance so the two passes' results don't overwrite each other.
+    private let invertedRequest: VNDetectHumanHandPoseRequest = {
+        let r = VNDetectHumanHandPoseRequest()
+        r.maximumHandCount = 2
+        return r
+    }()
     private var videoConnection: AVCaptureConnection?
 
     init(engine: CoachEngine, acupoint: Acupoint) {
@@ -180,20 +190,50 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             lastAspect = aspect
             DispatchQueue.main.async { self.frameAspect = aspect }
         }
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixel, orientation: visionOrientation(), options: [:])
+        let orientation = visionOrientation()
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixel, orientation: orientation, options: [:])
         try? handler.perform([request])
-        let hands = (request.results ?? []).compactMap { buildHand($0) }
+        var hands = (request.results ?? []).compactMap { buildHand($0) }
+
+        // Inverted-hand second chance (see invertedRequest): only when the primary pass came up
+        // short, so the extra inference cost is paid exactly when a hand is missing. Duplicates
+        // (a hand Vision found BOTH ways) are dropped by wrist proximity, primary pass wins.
+        if hands.count < 2 {
+            let flipped = VNImageRequestHandler(cvPixelBuffer: pixel,
+                                                orientation: Self.rotated180(orientation), options: [:])
+            try? flipped.perform([invertedRequest])
+            for obs in invertedRequest.results ?? [] {
+                guard hands.count < 2, let h = buildHand(obs, rotated180: true) else { continue }
+                let duplicate = hands.contains { existing in
+                    guard let a = existing.p(.wrist), let b = h.p(.wrist) else { return false }
+                    return dist(a, b) < 0.15
+                }
+                if !duplicate { hands.append(h) }
+            }
+        }
+
         let now = CACurrentMediaTime()
         DispatchQueue.main.async { self.engine.update(hands: hands, point: self.acupoint, now: now) }
     }
 
-    private func buildHand(_ obs: VNHumanHandPoseObservation) -> Hand? {
+    // 180°-rotated counterpart of a Vision orientation (two mirrors = rotation; parity preserved).
+    private static func rotated180(_ o: CGImagePropertyOrientation) -> CGImagePropertyOrientation {
+        switch o {
+        case .up: return .down;           case .down: return .up
+        case .left: return .right;        case .right: return .left
+        case .upMirrored: return .downMirrored;   case .downMirrored: return .upMirrored
+        case .leftMirrored: return .rightMirrored; case .rightMirrored: return .leftMirrored
+        }
+    }
+
+    private func buildHand(_ obs: VNHumanHandPoseObservation, rotated180: Bool = false) -> Hand? {
         // Usable-hand gate == engine.js MIN_CONFIDENCE (0.5): reject low-confidence detections
         // so the live path matches the validated fixture path (which gates presence at 0.5).
         guard obs.confidence >= Float(CoachConst.minConfidence) else { return nil }
         // Shared converter (HandVision) → identical points to the M3 label harness (zero skew).
-        // flipX = queueMirrored (capture-queue-confined; matches the mirrored preview).
-        guard let s = HandVision.sample(obs, flipX: queueMirrored) else { return nil }
+        // flipX = queueMirrored (capture-queue-confined; matches the mirrored preview);
+        // rotated180 folds the inverted-pass coordinates back into the upright frame.
+        guard let s = HandVision.sample(obs, flipX: queueMirrored, rotated180: rotated180) else { return nil }
         // mirroredCoords: isDorsal's sign convention needs the coordinate parity — chirality never
         // flips with our manual mirror, so back-camera (un-mirrored) frames negate the cross product.
         return Hand(points: s.points, chirality: obs.chirality, confidence: s.confidence,

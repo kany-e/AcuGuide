@@ -273,6 +273,22 @@ final class AcuGuideTests: XCTestCase {
         XCTAssertEqual(fixture.pressTip(.indexTip)?.confidence, 1)
     }
 
+    // The inverted-pass remap must be exact: a landmark detected in the 180°-rotated frame maps to
+    // the SAME final coordinate as the identical landmark detected upright — otherwise the merged
+    // hands from the two Vision passes live in different spaces and the press dot/ring jump.
+    func testInvertedPassRemapMatchesUprightMapping() {
+        for flipX in [true, false] {
+            for p in [CGPoint(x: 0.3, y: 0.7), CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.05, y: 0.92)] {
+                let upright = HandVision.normalize(p, rotated180: false, flipX: flipX)
+                // The same physical location seen in the 180°-rotated buffer appears at (1−x, 1−y).
+                let rotatedSeen = CGPoint(x: 1 - p.x, y: 1 - p.y)
+                let mapped = HandVision.normalize(rotatedSeen, rotated180: true, flipX: flipX)
+                XCTAssertEqual(Double(mapped.x), Double(upright.x), accuracy: 1e-12)
+                XCTAssertEqual(Double(mapped.y), Double(upright.y), accuracy: 1e-12)
+            }
+        }
+    }
+
     // isDorsal must give the SAME verdict for the same physical hand regardless of coordinate
     // parity: Vision's chirality never flips with our manual mirror, so the back camera's
     // un-mirrored coordinates negate the cross product — mirroredCoords must compensate
