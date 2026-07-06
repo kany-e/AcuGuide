@@ -105,7 +105,16 @@ final class LabelCaptureCamera: NSObject, ObservableObject, AVCaptureVideoDataOu
         let r = VNDetectHumanHandPoseRequest(); r.maximumHandCount = 1; return r
     }()
 
-    override init() { super.init(); queue.async { [weak self] in self?.configure() } }
+    override init() { super.init() }   // configuration deferred to start() — see configureIfNeeded
+
+    // Queue-confined. Authorization-gated so the permission alert never fires before CameraGate's
+    // explainer (creating the AVCaptureDeviceInput is what triggers it).
+    private var configured = false
+    private func configureIfNeeded() {
+        guard !configured, AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
+        configured = true
+        configure()
+    }
 
     private func configure() {
         session.beginConfiguration()
@@ -126,7 +135,12 @@ final class LabelCaptureCamera: NSObject, ObservableObject, AVCaptureVideoDataOu
         session.commitConfiguration()
     }
 
-    func start() { queue.async { if !self.session.isRunning { self.session.startRunning() } } }
+    func start() {
+        queue.async {
+            self.configureIfNeeded()
+            if !self.session.isRunning { self.session.startRunning() }
+        }
+    }
     func stop()  { queue.async { if self.session.isRunning { self.session.stopRunning() } } }
     func requestFreeze() { queue.async { self.freezeRequested = true } }
     func resume() { frozen = nil }
@@ -191,7 +205,7 @@ struct LabelCaptureView: View {
     private var anchors: [AnchorWeight] { point.mediapipeTarget?.anchors ?? [] }
 
     var body: some View {
-        GeometryReader { geo in
+        CameraGate(onAuthorized: { cam.start() }) { GeometryReader { geo in
             ZStack {
                 if let f = cam.frozen {
                     Image(uiImage: f.image).resizable().aspectRatio(contentMode: .fill)
@@ -207,11 +221,10 @@ struct LabelCaptureView: View {
                     drawing(hand: cam.hand, size: geo.size, showTap: false)
                 }
             }
-        }
+        } }
         .ignoresSafeArea()
         .overlay(alignment: .top) { topBar.padding(.top, 4) }
         .overlay(alignment: .bottom) { bottomBar.padding(.bottom, 8) }
-        .onAppear { cam.start() }
         .onDisappear { cam.stop() }
         .navigationTitle("Label capture")
         .navigationBarTitleDisplayMode(.inline)

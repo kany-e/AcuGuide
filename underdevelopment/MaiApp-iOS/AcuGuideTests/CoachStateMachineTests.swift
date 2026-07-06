@@ -159,6 +159,43 @@ final class CoachEngineRoleLockTests: XCTestCase {
         XCTAssertEqual(engine.phase, .holding)
         XCTAssertGreaterThan(engine.progress, progressBefore)
     }
+
+    // The lone-presser assumption must DECAY: if the "occluded receiver" never comes back, roles
+    // reset after lonePresserGraceS and the surviving hand becomes the receiver — before this, the
+    // state was unbounded (stale ring + 'keep both hands in view' forever) and the presser anchor
+    // followed the lone hand so the verdict could never flip.
+    func testLonePresserAssumptionDecaysToReceiver() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let tR = receiver.weightedTarget(target.anchors)!
+        var presserPts = base
+        for (j, p) in presserPts { presserPts[j] = CGPoint(x: p.x + 0.30, y: p.y - 0.15) }
+        presserPts[target.pressFinger] = tR
+        let presser = Hand(points: presserPts, chirality: .left)
+
+        let engine = CoachEngine()
+        var t = 0.0
+        for _ in 0..<10 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.phase, .holding)
+
+        // Receiver vanishes for good; only the other hand stays. Within grace: ring pinned to tR.
+        for _ in 0..<15 { engine.update(hands: [presser], point: te3, now: t); t += dt }
+        let pinned = engine.ringCenter!
+        XCTAssertEqual(Double(hypot(pinned.x - tR.x, pinned.y - tR.y)), 0, accuracy: 0.02)
+
+        // Past lonePresserGraceS (1.5s): roles reset, the lone hand IS the receiver — the ring must
+        // move onto ITS target instead of staying frozen at the stale position forever.
+        let tP = presser.weightedTarget(target.anchors)!
+        for _ in 0..<75 { engine.update(hands: [presser], point: te3, now: t); t += dt }
+        let ring = engine.ringCenter!
+        XCTAssertEqual(Double(hypot(ring.x - tP.x, ring.y - tP.y)), 0, accuracy: 0.05,
+                       "after the grace the surviving hand becomes the receiver (ring on its target)")
+    }
 }
 
 // Session layer: repeated press/release ROUNDS (matching published self-care guidance + the app's own

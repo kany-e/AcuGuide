@@ -34,6 +34,10 @@ enum CoachConst {
     // a dropout this brief (the state machine's dropout debounce then governs), instead of instantly
     // nil-ing the tip / resetting its smoother / disengaging on a single missed frame.
     static let tipGraceS             = 0.3
+    // How long a lone surviving hand may be treated as "the presser occluding the receiver" before
+    // the assumption decays and roles reset (the hand becomes the receiver by the single-hand rule).
+    // Unbounded, this state froze the ring forever and could self-latch a receiving hand as presser.
+    static let lonePresserGraceS     = 1.5
 }
 
 // Per-frame temporal input — the native equivalent of engine.js FrameState.contact, so
@@ -206,6 +210,18 @@ final class CoachEngine: ObservableObject {
     // When the press tip was last actually measured — drives the tipGraceS dropout grace.
     private var lastTipT = -Double.infinity
 
+    // When the lone-presser (receiver occluded) state began — bounds it to lonePresserGraceS.
+    private var lonePresserSince: Double? = nil
+
+    // A camera flip is a NEW SCENE in a different coordinate parity: drop everything keyed to the
+    // old one — smoothers, sticky role anchors, the face verdict, the lone-presser assumption, and
+    // the on-screen ring/tip (their positions are meaningless in the new frame).
+    func cameraFlipped() {
+        smootherReset(); roleReset()
+        lastFaceCorrect = false; lonePresserSince = nil
+        ringCenter = nil; pressTip = nil
+    }
+
     // Reset the target smoother (called on a confirmed role swap or a mirror flip — both are
     // coordinate discontinuities that would otherwise spike the One-Euro velocity estimate).
     // The tip grace drops too: a pre-flip tip is in the wrong coordinate space.
@@ -222,7 +238,7 @@ final class CoachEngine: ObservableObject {
 
     func reset() {
         machine.reset(); smoother.reset(); pressSmoother.reset(); roleReset()
-        lastFaceCorrect = false; lastTipT = -.infinity
+        lastFaceCorrect = false; lastTipT = -.infinity; lonePresserSince = nil
         roundsDone = 0; sessionComplete = false; restUntil = nil; heldAccum = 0
         phase = .noHand; ringCenter = nil; pressTip = nil; progress = 0
         cue = AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
@@ -251,7 +267,7 @@ final class CoachEngine: ObservableObject {
         // 1) No usable hand.
         guard !hands.isEmpty else {
             smoother.reset(); pressSmoother.reset(); roleReset(); lastFaceCorrect = false
-            lastTipT = -.infinity
+            lastTipT = -.infinity; lonePresserSince = nil
             ringCenter = nil; pressTip = nil
             apply(machine.step(noHandInput(now)), point: point, hasPresser: false)
             return
@@ -261,10 +277,31 @@ final class CoachEngine: ObservableObject {
         // survived detection (it sits on top mid-press and occludes the receiver) — keep the last
         // ring and step as present-but-unverifiable, exactly like the anchor-occlusion path, so
         // PAUSE-grace governs instead of the ring snapping onto the massaging hand.
-        let (receiverOpt, presser) = assignRoles(hands, target: target)
+        // The assumption is TIME-BOUNDED (lonePresserGraceS): if the "occluded receiver" never
+        // returns, roles reset and the surviving hand becomes the receiver by the single-hand rule
+        // — otherwise this state froze the stale ring forever and, because the presser anchor used
+        // to track the lone hand, could permanently misclassify a receiving hand as the presser.
+        var (receiverOpt, presser) = assignRoles(hands, target: target)
+        if receiverOpt == nil {
+            let since = lonePresserSince ?? now
+            lonePresserSince = since
+            if now - since > CoachConst.lonePresserGraceS {
+                roleReset(); lonePresserSince = nil
+                (receiverOpt, presser) = assignRoles(hands, target: target)   // fresh: lone hand = receiver
+            }
+        } else {
+            lonePresserSince = nil
+        }
         guard let receiver = receiverOpt else {
-            if let presser, let rawTip = presser.pressTip(target.pressFinger) {
-                pressTip = pressSmoother.filter(rawTip, now); lastTipT = now
+            // Same tip handling as the main path: measured → smooth + draw; brief dropout → keep
+            // the dot within tipGraceS; expired → clear + reset the filter so a re-acquired tip
+            // doesn't lerp across the screen with stale velocity.
+            if let presser, let tip = presser.pressTip(target.pressFinger) {
+                pressTip = pressSmoother.filter(tip.point, now); lastTipT = now
+            } else if pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {
+                // keep the last dot
+            } else {
+                pressTip = nil; pressSmoother.reset()
             }
             let result = machine.step(CoachFrameInput(
                 t: now, present: true, faceCorrect: true,
@@ -317,8 +354,8 @@ final class CoachEngine: ObservableObject {
         // the finger really left; restarting the filter clean avoids a stale-velocity lerp back).
         var inEnter = false, inExit = false, hasPresser = false
         var offN: Double? = nil
-        if let presser, let rawTip = presser.pressTip(target.pressFinger) {
-            let tip = pressSmoother.filter(rawTip, now)
+        if let presser, let measured = presser.pressTip(target.pressFinger) {
+            let tip = pressSmoother.filter(measured.point, now)
             pressTip = tip; hasPresser = true
             lastTipT = now
             let dd = dist(tip, center)
@@ -326,10 +363,11 @@ final class CoachEngine: ObservableObject {
             // when a palm covers the target, Vision still hallucinates a LOW-confidence tip under it,
             // which used to start engagement. A NEW engagement now needs a confident tip; an ongoing
             // hold doesn't (mid-press confidence dips must not break HOLDING — hysteresis as usual).
+            // The confidence comes from the pressTip MEASUREMENT itself, so the DIP/PIP-reconstructed
+            // tip (confidence 0 — an unmeasured guess) can sustain but never start an engagement.
             // Fixture/test hands carry no confidences → default reliable, so the validated paths hold.
             let wasEngaged = phase == .holding || phase == .onTargetUnstable
-            let tipReliable = (presser.confidence[target.pressFinger] ?? 1) >= 0.4
-            inEnter = dd < tol && (tipReliable || wasEngaged)
+            inEnter = dd < tol && (measured.confidence >= 0.4 || wasEngaged)
             inExit = dd < tol * CoachConst.exitRadiusMult
             offN = Double(dd / hs)
         } else if pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {
@@ -453,7 +491,10 @@ final class CoachEngine: ObservableObject {
             // NOT that roles changed.
             if let lrw = lastReceiverWrist, let lpw = lastPresserWrist, let w = h.p(.wrist),
                dist(w, lpw) < dist(w, lrw) {
-                lastPresserWrist = w                 // track its drift while it is alone in frame
+                // Anchors stay FROZEN here: re-anchoring the presser to the lone hand every frame
+                // made the classification self-latch (the anchor followed the hand wherever it
+                // moved, so it could never be re-read as the receiver). The engine's
+                // lonePresserGraceS bounds how long this verdict can stand anyway.
                 return (nil, h)
             }
             if let w = h.p(.wrist) { lastReceiverWrist = w }
@@ -465,7 +506,7 @@ final class CoachEngine: ObservableObject {
         // OTHER hand's press tip (the original choice — preserved as the initial pick).
         func score(_ recv: Hand, _ other: Hand) -> CGFloat {
             guard let t = recv.weightedTarget(target.anchors),
-                  let tip = other.pressTip(target.pressFinger) else { return .greatestFiniteMagnitude }
+                  let tip = other.pressTip(target.pressFinger)?.point else { return .greatestFiniteMagnitude }
             return dist(t, tip)
         }
         let sA = score(a, b), sB = score(b, a)

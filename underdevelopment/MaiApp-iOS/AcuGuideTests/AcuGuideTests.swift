@@ -229,32 +229,64 @@ final class AcuGuideTests: XCTestCase {
             XCTAssertTrue(a.suggestions.contains { $0.id == "TE3" },
                           "'\(q)' should suggest TE3; got \(a.suggestions.map(\.id))")
         }
+        // Word boundaries: fragments inside unrelated words must not match a pair half and shadow
+        // the correct group ('headed' is not 'head' — this went to the headache group before).
+        let wrist = await ChatService().reply(to: "I was headed home and now my wrist hurts", history: [])
+        XCTAssertTrue(wrist.suggestions.contains { $0.id == "TE4" },
+                      "a wrist complaint must reach the wrist group; got \(wrist.suggestions.map(\.id))")
+        XCTAssertFalse(wrist.suggestions.contains { $0.id == "TE3" },
+                       "'headed' must not read as a headache")
     }
 
     // The press-tip estimator — RAW tip first (device-confirmed it tracks the intended massage point
     // best; a pressing finger is bent, so extrapolation overshoots); the distal-segment rebuild is
-    // ONLY the total-dropout fallback; nil when the finger isn't tracked at all.
+    // ONLY the total-dropout fallback AND reports confidence 0 (an unmeasured guess must never start
+    // an engagement — the palm-glaze gate keys off this); nil when the finger isn't tracked at all.
     func testPressTipPrefersRawTipAndFallsBackOnDropout() {
         var pts: [HandJoint: CGPoint] = [
             .wrist: CGPoint(x: 0.5, y: 0.8), .indexTip: CGPoint(x: 0.30, y: 0.30),
             .indexDIP: CGPoint(x: 0.40, y: 0.40), .indexPIP: CGPoint(x: 0.44, y: 0.46)]
-        // Tip present — even at LOW confidence the raw tip wins (extrapolation was a regression).
+        // Tip present — even at LOW confidence the raw tip wins, and it reports ITS OWN confidence
+        // so the engagement gate can still reject it.
         let low = Hand(points: pts, chirality: .right,
                        confidence: [.indexTip: 0.35, .indexDIP: 0.9, .indexPIP: 0.9])
-        XCTAssertEqual(low.pressTip(.indexTip), pts[.indexTip], "present tip always wins")
+        let m = low.pressTip(.indexTip)!
+        XCTAssertEqual(m.point, pts[.indexTip], "present tip always wins")
+        XCTAssertEqual(m.confidence, 0.35, "the measurement carries the tip's own confidence")
 
-        // Tip fully dropped → rebuild from the distal segment.
+        // Tip fully dropped → rebuild from the distal segment, at confidence 0.
         pts[.indexTip] = nil
         let dropped = Hand(points: pts, chirality: .right, confidence: [.indexDIP: 0.9, .indexPIP: 0.9])
         let t = dropped.pressTip(.indexTip)!
-        XCTAssertEqual(Double(t.x), 0.40 + 0.9 * (0.40 - 0.44), accuracy: 1e-9,
+        XCTAssertEqual(Double(t.point.x), 0.40 + 0.9 * (0.40 - 0.44), accuracy: 1e-9,
                        "missing tip → extend the DIP−PIP segment")
-        XCTAssertEqual(Double(t.y), 0.40 + 0.9 * (0.40 - 0.46), accuracy: 1e-9)
+        XCTAssertEqual(Double(t.point.y), 0.40 + 0.9 * (0.40 - 0.46), accuracy: 1e-9)
+        XCTAssertEqual(t.confidence, 0, "a reconstructed tip is an unmeasured guess — must not gate as reliable")
 
         // Nothing tracked on the finger → nil (the tip-grace path handles the gap).
         pts[.indexDIP] = nil; pts[.indexPIP] = nil
         let bare = Hand(points: pts, chirality: .right)
         XCTAssertNil(bare.pressTip(.indexTip))
+
+        // Fixture hands (no confidence dict) read as reliable — the validated paths are unchanged.
+        let fixture = Hand(points: [.indexTip: CGPoint(x: 0.3, y: 0.3)], chirality: .right)
+        XCTAssertEqual(fixture.pressTip(.indexTip)?.confidence, 1)
+    }
+
+    // isDorsal must give the SAME verdict for the same physical hand regardless of coordinate
+    // parity: Vision's chirality never flips with our manual mirror, so the back camera's
+    // un-mirrored coordinates negate the cross product — mirroredCoords must compensate
+    // (back-camera two-person mode read palm/back BACKWARDS before this).
+    func testIsDorsalIsParityInvariant() {
+        let mirrored: [HandJoint: CGPoint] = [
+            .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55),
+            .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .middleMCP: CGPoint(x: 0.50, y: 0.52)]
+        let front = Hand(points: mirrored, chirality: .right)                       // selfie convention
+        let back = Hand(points: mirrored.mapValues { CGPoint(x: 1 - $0.x, y: $0.y) },
+                        chirality: .right, mirroredCoords: false)                   // same hand, rear camera
+        XCTAssertNotNil(front.isDorsal)
+        XCTAssertEqual(front.isDorsal, back.isDorsal,
+                       "same physical hand must read the same face on front and back cameras")
     }
 
     // M3 label harness: the inverse aspect-fill map MUST exactly undo the forward map, or every tapped
@@ -332,6 +364,16 @@ final class ChatLLMTests: XCTestCase {
         XCTAssertTrue(a.text.contains("PC6 press relaxing"))
         XCTAssertTrue(a.text.contains("On-device AI"), "generative replies must be labeled")
         XCTAssertTrue(a.suggestions.contains { $0.id == "PC6" }, "mentioned coachable points become buttons")
+    }
+
+    // Chinese point names embedded in the model's PROSE must not become practice buttons
+    // (内关 inside 国内关系) — the LLM mention scan matches ids/romanized names only.
+    func testEmbeddedChineseNameInOutputIsNotSuggested() async {
+        let mock = MockGen(reply: "处理国内关系带来的压力时，先放松肩颈，配合缓慢呼吸。")
+        let a = await ChatService(generator: mock).reply(to: "tell me something nice", history: [])
+        XCTAssertEqual(mock.calls, 1)
+        XCTAssertFalse(a.suggestions.contains { $0.id == "PC6" },
+                       "内关 embedded in 国内关系 must not attach a PC6 button")
     }
 
     // Generator unavailable (no Apple Intelligence / toggle off) → exactly the old behavior.

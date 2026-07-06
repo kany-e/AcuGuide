@@ -16,7 +16,17 @@ class LocatorCameraBase: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     private let queue = DispatchQueue(label: "locator.camera")
     private var videoConnection: AVCaptureConnection?
 
-    override init() { super.init(); queue.async { [weak self] in self?.configure() } }
+    override init() { super.init() }   // configuration is deferred to start() (see configureIfNeeded)
+
+    // Queue-confined. Deferred + authorization-gated: creating the AVCaptureDeviceInput is what
+    // triggers the iOS permission alert, so it must not happen at init (before CameraGate's
+    // explainer) — only when start() runs in the authorized state.
+    private var configured = false
+    private func configureIfNeeded() {
+        guard !configured, AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
+        configured = true
+        configure()
+    }
 
     private func configure() {
         session.beginConfiguration()
@@ -37,7 +47,12 @@ class LocatorCameraBase: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         session.commitConfiguration()
     }
 
-    func start() { queue.async { if !self.session.isRunning { self.session.startRunning() } } }
+    func start() {
+        queue.async {
+            self.configureIfNeeded()
+            if !self.session.isRunning { self.session.startRunning() }
+        }
+    }
     func stop()  { queue.async { if self.session.isRunning { self.session.stopRunning() } } }
 
     private func visionOrientation() -> CGImagePropertyOrientation {

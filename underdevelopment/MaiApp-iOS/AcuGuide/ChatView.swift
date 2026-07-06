@@ -48,7 +48,12 @@ final class ChatService {
         if let gen = generator, gen.isAvailable,
            let out = try? await gen.generate(query: raw, history: history),
            ChatSafety.allowed(out) {
-            let mentioned = Acupoint.all.filter { out.contains($0.id) || out.contains($0.zh) }
+            // Mentioned-point buttons: match ids and romanized names only. Chinese names are NOT
+            // substring-scanned here — the 2-char names embed in ordinary prose (内关 inside 国内关系),
+            // the exact false match the deterministic matchPoint guards against.
+            let mentioned = Acupoint.all.filter {
+                out.contains($0.id) || out.localizedCaseInsensitiveContains($0.en)
+            }
             return CoachAnswer(text: ChatSafety.labeled(out), suggestions: practiceable(mentioned))
         }
         return CoachAnswer(text: generalReply(), suggestions: practiceable(headlinePoints))
@@ -72,24 +77,35 @@ final class ChatService {
     // "我头很痛" don't contain any fixed keyword, but do contain both halves of a pair
     // (user-reported miss: "I'm feeling pain in my head" fell through to the greeting).
     private func matchSymptom(raw: String, lowered: String) -> [Acupoint]? {
+        // English pair halves are matched as WHOLE WORDS (with explicit inflections listed), so
+        // fragments inside unrelated words can't misroute — 'headed'/'forehead'/'ahead' must not
+        // read as a headache and shadow the correct group. Chinese halves stay substring on raw.
         let groups: [(kw: [String], pairs: [(String, String)], ids: [String])] = [
             (["headache", "migraine", "tension head", "head ache", "头痛", "头疼", "偏头痛"],
-             [("head", "pain"), ("head", "hurt"), ("head", "ache"), ("head", "pound"), ("head", "throb"),
-              ("temple", "pain"), ("temple", "hurt"), ("头", "痛"), ("头", "疼")],
+             [("head", "pain"), ("head", "hurt"), ("head", "hurts"), ("head", "hurting"),
+              ("head", "ache"), ("head", "aches"), ("head", "aching"),
+              ("head", "pounding"), ("head", "throbbing"),
+              ("temple", "pain"), ("temples", "pain"), ("头", "痛"), ("头", "疼")],
              ["TE3", "SJ5"]),
             (["nausea", "queasy", "motion sick", "car sick", "seasick", "vomit", "sick to my", "恶心", "想吐", "晕车", "反胃", "孕吐"],
-             [("stomach", "sick"), ("feel", "sick"), ("胃", "难受")],
+             [("stomach", "sick"), ("feel", "sick"), ("feeling", "sick"), ("胃", "难受")],
              ["PC6"]),
             (["neck", "stiff neck", "shoulder", "颈", "脖子", "肩", "落枕"], [], ["SI3", "SJ5"]),
             (["sleep", "insomnia", "anxiety", "anxious", "stress", "restless", "can't relax", "失眠", "焦虑", "压力", "心烦", "紧张", "安神", "睡不着"],
-             [("can", "sleep"), ("trouble", "sleep"), ("睡", "不着"), ("睡", "不好")],
+             [("睡", "不着"), ("睡", "不好")],
              ["HT7", "PC8"]),
-            (["wrist", "carpal", "手腕", "腕"], [("wrist", "pain"), ("wrist", "hurt"), ("腕", "痛")], ["TE4", "PC7"]),
+            (["wrist", "carpal", "手腕", "腕"],
+             [("wrist", "pain"), ("wrist", "hurt"), ("wrist", "hurts"), ("腕", "痛")],
+             ["TE4", "PC7"]),
         ]
-        func contains(_ s: String) -> Bool { lowered.contains(s) || raw.contains(s) }
+        func kwContains(_ s: String) -> Bool { lowered.contains(s) || raw.contains(s) }
+        let tokens = Set(lowered.split { !$0.isLetter }.map(String.init))
+        func pairHalf(_ s: String) -> Bool {
+            s.allSatisfy(\.isASCII) ? tokens.contains(s) : raw.contains(s)
+        }
         for g in groups {
-            let kwHit = g.kw.contains(where: contains)
-            let pairHit = g.pairs.contains { contains($0.0) && contains($0.1) }
+            let kwHit = g.kw.contains(where: kwContains)
+            let pairHit = g.pairs.contains { pairHalf($0.0) && pairHalf($0.1) }
             guard kwHit || pairHit else { continue }
             let pts = practiceable(g.ids.compactMap { Acupoint.byId[$0] })
             if !pts.isEmpty { return pts }
@@ -386,8 +402,10 @@ struct ChatView: View {
 
     private func send() {
         let q = input.trimmingCharacters(in: .whitespaces); guard !q.isEmpty else { return }
-        messages.append(.init(role: .user, text: q)); input = ""; sending = true
+        // History = PRIOR turns only, captured BEFORE appending the new message — ChatLLM.prompt
+        // appends "User: <query>" itself, so capturing after duplicated the question in every prompt.
         let hist = messages
+        messages.append(.init(role: .user, text: q)); input = ""; sending = true
         Task {
             let r = await service.reply(to: q, history: hist)
             await MainActor.run {

@@ -36,8 +36,10 @@ final class CoachVoice: ObservableObject {
         guard !muted, let line = phrase(for: phase, requiresDorsal: requiresDorsal) else { return }
         // Don't clip an in-progress cue for a transient phase oscillation (e.g. a NO_HAND ↔
         // WRONG_FACE flicker at the frame edge chopping each utterance mid-word). Let the current
-        // one finish; COMPLETE is allowed to preempt so the finish cue is never missed.
-        if synth.isSpeaking && phase != .complete { return }
+        // one finish — EXCEPT for the two behavior-changing instructions, which must never be
+        // dropped: COMPLETE (the finish cue) and RESTING ("release" — without preemption a round
+        // completing mid-utterance left eyes-free users pressing through the whole rest gap).
+        if synth.isSpeaking && phase != .complete && phase != .resting { return }
         speak(line)
     }
 

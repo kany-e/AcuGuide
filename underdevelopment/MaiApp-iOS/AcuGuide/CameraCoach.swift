@@ -54,20 +54,21 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         self.acupoint = acupoint
         super.init()
         queueMirrored = mirrored
-        // Configure off the main thread: device discovery + session (re)configuration is slow
-        // and must not block the SwiftUI transition into the coach. The serial queue guarantees
-        // configure() completes before start() (also queued) runs.
-        queue.async { [weak self] in self?.configure() }
+        // NOTE: session configuration is DEFERRED to start() — creating an AVCaptureDeviceInput is
+        // what makes iOS present the camera-permission alert, and this object is built when the
+        // coach view appears, BEFORE CameraGate has shown its in-context explainer. Configuring
+        // here fired the system dialog cold over the safety gate.
     }
 
-    private func configure() {
+    // Queue-confined. Configure lazily, and only once authorized — CameraGate guarantees start()
+    // is only reached in the authorized state, so the permission prompt always follows the explainer.
+    private var configured = false
+    private func configureIfNeeded() {
+        guard !configured, AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
+        configured = true
         session.beginConfiguration()
         session.sessionPreset = .high
-        let pos: AVCaptureDevice.Position = usingFront ? .front : .back
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: pos),
-              let input = try? AVCaptureDeviceInput(device: device),
-              session.canAddInput(input) else { session.commitConfiguration(); return }
-        session.addInput(input)
+        installInput(position: usingFront ? .front : .back)
 
         let output = AVCaptureVideoDataOutput()
         output.setSampleBufferDelegate(self, queue: queue)
@@ -83,6 +84,18 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             conn.setMirrored(false)
         }
         session.commitConfiguration()
+    }
+
+    // Queue-confined. Validate the replacement BEFORE touching the session's inputs, so a missing/
+    // unavailable camera never commits an input-less session. Shared by configure + flip.
+    @discardableResult
+    private func installInput(position: AVCaptureDevice.Position) -> Bool {
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
+              let input = try? AVCaptureDeviceInput(device: device) else { return false }
+        session.inputs.forEach { session.removeInput($0) }
+        guard session.canAddInput(input) else { return false }
+        session.addInput(input)
+        return true
     }
 
     // Derive the Vision orientation from the capture connection (NOT a hardcoded `.up`),
@@ -111,7 +124,12 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         }
     }
 
-    func start() { queue.async { if !self.session.isRunning { self.session.startRunning() } } }
+    func start() {
+        queue.async {
+            self.configureIfNeeded()   // deferred from init: runs only once authorized (via CameraGate)
+            if !self.session.isRunning { self.session.startRunning() }
+        }
+    }
     func stop()  {
         ShadowLocalizer.shared.logSummary()   // dump the session's per-point/regime shadow telemetry
         queue.async { if self.session.isRunning { self.session.stopRunning() } }
@@ -119,21 +137,27 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
     // Flip front ⇄ back (two-person mode). Reconfigures the session on the capture queue; the
     // mirroring convention updates atomically with it (front = mirrored selfie, back = un-mirrored),
-    // and the smoothers reset — the flip is a full-frame coordinate discontinuity.
+    // and the engine drops EVERYTHING keyed to the old coordinate space/scene (smoothers, sticky
+    // role anchors, face verdict, stale ring/tip) — a flip is a new scene, not a wobble.
     func flipCamera() {
         usingFront.toggle()
         let pos: AVCaptureDevice.Position = usingFront ? .front : .back
         let m = mirrored
-        engine.smootherReset()
+        engine.cameraFlipped()
         queue.async { [weak self] in
             guard let self else { return }
             self.queueMirrored = m
+            guard self.configured else { return }   // never authorized/configured → nothing to swap yet
             self.session.beginConfiguration()
-            self.session.inputs.forEach { self.session.removeInput($0) }
-            if let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: pos),
-               let input = try? AVCaptureDeviceInput(device: device),
-               self.session.canAddInput(input) {
-                self.session.addInput(input)
+            // installInput validates the replacement BEFORE removing the old input; on failure
+            // (Simulator, camera in use) the session keeps its previous input and we revert the
+            // published state so the UI doesn't report a camera that never installed.
+            if !self.installInput(position: pos) {
+                self.session.commitConfiguration()
+                DispatchQueue.main.async { self.usingFront.toggle(); self.engine.cameraFlipped() }
+                let mBack = !m
+                self.queue.async { self.queueMirrored = mBack }
+                return
             }
             if let conn = self.session.outputs.compactMap({ $0.connection(with: .video) }).first {
                 self.videoConnection = conn
@@ -170,7 +194,10 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // Shared converter (HandVision) → identical points to the M3 label harness (zero skew).
         // flipX = queueMirrored (capture-queue-confined; matches the mirrored preview).
         guard let s = HandVision.sample(obs, flipX: queueMirrored) else { return nil }
-        return Hand(points: s.points, chirality: obs.chirality, confidence: s.confidence)
+        // mirroredCoords: isDorsal's sign convention needs the coordinate parity — chirality never
+        // flips with our manual mirror, so back-camera (un-mirrored) frames negate the cross product.
+        return Hand(points: s.points, chirality: obs.chirality, confidence: s.confidence,
+                    mirroredCoords: queueMirrored)
     }
 }
 

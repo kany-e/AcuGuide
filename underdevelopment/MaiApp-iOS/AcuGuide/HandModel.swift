@@ -45,18 +45,25 @@ struct Hand {
     var points: [HandJoint: CGPoint]
     var chirality: VNChirality   // .left / .right (Vision's handedness)
     var confidence: [HandJoint: Float] = [:]   // per-joint Vision confidence (empty in fixtures/tests)
+    // Whether `points` are in the x-MIRRORED (selfie-preview) convention. Vision's chirality comes
+    // from the un-mirrored buffer and never flips with our manual mirror, so any handedness-signed
+    // geometry (isDorsal) must know which parity the coordinates are in. Defaults to the mirrored
+    // front-camera convention every fixture/test was built in.
+    var mirroredCoords: Bool = true
 
     func p(_ j: HandJoint) -> CGPoint? { points[j] }
 
-    // Press-tip estimate. The RAW fingertip wins whenever Vision reports one — device testing showed
-    // it tracks the intended massage point better than any reconstruction (a pressing finger is BENT
-    // at the DIP, so extending the distal segment overshoots the nail — user-confirmed regression).
-    // Only when the tip is entirely absent (didn't pass the extraction gate) is it rebuilt from the
-    // distal index segment (DIP + k·(DIP−PIP)), which stays visible above the contact.
-    func pressTip(_ finger: HandJoint) -> CGPoint? {
-        if let tip = p(finger) { return tip }
+    // Press-tip estimate + its measurement confidence. The RAW fingertip wins whenever Vision
+    // reports one — device testing showed it tracks the intended massage point better than any
+    // reconstruction (a pressing finger is BENT at the DIP, so extending the distal segment
+    // overshoots the nail — user-confirmed regression). Only when the tip is entirely absent is it
+    // rebuilt from the distal index segment (DIP + k·(DIP−PIP)) — and that reconstruction reports
+    // confidence 0: it is an UNMEASURED guess, so it can sustain an engagement (hysteresis) but
+    // must never start one (the palm-glaze gate keys off this value).
+    func pressTip(_ finger: HandJoint) -> (point: CGPoint, confidence: Float)? {
+        if let tip = p(finger) { return (tip, confidence[finger] ?? 1) }   // fixtures: no dict → reliable
         guard finger == .indexTip, let dip = p(.indexDIP), let pip = p(.indexPIP) else { return nil }
-        return CGPoint(x: dip.x + 0.9 * (dip.x - pip.x), y: dip.y + 0.9 * (dip.y - pip.y))
+        return (CGPoint(x: dip.x + 0.9 * (dip.x - pip.x), y: dip.y + 0.9 * (dip.y - pip.y)), 0)
     }
 
     // Scale unit, invariant-ish to finger spread (wrist -> middle MCP).
@@ -89,7 +96,13 @@ struct Hand {
     var isDorsal: Bool? {
         guard let w = p(.wrist), let i = p(.indexMCP), let pk = p(.pinkyMCP) else { return nil }
         let cross = (i.x - w.x) * (pk.y - w.y) - (i.y - w.y) * (pk.x - w.x)
-        let signed = (chirality == .right) ? cross : -cross
+        // The old front/rear-camera "cancellation" claim assumed chirality flips with the mirror —
+        // it does NOT (Vision reads the un-mirrored buffer either way; only our manual x-flip
+        // changes). So the parity of the coordinates must enter the sign explicitly, or the
+        // back-camera (un-mirrored) mode reads dorsal/palmar BACKWARDS. The calibrated flag below
+        // was tuned in the mirrored convention; `mirroredCoords` maps other parities onto it.
+        let anatomical = (chirality == .right) ? cross : -cross
+        let signed = mirroredCoords ? anatomical : -anatomical
         return HandCalibration.dorsalWhenSignedPositive ? signed > 0 : signed < 0
     }
 }

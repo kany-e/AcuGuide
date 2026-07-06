@@ -136,7 +136,10 @@ final class ShadowLocalizer {
         let dA = Double(hypot(asis.target.x - affine.x, asis.target.y - affine.y)) / Double(handSize)
         let dU = unmir.map { Double(hypot($0.x - affine.x, $0.y - affine.y)) / Double(handSize) } ?? dA
         let sig = Double(asis.sigma)
-        s.n += 1; s.jointsSum += hand.points.count
+        // Count only the TRAINED joints (Self.joints): HandVision now extracts indexPIP/indexDIP
+        // too, and hand.points.count silently inflated this "/10" feature-coverage metric by up to
+        // 2 joints — masking the fingertip-dropout regime the shadow analysis exists to expose.
+        s.n += 1; s.jointsSum += Self.joints.filter { hand.points[$0] != nil }.count
         s.sumA += dA; s.sumU += dU; s.maxA = max(s.maxA, dA)
         s.sumMs += ms; s.maxMs = max(s.maxMs, ms)
         s.sumSig += sig; s.minSig = min(s.minSig, sig); s.maxSig = max(s.maxSig, sig)

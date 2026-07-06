@@ -71,6 +71,9 @@ struct ARCoachView: View {
     // feeling attaches to the same record when chosen. Local-only (PracticeStore).
     private func savePractice() {
         guard practiceRecordId == nil else { return }
+        // Only sessions with actual practice count — opening the coach and immediately quitting
+        // must not create a "0/4 rounds" history entry or credit a streak day.
+        guard engine.roundsDone > 0 || engine.totalHeldS >= 1.0 else { return }
         let rec = PracticeRecord(id: UUID().uuidString, date: Date(), pointId: acupoint.id,
                                  rounds: engine.roundsDone, roundsTarget: engine.roundsTarget,
                                  heldS: engine.totalHeldS, feeling: nil)
