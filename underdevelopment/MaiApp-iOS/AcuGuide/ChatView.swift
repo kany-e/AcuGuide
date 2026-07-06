@@ -67,16 +67,30 @@ final class ChatService {
     }
 
     // Map a wellness concern to gentle, practiceable self-care points (NOT a diagnosis). Runs after
-    // a direct point lookup, so "PC6 for nausea" still resolves to the point itself.
+    // a direct point lookup, so "PC6 for nausea" still resolves to the point itself. Matching is
+    // keyword OR co-occurrence pair — natural phrasings like "pain in my head" / "my head hurts" /
+    // "我头很痛" don't contain any fixed keyword, but do contain both halves of a pair
+    // (user-reported miss: "I'm feeling pain in my head" fell through to the greeting).
     private func matchSymptom(raw: String, lowered: String) -> [Acupoint]? {
-        let groups: [(kw: [String], ids: [String])] = [
-            (["headache", "migraine", "tension head", "head ache", "头痛", "头疼", "偏头痛"], ["TE3", "SJ5"]),
-            (["nausea", "queasy", "motion sick", "car sick", "seasick", "vomit", "sick to my", "恶心", "想吐", "晕车", "反胃", "孕吐"], ["PC6"]),
-            (["neck", "stiff neck", "shoulder", "颈", "脖子", "肩", "落枕"], ["SI3", "SJ5"]),
-            (["sleep", "insomnia", "anxiety", "anxious", "stress", "restless", "can't relax", "失眠", "焦虑", "压力", "心烦", "紧张", "安神", "睡不着"], ["HT7", "PC8"]),
-            (["wrist", "carpal", "手腕", "腕"], ["TE4", "PC7"]),
+        let groups: [(kw: [String], pairs: [(String, String)], ids: [String])] = [
+            (["headache", "migraine", "tension head", "head ache", "头痛", "头疼", "偏头痛"],
+             [("head", "pain"), ("head", "hurt"), ("head", "ache"), ("head", "pound"), ("head", "throb"),
+              ("temple", "pain"), ("temple", "hurt"), ("头", "痛"), ("头", "疼")],
+             ["TE3", "SJ5"]),
+            (["nausea", "queasy", "motion sick", "car sick", "seasick", "vomit", "sick to my", "恶心", "想吐", "晕车", "反胃", "孕吐"],
+             [("stomach", "sick"), ("feel", "sick"), ("胃", "难受")],
+             ["PC6"]),
+            (["neck", "stiff neck", "shoulder", "颈", "脖子", "肩", "落枕"], [], ["SI3", "SJ5"]),
+            (["sleep", "insomnia", "anxiety", "anxious", "stress", "restless", "can't relax", "失眠", "焦虑", "压力", "心烦", "紧张", "安神", "睡不着"],
+             [("can", "sleep"), ("trouble", "sleep"), ("睡", "不着"), ("睡", "不好")],
+             ["HT7", "PC8"]),
+            (["wrist", "carpal", "手腕", "腕"], [("wrist", "pain"), ("wrist", "hurt"), ("腕", "痛")], ["TE4", "PC7"]),
         ]
-        for g in groups where g.kw.contains(where: { lowered.contains($0) || raw.contains($0) }) {
+        func contains(_ s: String) -> Bool { lowered.contains(s) || raw.contains(s) }
+        for g in groups {
+            let kwHit = g.kw.contains(where: contains)
+            let pairHit = g.pairs.contains { contains($0.0) && contains($0.1) }
+            guard kwHit || pairHit else { continue }
             let pts = practiceable(g.ids.compactMap { Acupoint.byId[$0] })
             if !pts.isEmpty { return pts }
         }
@@ -288,6 +302,7 @@ struct ChatView: View {
     ]
     @State private var input = ""
     @State private var sending = false
+    @FocusState private var inputFocused: Bool     // dismissable keyboard (was: no way to close it)
     private let service = ChatService()
 
     var body: some View {
@@ -298,6 +313,10 @@ struct ChatView: View {
                         ForEach(messages) { m in bubble(m).id(m.id) }
                     }.padding()
                 }
+                // Three ways out of the keyboard (user-reported trap: no way to quit it):
+                // drag the conversation, tap it, or the keyboard toolbar's 收起/Done button.
+                .scrollDismissesKeyboard(.interactively)
+                .onTapGesture { inputFocused = false }
                 .onChange(of: messages.count) { _ in
                     if let last = messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
@@ -305,12 +324,19 @@ struct ChatView: View {
             HStack(spacing: 10) {
                 TextField(AppLocale.pick("问问教练…", "Ask the coach…"), text: $input, axis: .vertical)
                     .textFieldStyle(.plain).padding(10).panel()
+                    .focused($inputFocused)
                 Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
                     .tint(Ink.gold).disabled(sending || input.trimmingCharacters(in: .whitespaces).isEmpty)
                     .accessibilityLabel("Send message")
             }.padding()
         }
         .background(ShanshuiBackground())
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(AppLocale.pick("收起", "Done")) { inputFocused = false }.tint(Ink.gold)
+            }
+        }
     }
 
     private func bubble(_ m: ChatMessage) -> some View {

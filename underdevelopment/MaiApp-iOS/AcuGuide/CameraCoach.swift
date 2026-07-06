@@ -15,8 +15,10 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     @Published var frameAspect: CGFloat = 9.0 / 16.0
     private var lastAspect: CGFloat = 0
 
-    // The selfie (front) camera is used; the preview is mirrored so it feels natural.
-    private let usingFront = true
+    // Camera position. Front (default) = coach yourself in the mirrored selfie preview.
+    // Back = point the phone at ANOTHER person's hand (two-person use: one holds and presses,
+    // the camera watches the receiver) — un-mirrored, like any rear-camera view.
+    @Published private(set) var usingFront = true
 
     // SINGLE SOURCE OF TRUTH for mirroring. `mirrored` (main thread) drives the preview
     // connection; `queueMirrored` is the capture-queue-confined copy that drives the landmark
@@ -109,6 +111,33 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         queue.async { if self.session.isRunning { self.session.stopRunning() } }
     }
 
+    // Flip front ⇄ back (two-person mode). Reconfigures the session on the capture queue; the
+    // mirroring convention updates atomically with it (front = mirrored selfie, back = un-mirrored),
+    // and the smoothers reset — the flip is a full-frame coordinate discontinuity.
+    func flipCamera() {
+        usingFront.toggle()
+        let pos: AVCaptureDevice.Position = usingFront ? .front : .back
+        let m = mirrored
+        engine.smootherReset()
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.queueMirrored = m
+            self.session.beginConfiguration()
+            self.session.inputs.forEach { self.session.removeInput($0) }
+            if let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: pos),
+               let input = try? AVCaptureDeviceInput(device: device),
+               self.session.canAddInput(input) {
+                self.session.addInput(input)
+            }
+            if let conn = self.session.outputs.compactMap({ $0.connection(with: .video) }).first {
+                self.videoConnection = conn
+                conn.forcePortrait()
+                conn.setMirrored(false)   // data output stays un-mirrored; the PREVIEW mirrors
+            }
+            self.session.commitConfiguration()
+        }
+    }
+
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
         guard let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -132,7 +161,7 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // Shared converter (HandVision) → identical points to the M3 label harness (zero skew).
         // flipX = queueMirrored (capture-queue-confined; matches the mirrored preview).
         guard let s = HandVision.sample(obs, flipX: queueMirrored) else { return nil }
-        return Hand(points: s.points, chirality: obs.chirality)
+        return Hand(points: s.points, chirality: obs.chirality, confidence: s.confidence)
     }
 }
 

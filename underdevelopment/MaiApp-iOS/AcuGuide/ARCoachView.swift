@@ -133,6 +133,15 @@ struct ARCoachView: View {
     private var debugBar: some View {
         HStack(spacing: 10) {
             Spacer()
+            // Front ⇄ back camera. Back camera = two-person mode: point the phone at the OTHER
+            // person's hand while they receive the press.
+            Button { camera.flipCamera() } label: {
+                Image(systemName: "arrow.triangle.2.circlepath.camera")
+                    .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
+                    .padding(8).background(Circle().fill(.black.opacity(0.35)))
+            }
+            .accessibilityLabel(AppLocale.pick("切换前后摄像头", "Switch camera"))
+            .accessibilityHint(AppLocale.pick("后置摄像头适合为他人按压", "Use the back camera to coach someone else's hand"))
             Button { voice.muted.toggle() } label: {
                 Image(systemName: voice.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                     .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))

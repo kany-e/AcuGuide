@@ -188,7 +188,10 @@ final class CoachEngine: ObservableObject {
         self.machine = CoachStateMachine(holdTargetS: roundHoldS)
     }
     private let smoother = OneEuroPoint()        // target ring
-    private let pressSmoother = OneEuroPoint()   // second-hand press tip (Vision is noisy on it)
+    // Second-hand press tip. Tuned heavier than the target ring: minCutoff 0.6 (more smoothing at
+    // rest — the tip should sit still while pressing) and beta 0.8 (noise spikes read as "speed"
+    // and would otherwise disable smoothing exactly when the occluded tip wanders; user-reported drift).
+    private let pressSmoother = OneEuroPoint(OneEuroOptions(minCutoff: 0.6, beta: 0.8, dCutoff: 1.0))
 
     // Sticky two-hand role tracking (stops the ring jumping between hands).
     private var lastReceiverWrist: CGPoint? = nil
@@ -260,7 +263,7 @@ final class CoachEngine: ObservableObject {
         // PAUSE-grace governs instead of the ring snapping onto the massaging hand.
         let (receiverOpt, presser) = assignRoles(hands, target: target)
         guard let receiver = receiverOpt else {
-            if let presser, let rawTip = presser.p(target.pressFinger) {
+            if let presser, let rawTip = presser.pressTip(target.pressFinger) {
                 pressTip = pressSmoother.filter(rawTip, now); lastTipT = now
             }
             let result = machine.step(CoachFrameInput(
@@ -314,7 +317,7 @@ final class CoachEngine: ObservableObject {
         // the finger really left; restarting the filter clean avoids a stale-velocity lerp back).
         var inEnter = false, inExit = false, hasPresser = false
         var offN: Double? = nil
-        if let presser, let rawTip = presser.p(target.pressFinger) {
+        if let presser, let rawTip = presser.pressTip(target.pressFinger) {
             let tip = pressSmoother.filter(rawTip, now)
             pressTip = tip; hasPresser = true
             lastTipT = now
@@ -455,7 +458,7 @@ final class CoachEngine: ObservableObject {
         // OTHER hand's press tip (the original choice — preserved as the initial pick).
         func score(_ recv: Hand, _ other: Hand) -> CGFloat {
             guard let t = recv.weightedTarget(target.anchors),
-                  let tip = other.p(target.pressFinger) else { return .greatestFiniteMagnitude }
+                  let tip = other.pressTip(target.pressFinger) else { return .greatestFiniteMagnitude }
             return dist(t, tip)
         }
         let sA = score(a, b), sB = score(b, a)

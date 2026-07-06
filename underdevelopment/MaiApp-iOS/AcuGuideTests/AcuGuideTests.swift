@@ -221,6 +221,37 @@ final class AcuGuideTests: XCTestCase {
                        "a benign word must not route to the red-flag reply; got: \(reply)")
     }
 
+    // Natural symptom phrasings that contain no fixed keyword must still match via co-occurrence
+    // pairs ("I'm feeling pain in my head" was user-reported falling through to the greeting).
+    func testChatSymptomPhrasingVariants() async {
+        for q in ["I'm feeling pain in my head", "my head hurts", "我头很痛"] {
+            let a = await ChatService().reply(to: q, history: [])
+            XCTAssertTrue(a.suggestions.contains { $0.id == "TE3" },
+                          "'\(q)' should suggest TE3; got \(a.suggestions.map(\.id))")
+        }
+    }
+
+    // The press-tip estimator: raw tip when confident; distal-segment extrapolation when the tip is
+    // unreliable (the mid-press occlusion that made the dot drift); raw tip when nothing better exists.
+    func testPressTipFallbackUsesDistalSegment() {
+        var pts: [HandJoint: CGPoint] = [
+            .wrist: CGPoint(x: 0.5, y: 0.8), .indexTip: CGPoint(x: 0.30, y: 0.30),
+            .indexDIP: CGPoint(x: 0.40, y: 0.40), .indexPIP: CGPoint(x: 0.44, y: 0.46)]
+        let low = Hand(points: pts, chirality: .right,
+                       confidence: [.indexTip: 0.35, .indexDIP: 0.9, .indexPIP: 0.9])
+        let t = low.pressTip(.indexTip)!
+        XCTAssertEqual(Double(t.x), 0.40 + 0.9 * (0.40 - 0.44), accuracy: 1e-9,
+                       "weak tip → extend the DIP−PIP segment")
+        XCTAssertEqual(Double(t.y), 0.40 + 0.9 * (0.40 - 0.46), accuracy: 1e-9)
+
+        let high = Hand(points: pts, chirality: .right, confidence: [.indexTip: 0.9])
+        XCTAssertEqual(high.pressTip(.indexTip), pts[.indexTip], "confident tip → use it directly")
+
+        pts[.indexDIP] = nil; pts[.indexPIP] = nil
+        let bare = Hand(points: pts, chirality: .right, confidence: [.indexTip: 0.2])
+        XCTAssertEqual(bare.pressTip(.indexTip), pts[.indexTip], "no distal joints → raw tip fallback")
+    }
+
     // M3 label harness: the inverse aspect-fill map MUST exactly undo the forward map, or every tapped
     // label is silently offset from the joints it's paired with (train/serve skew via the label itself).
     func testLocatorFillRoundTrips() {

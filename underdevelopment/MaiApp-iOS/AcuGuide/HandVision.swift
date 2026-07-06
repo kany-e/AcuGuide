@@ -6,9 +6,11 @@ import CoreGraphics
 // convention → zero train/serve skew, the localizer research's load-bearing requirement. The label a
 // human clicks and the joints the head sees are then guaranteed to live in one coordinate space.
 enum HandVision {
-    // Feature/joint order MUST stay in lockstep with ShadowLocalizer.joints / train.py JOINTS.
+    // Extraction list for the coach + label capture. (ShadowLocalizer keeps its OWN 10-joint list —
+    // that one is the trained feature order and must stay in lockstep with train.py JOINTS.)
+    // indexPIP/indexDIP feed the press-tip occlusion fallback (Hand.pressTip).
     static let joints: [HandJoint] = [.wrist, .thumbTip, .indexTip, .middleTip, .ringTip, .pinkyTip,
-                                      .indexMCP, .middleMCP, .ringMCP, .pinkyMCP]
+                                      .indexMCP, .middleMCP, .ringMCP, .pinkyMCP, .indexPIP, .indexDIP]
 
     struct Sample { var points: [HandJoint: CGPoint]; var confidence: [HandJoint: Float] }
 
