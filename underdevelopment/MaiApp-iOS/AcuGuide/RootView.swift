@@ -248,10 +248,10 @@ struct CoachHome: View {
                     Text(AppLocale.pick("累计", "total")).font(.caption2).foregroundStyle(Ink.textDim)
                 }
             }
-            if tally.relief + tally.nochange + tally.worse > 0 {
+            if tally.relaxing + tally.neutral + tally.uncomfortable > 0 {
                 Text(AppLocale.pick(
-                    "近 30 天的自我反馈：缓解 \(tally.relief) · 无变化 \(tally.nochange) · 更糟 \(tally.worse)",
-                    "Your last 30 days: relief \(tally.relief) · no change \(tally.nochange) · worse \(tally.worse)"))
+                    "近 30 天的体验：放松 \(tally.relaxing) · 一般 \(tally.neutral) · 不舒服 \(tally.uncomfortable)",
+                    "How sessions felt (30 days): relaxing \(tally.relaxing) · neutral \(tally.neutral) · uncomfortable \(tally.uncomfortable)"))
                     .font(.caption).foregroundStyle(Ink.textDim)
             }
         }

@@ -11,7 +11,7 @@ struct PracticeRecord: Codable, Identifiable, Equatable {
     let rounds: Int
     let roundsTarget: Int
     let heldS: Double
-    var feeling: String?      // "relief" | "nochange" | "worse" — set from the recap
+    var feeling: String?      // "relaxing" | "neutral" | "uncomfortable" (legacy: relief/nochange/worse)
 }
 
 final class PracticeStore: ObservableObject {
@@ -51,19 +51,22 @@ final class PracticeStore: ObservableObject {
         return records.filter { $0.date > cutoff }.count
     }
 
-    // Self-reported feelings over the trailing `days` — the user's own honest evidence.
-    func feelingTally(days: Int = 30) -> (relief: Int, nochange: Int, worse: Int) {
+    // Self-reported EXPERIENCE over the trailing `days` — how sessions felt (relaxing / neutral /
+    // uncomfortable), deliberately NOT an efficacy score: one session of acupressure can't honestly
+    // be judged "relief vs worse", but comfort is real signal for which points suit the user.
+    // Legacy keys from the earlier outcome-framed prompt map onto the experience scale.
+    func feelingTally(days: Int = 30) -> (relaxing: Int, neutral: Int, uncomfortable: Int) {
         guard let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) else { return (0, 0, 0) }
-        var relief = 0, nochange = 0, worse = 0
+        var relaxing = 0, neutral = 0, uncomfortable = 0
         for r in records where r.date > cutoff {
             switch r.feeling {
-            case "relief": relief += 1
-            case "nochange": nochange += 1
-            case "worse": worse += 1
+            case "relaxing", "relief": relaxing += 1
+            case "neutral", "nochange": neutral += 1
+            case "uncomfortable", "worse": uncomfortable += 1
             default: break
             }
         }
-        return (relief, nochange, worse)
+        return (relaxing, neutral, uncomfortable)
     }
 
     // Pretty-printed JSON of the whole history — for the user's own export (local-only data means

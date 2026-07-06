@@ -417,11 +417,11 @@ final class PracticeStoreTests: XCTestCase {
         d.removePersistentDomain(forName: "practice-tests-persist")
         let store = PracticeStore(defaults: d)
         store.add(rec("a"))
-        store.setFeeling(id: "a", feeling: "relief")
+        store.setFeeling(id: "a", feeling: "relaxing")
         // A new store over the SAME defaults must read the record + feeling back.
         let reloaded = PracticeStore(defaults: d)
         XCTAssertEqual(reloaded.records.count, 1)
-        XCTAssertEqual(reloaded.records.first?.feeling, "relief")
+        XCTAssertEqual(reloaded.records.first?.feeling, "relaxing")
         XCTAssertEqual(reloaded.records.first?.pointId, "TE3")
     }
 
@@ -521,17 +521,30 @@ final class PracticeInsightTests: XCTestCase {
 
     func testWeekCountAndFeelingTally() {
         let s = store()
-        s.add(rec(daysAgo: 0, feeling: "relief"))
-        s.add(rec(daysAgo: 2, feeling: "relief"))
-        s.add(rec(daysAgo: 6, feeling: "worse"))
-        s.add(rec(daysAgo: 10, feeling: "nochange"))   // outside the week, inside 30d
-        s.add(rec(daysAgo: 40, feeling: "relief"))     // outside 30d entirely
+        s.add(rec(daysAgo: 0, feeling: "relaxing"))
+        s.add(rec(daysAgo: 2, feeling: "relaxing"))
+        s.add(rec(daysAgo: 6, feeling: "uncomfortable"))
+        s.add(rec(daysAgo: 10, feeling: "neutral"))       // outside the week, inside 30d
+        s.add(rec(daysAgo: 40, feeling: "relaxing"))      // outside 30d entirely
         XCTAssertEqual(s.weekCount, 3)
         let tally = s.feelingTally()
-        XCTAssertEqual(tally.relief, 2)
-        XCTAssertEqual(tally.nochange, 1)
-        XCTAssertEqual(tally.worse, 1)
+        XCTAssertEqual(tally.relaxing, 2)
+        XCTAssertEqual(tally.neutral, 1)
+        XCTAssertEqual(tally.uncomfortable, 1)
         XCTAssertFalse(s.exportJSON().isEmpty)
         XCTAssertTrue(s.exportJSON().contains("TE3"))
+    }
+
+    // Records written by the earlier OUTCOME-framed prompt (relief/nochange/worse) must keep
+    // counting on the experience scale — history is not invalidated by the reframe.
+    func testLegacyFeelingKeysMapOntoExperienceScale() {
+        let s = store()
+        s.add(rec(daysAgo: 1, feeling: "relief"))
+        s.add(rec(daysAgo: 2, feeling: "nochange"))
+        s.add(rec(daysAgo: 3, feeling: "worse"))
+        let tally = s.feelingTally()
+        XCTAssertEqual(tally.relaxing, 1)
+        XCTAssertEqual(tally.neutral, 1)
+        XCTAssertEqual(tally.uncomfortable, 1)
     }
 }

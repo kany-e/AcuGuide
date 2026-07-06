@@ -204,24 +204,30 @@ struct TimerSessionView: View {
                 "你在 \(acupoint.id)（\(acupoint.zh)）上完成了 \(session.roundsDone)/\(session.roundsTarget) 轮，累计约 \(held) 秒。想停就停，本来就该如此。",
                 "You did \(session.roundsDone) of \(session.roundsTarget) rounds on \(acupoint.id) (\(acupoint.zh)) — about \(held) seconds. Stopping whenever you like is exactly right."))
                 .foregroundStyle(Ink.text).multilineTextAlignment(.center)
+            // EXPERIENCE prompt, not an outcome score (see ARCoachView recap for the rationale).
+            Text(AppLocale.pick("这次按压感觉如何？", "How did that feel?")).font(.headline).foregroundStyle(Ink.text)
+            Text(AppLocale.pick("（可跳过 — 记录体验，日积月累看出哪些穴位适合你。）",
+                                "(Optional — over time this shows which points suit you.)"))
+                .font(.caption2).foregroundStyle(Ink.textDim)
             HStack {
-                ForEach([("relief", AppLocale.pick("有所缓解", "Some relief")),
-                         ("nochange", AppLocale.pick("没有变化", "No change")),
-                         ("worse", AppLocale.pick("感觉更糟", "Felt worse"))], id: \.0) { item in
+                ForEach([("relaxing", AppLocale.pick("很放松", "Relaxing")),
+                         ("neutral", AppLocale.pick("一般", "Neutral")),
+                         ("uncomfortable", AppLocale.pick("不舒服", "Uncomfortable"))], id: \.0) { item in
                     Button(item.1) {
                         feeling = item.0
                         if let id = practiceRecordId { PracticeStore.shared.setFeeling(id: id, feeling: item.0) }
                     }.buttonStyle(GoldButtonStyle())
+                        .accessibilityHint(AppLocale.pick("记录这次练习的体验", "Notes how this session felt"))
                 }
             }
-            if feeling == "worse" {
-                Text(AppLocale.pick("请暂时停止。如果症状严重或持续，请考虑就医。",
-                                    "Please stop for now. If symptoms are severe or persistent, consider seeing a professional."))
+            if feeling == "uncomfortable" {
+                Text(AppLocale.pick("请暂时停止。如果不适严重或持续，请考虑就医。",
+                                    "Please stop for now. If the discomfort is strong or persistent, consider seeing a professional."))
                     .font(.footnote).foregroundStyle(Ink.terracotta).multilineTextAlignment(.center).padding()
             }
-            // Routine flow hand-off — suppressed after "Felt worse" (never encourage continuing
+            // Routine flow hand-off — suppressed after "Uncomfortable" (never encourage continuing
             // past discomfort).
-            if let next = onNext, feeling != "worse" {
+            if let next = onNext, feeling != "uncomfortable" {
                 Button(next.label) { next.action() }.buttonStyle(GoldButtonStyle())
             }
             Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
