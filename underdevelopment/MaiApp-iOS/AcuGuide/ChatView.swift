@@ -2,7 +2,36 @@ import SwiftUI
 
 struct ChatMessage: Identifiable { let id = UUID(); let role: Role; let text: String
     var suggestions: [Acupoint] = []     // practiceable points offered as tappable "Practice" buttons
-    enum Role { case user, coach } }
+    enum Role: String { case user, coach } }
+
+// Session-surviving chat history (the conversation used to vanish on every launch). Suggestions
+// persist as point ids and resolve against the atlas on load; the greeting is re-generated each
+// launch in the current language, so it is never stored. Local-only JSON in UserDefaults, capped.
+enum ChatStore {
+    private struct Stored: Codable { let role: String; let text: String; let suggestionIds: [String] }
+    private static let key = "chatHistory"
+    private static let cap = 60
+
+    static func load() -> [ChatMessage] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let stored = try? JSONDecoder().decode([Stored].self, from: data) else { return [] }
+        return stored.map { s in
+            ChatMessage(role: ChatMessage.Role(rawValue: s.role) ?? .coach, text: s.text,
+                        suggestions: s.suggestionIds.compactMap { Acupoint.byId[$0] })
+        }
+    }
+
+    static func save(_ messages: [ChatMessage]) {
+        let stored = messages.dropFirst().suffix(cap).map {
+            Stored(role: $0.role.rawValue, text: $0.text, suggestionIds: $0.suggestions.map(\.id))
+        }
+        if let data = try? JSONEncoder().encode(Array(stored)) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    static func clear() { UserDefaults.standard.removeObject(forKey: key) }
+}
 
 // A coach reply: prose + any practiceable points to surface as launch-the-coach buttons.
 struct CoachAnswer { let text: String; let suggestions: [Acupoint] }
@@ -311,21 +340,33 @@ final class ChatService {
 struct ChatView: View {
     @Binding var startCoach: Acupoint?     // tapping a suggested point launches the AR coach
     @ObservedObject private var settings = AppSettings.shared
-    @State private var messages: [ChatMessage] = [
+    @State private var messages: [ChatMessage] = [ChatView.greetingMessage()] + ChatStore.load()
+    @State private var input = ""
+    @State private var sending = false
+    @State private var showClearConfirm = false
+    @FocusState private var inputFocused: Bool     // dismissable keyboard (was: no way to close it)
+    private let service = ChatService()
+
+    static func greetingMessage() -> ChatMessage {
         .init(role: .coach, text: AppLocale.pick(
             "你好 — 可以问我任意穴位或经络（如 足三里、肺经），以及按压方法、时长、孕期与安全等问题。",
             "Hi — ask me about any acupoint or meridian (e.g. Zusanli, the Lung meridian), or about how to press, how long, pregnancy, and safety."))
-    ]
-    @State private var input = ""
-    @State private var sending = false
-    @FocusState private var inputFocused: Bool     // dismissable keyboard (was: no way to close it)
-    private let service = ChatService()
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
+                        // Honest capability note — only when the device can't run the on-device
+                        // model at all (a Settings toggle can't help; the built-in paths still work).
+                        if !ChatLLM.deviceSupported {
+                            Text(AppLocale.pick(
+                                "此设备不支持设备端 AI 生成回答。教练会照常使用内建的穴位图谱、经络与常见问题作答。",
+                                "On-device AI replies aren't supported on this device. The coach still answers from its built-in atlas, meridians and FAQ."))
+                                .font(.caption2).foregroundStyle(Ink.textDim)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
                         ForEach(messages) { m in bubble(m).id(m.id) }
                     }.padding()
                 }
@@ -347,6 +388,26 @@ struct ChatView: View {
             }.padding()
         }
         .background(ShanshuiBackground())
+        .overlay(alignment: .topTrailing) {
+            // Clear-conversation control — only once there is a conversation to clear.
+            if messages.count > 1 {
+                Button { showClearConfirm = true } label: {
+                    Image(systemName: "trash")
+                        .font(.caption).foregroundStyle(Ink.textDim)
+                        .padding(8).background(Circle().stroke(Ink.line, lineWidth: 1))
+                }
+                .padding(.trailing, 12).padding(.top, 6)
+                .accessibilityLabel(AppLocale.pick("清空对话", "Clear conversation"))
+            }
+        }
+        .confirmationDialog(AppLocale.pick("清空对话？", "Clear this conversation?"),
+                            isPresented: $showClearConfirm, titleVisibility: .visible) {
+            Button(AppLocale.pick("清空", "Clear"), role: .destructive) {
+                messages = [ChatView.greetingMessage()]
+                ChatStore.clear()
+            }
+            Button(AppLocale.pick("取消", "Cancel"), role: .cancel) {}
+        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -410,6 +471,7 @@ struct ChatView: View {
             let r = await service.reply(to: q, history: hist)
             await MainActor.run {
                 messages.append(.init(role: .coach, text: r.text, suggestions: r.suggestions)); sending = false
+                ChatStore.save(messages)   // survive app restarts (greeting excluded)
             }
         }
     }

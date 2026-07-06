@@ -181,6 +181,13 @@ final class CoachEngine: ObservableObject {
     private var restRemaining = 0                   // whole seconds, for the rest cue
     private var heldAccum = 0.0                     // banked hold seconds from finished rounds
     var totalHeldS: Double { heldAccum + machine.holdTime }   // for the recap (quit-anytime honest)
+    private(set) var roundTimes: [Double] = []      // hold seconds per COMPLETED round (recap breakdown)
+
+    // Secondary "why is nothing happening" line under the main cue — set only when the receiving
+    // hand's geometry has been unresolvable for a while (occlusion), so it never flashes on the
+    // routine one-frame dropouts the grace timers already absorb.
+    @Published private(set) var hintText: String? = nil
+    private var anchorLostSince: Double? = nil
 
     private let machine: CoachStateMachine
 
@@ -240,8 +247,21 @@ final class CoachEngine: ObservableObject {
         machine.reset(); smoother.reset(); pressSmoother.reset(); roleReset()
         lastFaceCorrect = false; lastTipT = -.infinity; lonePresserSince = nil
         roundsDone = 0; sessionComplete = false; restUntil = nil; heldAccum = 0
+        roundTimes = []; clearHint()
         phase = .noHand; ringCenter = nil; pressTip = nil; progress = 0
         cue = AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
+    }
+
+    // Occlusion-hint bookkeeping. The 1-second delay keeps it quiet through the transient dropouts
+    // the grace timers already smooth over; the equality guards keep @Published writes to changes.
+    private func occlusionHint(_ now: TimeInterval, _ text: String) {
+        let since = anchorLostSince ?? now
+        anchorLostSince = since
+        if now - since > 1.0, hintText != text { hintText = text }
+    }
+    private func clearHint() {
+        anchorLostSince = nil
+        if hintText != nil { hintText = nil }
     }
 
     func update(hands: [Hand], point: Acupoint, now: TimeInterval) {
@@ -257,6 +277,7 @@ final class CoachEngine: ObservableObject {
             if now < until {
                 restRemaining = Int((until - now).rounded(.up))
                 pressTip = nil
+                clearHint()
                 apply(.resting, point: point, hasPresser: false)
                 return
             }
@@ -269,6 +290,7 @@ final class CoachEngine: ObservableObject {
             smoother.reset(); pressSmoother.reset(); roleReset(); lastFaceCorrect = false
             lastTipT = -.infinity; lonePresserSince = nil
             ringCenter = nil; pressTip = nil
+            clearHint()   // the NO_HAND cue already says what to do
             apply(machine.step(noHandInput(now)), point: point, hasPresser: false)
             return
         }
@@ -325,6 +347,9 @@ final class CoachEngine: ObservableObject {
             } else {
                 pressTip = nil; pressSmoother.reset()
             }
+            // The receiving hand has been occluded past the transient window — say so, plainly.
+            occlusionHint(now, AppLocale.pick("让接受按压的那只手完整回到画面中。",
+                                              "Keep the hand being pressed fully in view."))
             let result = machine.step(CoachFrameInput(
                 t: now, present: true, faceCorrect: true,
                 insideEnterRadius: false, insideExitRadius: true, offsetXHandSize: nil))
@@ -341,12 +366,16 @@ final class CoachEngine: ObservableObject {
         guard let rawCenter = receiver.weightedTarget(target.anchors),
               receiver.handSize > 0 else {
             pressTip = nil
+            // Sustained anchor loss = the pressing hand is covering the receiver's landmarks.
+            occlusionHint(now, AppLocale.pick("保持受压手的手腕和指节可见。",
+                                              "Keep the wrist and knuckles of the receiving hand visible."))
             let result = machine.step(CoachFrameInput(
                 t: now, present: true, faceCorrect: true,
                 insideEnterRadius: false, insideExitRadius: true, offsetXHandSize: nil))
             apply(result, point: point, hasPresser: false)
             return
         }
+        clearHint()   // geometry is resolving again
         let hs = receiver.handSize
         // M1 shadow mode: run the learned CoreML head next to the affine target + log the delta. Never
         // alters the ring/state machine — reads the hand only. See LearnedLocalizer / M1 experiment.
@@ -408,6 +437,7 @@ final class CoachEngine: ObservableObject {
         // round — the occlusion paths step with no offset, which never advances the hold.)
         if result == .complete && !sessionComplete {
             roundsDone += 1
+            roundTimes.append(machine.holdTime)   // this round's hold, for the recap breakdown
             if roundsDone >= roundsTarget {
                 sessionComplete = true      // machine stays latched; totalHeldS still reads its holdTime
             } else {

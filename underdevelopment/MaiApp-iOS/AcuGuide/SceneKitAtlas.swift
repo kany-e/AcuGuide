@@ -152,13 +152,16 @@ enum AtlasMarkers {
     }
 
     // Explicit camera at distance `z` for a unit-scaled part mesh, wired as the view's POV.
-    static func installCamera(z: Float, in scene: SCNScene, for view: SCNView) {
+    // Returns the camera node so callers can register it for the "reset view" control.
+    @discardableResult
+    static func installCamera(z: Float, in scene: SCNScene, for view: SCNView) -> SCNNode {
         let cam = SCNNode(); cam.camera = SCNCamera()
         cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
         cam.position = SCNVector3(0, 0, z)
         scene.rootNode.addChildNode(cam)
         view.pointOfView = cam
         view.defaultCameraController.target = SCNVector3Zero
+        return cam
     }
 
     // Pull the first geometry out of a loaded GLB scene, re-material it, centre its pivot, and scale
@@ -220,12 +223,59 @@ enum AtlasMarkers {
     }
 }
 
+// In-memory cache of prepared detail meshes (unit-scaled + materialed via unitMesh), keyed by
+// "<resource>#<nodeName>". The GLB decode is slow enough to leave a re-opened sheet visibly empty,
+// so repeat opens clone the cached node instead of reloading. The stored node is never parented;
+// every view gets a clone() — geometry is shared (cheap) while each scene owns its own node tree,
+// so SceneKit's single-parent rule is never violated. Four small meshes at most → memory stays modest.
+enum AtlasMeshCache {
+    private static var meshes: [String: SCNNode] = [:]
+    static func key(resource: String, nodeName: String? = nil) -> String { resource + "#" + (nodeName ?? "") }
+    static func mesh(for key: String) -> SCNNode? { meshes[key]?.clone() }
+    static func store(_ node: SCNNode, for key: String) { meshes[key] = node }
+}
+
+// Subtle parchment spinner shown centered over an atlas view while its GLB decodes.
+struct AtlasLoadingIndicator: View {
+    var body: some View {
+        ProgressView()
+            .tint(Ink.gold)
+            .padding(14)
+            .background(Circle().fill(Ink.paperLight.opacity(0.9))
+                .overlay(Circle().stroke(Ink.line, lineWidth: 1)))
+            .allowsHitTesting(false)
+            .accessibilityLabel(AppLocale.pick("模型加载中", "Loading model"))
+    }
+}
+
 // Shared tap handler for the detailed-part SCNViews: hit-test → "acu:<id>" walk-up → onSelect.
+// Also owns the "reset view" camera restore: allowsCameraControl mutates the POV node's transform
+// directly, so re-applying the transform captured at install time is a full reset.
 // (Body3DView's SceneKitBody.Coordinator stays separate — it also drives projection + meridian taps.)
 final class AcuTapCoordinator: NSObject {
     weak var view: SCNView?
     let onSelect: (Acupoint) -> Void
+    weak var cameraNode: SCNNode?
+    private var initialCameraTransform = SCNMatrix4Identity
+    var lastResetToken = 0
     init(onSelect: @escaping (Acupoint) -> Void) { self.onSelect = onSelect }
+
+    func registerCamera(_ cam: SCNNode) {
+        cameraNode = cam
+        initialCameraTransform = cam.transform
+    }
+
+    // Animate the camera back to its canonical install pose (instant under Reduce Motion).
+    func resetCamera() {
+        guard let view = view, let cam = cameraNode else { return }
+        view.pointOfView = cam
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = UIAccessibility.isReduceMotionEnabled ? 0 : 0.45
+        SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        cam.transform = initialCameraTransform
+        SCNTransaction.commit()
+        view.defaultCameraController.target = SCNVector3Zero
+    }
 
     @objc func handleTap(_ g: UITapGestureRecognizer) {
         guard let view = view else { return }

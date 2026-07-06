@@ -13,13 +13,15 @@ import simd
 // Shared state between the SwiftUI overlay and the SceneKit coordinator.
 final class AtlasModel: ObservableObject {
     struct Label: Identifiable { let id: String; let region: BodyAtlas.Region; let point: CGPoint; let opacity: Double }
-    // A floating acupoint name tag drawn at a projected marker position (while a meridian is selected).
+    // A floating acupoint name tag drawn at a projected marker position (while a meridian is
+    // selected, or while a region is focused — its revealed markers get the same tags).
     struct PLabel: Identifiable { let id: String; let text: String; let color: Color; let point: CGPoint; let opacity: Double }
     @Published var labels: [Label] = []          // region labels projected to screen (full-body mode)
-    @Published var pointLabels: [PLabel] = []    // acupoint name tags for the selected meridian
+    @Published var pointLabels: [PLabel] = []    // acupoint name tags (selected meridian / focused region)
     @Published var focused: BodyAtlas.Region?    // non-nil while zoomed into a region
     @Published var selectedPoint: Acupoint?      // a tapped 3D acupoint marker
     @Published var selectedMeridian: Meridian?   // a tapped channel → its card + point tags
+    @Published var meshLoading = true            // model.glb decode in flight → spinner in the chrome
     fileprivate weak var coordinator: SceneKitBody.Coordinator?
 
     // Every region (including the hand) is now an IN-SCENE camera zoom — no 2D drill-down.
@@ -39,9 +41,12 @@ struct Body3DView: View {
     @StateObject private var model = AtlasModel()
     @ObservedObject private var settings = AppSettings.shared   // re-render labels on language toggle
     @State private var showSettings = false
+    @State private var showLegend = false            // marker legend (auto-shown once; "?" reopens)
     @State private var showHandChart = false        // 3D finger-detail hand for the hand region
     @State private var handChartCoach: Acupoint? = nil
     @State private var handSel: Acupoint? = nil      // a tapped marker on the detailed hand chart
+    @State private var handResetToken = 0            // hand sheet "reset view" trigger
+    @State private var handLoading = false           // hand GLB decode in flight
     @State private var detailPart: PartDetail? = nil // head/arm/foot detailed-model drill-down
     @State private var locate: Acupoint? = nil       // front-camera region locator (face / torso)
     @State private var sourcesFor: Acupoint? = nil   // "Research & sources" sheet from a point card
@@ -76,10 +81,21 @@ struct Body3DView: View {
             .ignoresSafeArea()
             .allowsHitTesting(false)
 
+            // Full-body model.glb decode in flight → centered spinner (the capsule placeholder
+            // renders beneath it until the figure swaps in).
+            if model.meshLoading { AtlasLoadingIndicator() }
+
             chrome
 
             if let pt = model.selectedPoint { pointPanel(pt) }
             else if let m = model.selectedMeridian { meridianPanel(m) }
+
+            if showLegend { legendPanel }
+        }
+        .onAppear {
+            // The marker legend auto-shows on the first atlas visit; "seen" is stamped on dismissal
+            // (not on show), so an ignored panel re-appears next time. "?" re-opens it anytime.
+            if !UserDefaults.standard.bool(forKey: "atlasLegendSeen") { showLegend = true }
         }
         .sheet(isPresented: $showSettings) { SettingsSheet() }
         .sheet(isPresented: $showHandChart) {
@@ -87,7 +103,9 @@ struct Body3DView: View {
             NavigationStack {
                 ZStack {
                     ShanshuiBackground()
-                    HandModel3DView(onSelect: { handSel = $0 }).ignoresSafeArea()
+                    HandModel3DView(resetToken: handResetToken, loading: $handLoading,
+                                    onSelect: { handSel = $0 }).ignoresSafeArea()
+                    if handLoading { AtlasLoadingIndicator() }
                     VStack {
                         Spacer()
                         VStack(spacing: 8) {
@@ -122,9 +140,16 @@ struct Body3DView: View {
                 .onAppear { handSel = nil }
                 .navigationTitle(AppLocale.pick("手部穴位", "Hand points"))
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) {
-                    Button(AppLocale.pick("完成", "Done")) { showHandChart = false }.tint(Ink.gold)
-                } }
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button { handResetToken += 1 } label: { Image(systemName: "arrow.counterclockwise") }
+                            .tint(Ink.gold)
+                            .accessibilityLabel(AppLocale.pick("重置视角", "Reset view"))
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(AppLocale.pick("完成", "Done")) { showHandChart = false }.tint(Ink.gold)
+                    }
+                }
             }
             .onChange(of: handChartCoach) { v in
                 if let pt = v { showHandChart = false; handChartCoach = nil; onPractice(pt) }
@@ -295,7 +320,60 @@ struct Body3DView: View {
         .fixedSize()
     }
 
-    // Safe-area-respecting controls: a top bar (back when zoomed, gear always) + a bottom hint.
+    // Dismissable marker legend: what the glowing dots, the colored channel lines, and the brush
+    // region names each do. Auto-shown on the first visit (see .onAppear / "atlasLegendSeen");
+    // afterwards the "?" chrome button re-opens it.
+    private var legendPanel: some View {
+        VStack {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(AppLocale.pick("图例", "Legend"))
+                        .font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
+                    Spacer()
+                    Button { dismissLegend() } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Ink.textDim)
+                    }.accessibilityLabel(AppLocale.pick("关闭图例", "Close legend"))
+                }
+                legendRow(Circle().fill(Ink.gold).frame(width: 9, height: 9)
+                              .shadow(color: Ink.gold.opacity(0.9), radius: 3),
+                          "发光圆点：穴位，点按查看详情。",
+                          "Glowing dot: an acupoint — tap it for details.")
+                legendRow(Capsule().fill(Ink.jade).frame(width: 20, height: 3),
+                          "彩色线条：经络，点按查看它的穴位。",
+                          "Colored line: a meridian channel — tap it for its points.")
+                legendRow(Text("手").font(Typo.brush(16)).foregroundStyle(Ink.brush),
+                          "毛笔区域名：点按放大到该部位。",
+                          "Brush region name: tap it to zoom in.")
+                Button(AppLocale.pick("知道了", "Got it")) { dismissLegend() }
+                    .buttonStyle(GoldButtonStyle())
+                    .frame(maxWidth: .infinity)
+            }
+            .padding()
+            .panel()
+            .frame(maxWidth: 340)
+            .padding(.horizontal)
+            .padding(.top, 64)   // clears the top chrome bar (back / ? / gear)
+            Spacer()
+        }
+        .transition(.opacity)
+    }
+
+    private func legendRow(_ swatch: some View, _ zh: String, _ en: String) -> some View {
+        HStack(spacing: 10) {
+            swatch.frame(width: 24)
+            Text(AppLocale.pick(zh, en))
+                .font(.caption).foregroundStyle(Ink.text)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func dismissLegend() {
+        UserDefaults.standard.set(true, forKey: "atlasLegendSeen")
+        withAnimation(.easeOut(duration: 0.2)) { showLegend = false }
+    }
+
+    // Safe-area-respecting controls: a top bar (back when zoomed, ? + gear always) + a bottom hint.
     private var chrome: some View {
         VStack {
             HStack {
@@ -312,6 +390,13 @@ struct Body3DView: View {
                     .accessibilityLabel(AppLocale.pick("返回全身", "Back to full body"))
                 }
                 Spacer()
+                Button { withAnimation(.easeOut(duration: 0.2)) { showLegend = true } } label: {
+                    Image(systemName: "questionmark")
+                        .font(.callout).foregroundStyle(Ink.text)
+                        .padding(9)
+                        .background(Circle().fill(Ink.paperLight).overlay(Circle().stroke(Ink.line, lineWidth: 1)))
+                }
+                .accessibilityLabel(AppLocale.pick("图例", "Legend"))
                 Button { showSettings = true } label: {
                     Image(systemName: "gearshape")
                         .font(.callout).foregroundStyle(Ink.text)
@@ -390,14 +475,18 @@ struct SceneKitBody: UIViewRepresentable {
 
         if let url = Bundle.main.url(forResource: "model", withExtension: "glb") {
             GLTFAsset.load(with: url, options: [:]) { _, status, maybeAsset, _, _ in
-                guard status == .complete, let asset = maybeAsset else { return }
+                guard status == .complete, let asset = maybeAsset else {
+                    // Intermediate statuses just report progress; only .error is terminal.
+                    if status == .error { DispatchQueue.main.async { model.meshLoading = false } }
+                    return
+                }
                 let gltfScene = SCNScene(gltfAsset: asset)
                 DispatchQueue.main.async {
                     // GLTFKit2's skinner collapses the rigged mesh to a point; render the static
                     // bind-pose geometry directly. Authored Z-up (lying down) → -90°X stands it up.
                     var found: SCNGeometry? = nil
                     gltfScene.rootNode.enumerateHierarchy { n, _ in if found == nil { found = n.geometry } }
-                    guard let found else { return }
+                    guard let found else { model.meshLoading = false; return }
                     capsule.removeFromParentNode()
                     let geometry = found.copy() as! SCNGeometry
                     geometry.materials = [sageMaterial()]
@@ -424,8 +513,13 @@ struct SceneKitBody: UIViewRepresentable {
                     view.pointOfView = cam
 
                     context.coordinator.installBody(cam: cam, radius: radius, anchorsOn: mesh)
+                    model.meshLoading = false
                 }
             }
+        } else {
+            // No bundled model → the capsule placeholder IS the scene; don't spin forever.
+            // (Async so the @Published write never lands inside the update that ran makeUIView.)
+            DispatchQueue.main.async { model.meshLoading = false }
         }
         return view
     }
@@ -443,8 +537,8 @@ struct SceneKitBody: UIViewRepresentable {
         var radius: Float = 1
         private var anchors: [(BodyAtlas.Region, SCNNode)] = []
         private var acuNodes: [String: SCNNode] = [:]    // id → marker node, for projecting name tags
-        private var labeledMer: String? = nil            // cached selected-meridian id…
-        private var labeledNodes: [(pt: Acupoint, node: SCNNode)] = []   // …and its points+nodes
+        private var labeledKey: String? = nil            // cached tag source ("mer:<id>" / "reg:<id>")…
+        private var labeledNodes: [(pt: Acupoint, node: SCNNode)] = []   // …and its points + marker nodes
         private var link: CADisplayLink?
         private var lastPublish: CFTimeInterval = 0
 
@@ -500,16 +594,30 @@ struct SceneKitBody: UIViewRepresentable {
                 model.labels = []
             }
 
-            // Acupoint name tags for the selected meridian (any mode), projected onto their markers.
-            if let mer = model.selectedMeridian {
-                // Cache the points + node lookups; rebuild only when the selection changes, not on
-                // every 30 Hz frame (the per-frame work is just the projection below).
-                if labeledMer != mer.id {
-                    labeledMer = mer.id
-                    labeledNodes = mer.points.compactMap { pt in acuNodes[pt.id].map { (pt, $0) } }
+            // Acupoint name tags projected onto their markers: the selected meridian's points (any
+            // mode), or — while a region is focused with no card open — the region's own revealed
+            // markers, so each glowing dot in the zoomed view is named ("TE3 · 中渚"). The points +
+            // node lookups are cached; rebuilt only when the tag source changes, not on every
+            // 30 Hz frame (the per-frame work is just the projection below).
+            let tagSource: String? = {
+                if let mer = model.selectedMeridian { return "mer:" + mer.id }
+                if let f = model.focused, model.selectedPoint == nil { return "reg:" + f.id }
+                return nil
+            }()
+            if let source = tagSource {
+                if labeledKey != source {
+                    labeledKey = source
+                    if let mer = model.selectedMeridian {
+                        labeledNodes = mer.points.compactMap { pt in acuNodes[pt.id].map { (pt, $0) } }
+                    } else if let f = model.focused {
+                        labeledNodes = acuNodes
+                            .compactMap { id, node in Acupoint.byId[id].map { (pt: $0, node: node) } }
+                            .filter { $0.pt.region == f.id }
+                            .sorted { $0.pt.id < $1.pt.id }
+                    }
                 }
                 var out: [AtlasModel.PLabel] = []
-                for (pt, node) in labeledNodes {
+                for (pt, node) in labeledNodes where !node.isHidden {
                     let wp = node.presentation.worldPosition
                     let p = view.projectPoint(wp)
                     guard p.z > 0 && p.z < 1 else { continue }
@@ -523,20 +631,35 @@ struct SceneKitBody: UIViewRepresentable {
                 }
                 model.pointLabels = out
             } else {
-                if labeledMer != nil { labeledMer = nil; labeledNodes = [] }
+                if labeledKey != nil { labeledKey = nil; labeledNodes = [] }
                 if !model.pointLabels.isEmpty { model.pointLabels = [] }
             }
 
             // Acupoint markers are HIDDEN until you tap a region label (→ that region's points) or a
             // meridian channel (→ that meridian's points). Keeps the full-body figure uncluttered.
-            // Shown fully when revealed (few, contextual); the body is static so there's no facing
-            // fade to keep — the camera orbits and hitTest's nearest-first order handles occlusion.
+            // Newly revealed markers FADE in (0→1, ~0.3 s) so a focus reads as a gentle reveal —
+            // instant under Reduce Motion. The body is static so there's no facing fade to keep —
+            // the camera orbits and hitTest's nearest-first order handles occlusion.
+            var revealed: [SCNNode] = []
             for (id, node) in acuNodes {
                 let pt = Acupoint.byId[id]
                 let inRegion = model.focused != nil && model.focused?.id == pt?.region
                 let inMeridian = model.selectedMeridian != nil && model.selectedMeridian?.id == pt?.meridian
-                node.isHidden = !(inRegion || inMeridian)
-                node.opacity = 1.0
+                let show = inRegion || inMeridian
+                if show && node.isHidden {
+                    node.isHidden = false
+                    if UIAccessibility.isReduceMotionEnabled { node.opacity = 1.0 }
+                    else { node.opacity = 0.0; revealed.append(node) }
+                } else if !show && !node.isHidden {
+                    node.isHidden = true
+                    node.opacity = 1.0
+                }
+            }
+            if !revealed.isEmpty {
+                SCNTransaction.begin()
+                SCNTransaction.animationDuration = 0.3
+                for n in revealed { n.opacity = 1.0 }
+                SCNTransaction.commit()
             }
         }
 

@@ -21,6 +21,7 @@ final class TimerSession: ObservableObject {
     private var heldAccum = 0.0
     private var ticker: Timer?
     private var pausedByScene = false
+    private(set) var userPaused = false
 
     var totalHeldS: Double { heldAccum + holdTime }
     var sessionComplete: Bool { phase == .complete }
@@ -40,10 +41,17 @@ final class TimerSession: ObservableObject {
     }
 
     // Backgrounding pauses the clock (a timer session must not credit time the user wasn't guided
-    // through); foregrounding resumes exactly where it left off.
+    // through); foregrounding resumes exactly where it left off. An explicit USER pause is a
+    // separate flag so returning from an app-switch never restarts a session the user paused.
     func scenePaused() { guard phase == .holding || phase == .resting else { return }
         pausedByScene = true; ticker?.invalidate(); ticker = nil }
-    func sceneResumed() { guard pausedByScene else { return }; pausedByScene = false; run() }
+    func sceneResumed() { guard pausedByScene else { return }; pausedByScene = false
+        if !userPaused { run() } }
+
+    func pause() { guard phase == .holding || phase == .resting, !userPaused else { return }
+        userPaused = true; ticker?.invalidate(); ticker = nil }
+    func resume() { guard userPaused else { return }; userPaused = false
+        if !pausedByScene { run() } }
 
     func end() { ticker?.invalidate(); ticker = nil }
 
@@ -105,6 +113,8 @@ struct TimerSessionView: View {
     @State private var feeling: String? = nil
     @State private var practiceRecordId: String? = nil
     @State private var prevPhase: TimerSession.Phase = .ready
+    @State private var userPaused = false
+    @State private var showEndConfirm = false
 
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
          onNext: (label: String, action: () -> Void)? = nil,
@@ -173,16 +183,43 @@ struct TimerSessionView: View {
                 Button(AppLocale.pick("开始", "Begin")) { session.start() }
                     .buttonStyle(GoldButtonStyle())
             } else {
-                Button(AppLocale.pick("结束", "End")) { endedEarly = true; session.end() }
-                    .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(Capsule().stroke(Ink.line, lineWidth: 1))
+                HStack(spacing: 10) {
+                    Button(userPaused ? AppLocale.pick("继续", "Resume") : AppLocale.pick("暂停", "Pause")) {
+                        if userPaused { session.resume() } else { session.pause() }
+                        userPaused.toggle()
+                    }
+                        .font(.caption.weight(.semibold)).foregroundStyle(userPaused ? Ink.gold : Ink.textDim)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Capsule().stroke(userPaused ? Ink.gold : Ink.line, lineWidth: 1))
+                        .accessibilityHint(AppLocale.pick("暂停或继续，进度保留", "Pause or resume; progress is kept"))
+                    Button(AppLocale.pick("结束", "End")) {
+                        if session.roundsDone > 0 || session.totalHeldS >= 5 { showEndConfirm = true }
+                        else { endedEarly = true; session.end() }
+                    }
+                        .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Capsule().stroke(Ink.line, lineWidth: 1))
+                }
+                if userPaused {
+                    Text(AppLocale.pick("已暂停 — 进度已保留。", "Paused — your progress is kept."))
+                        .font(.caption2).foregroundStyle(Ink.textDim)
+                }
             }
 
             Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
                 .font(.caption2).foregroundStyle(Ink.textDim)
         }
         .padding()
+        .confirmationDialog(AppLocale.pick("结束本次练习？", "End this session?"),
+                            isPresented: $showEndConfirm, titleVisibility: .visible) {
+            Button(AppLocale.pick("结束并查看小结", "End and see recap"), role: .destructive) {
+                endedEarly = true; session.end()
+            }
+            Button(AppLocale.pick("继续练习", "Keep going"), role: .cancel) {}
+        } message: {
+            Text(AppLocale.pick("已完成 \(session.roundsDone) 轮、累计约 \(Int(session.totalHeldS.rounded())) 秒 — 小结会如实记录。",
+                                "\(session.roundsDone) rounds and ~\(Int(session.totalHeldS.rounded()))s so far — the recap records it honestly."))
+        }
     }
 
     private var cueText: String {

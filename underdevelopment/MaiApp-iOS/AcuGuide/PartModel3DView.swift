@@ -63,6 +63,8 @@ struct PartDetail: Identifiable {
 
 struct PartModel3DView: UIViewRepresentable {
     let config: PartDetail
+    var resetToken: Int = 0                      // bump to animate the camera back to canonical
+    var loading: Binding<Bool>? = nil            // reports GLB decode state to the sheet chrome
     var onSelect: (Acupoint) -> Void = { _ in }
 
     func makeCoordinator() -> AcuTapCoordinator { AcuTapCoordinator(onSelect: onSelect) }
@@ -78,18 +80,28 @@ struct PartModel3DView: UIViewRepresentable {
         AtlasMarkers.addStudioLighting(to: scene)
         view.scene = scene
         context.coordinator.view = view
+        // A re-presented sheet can carry a non-zero token from its parent into a FRESH coordinator
+        // (lastResetToken 0); sync here so the first updateUIView doesn't fire a spurious reset.
+        context.coordinator.lastResetToken = resetToken
 
         let cfg = config
-        if let url = Bundle.main.url(forResource: cfg.resource, withExtension: "glb") {
+        let cacheKey = AtlasMeshCache.key(resource: cfg.resource, nodeName: cfg.nodeName)
+        if let cached = AtlasMeshCache.mesh(for: cacheKey) {
+            install(mesh: cached, in: scene, view: view, coordinator: context.coordinator)
+        } else if let url = Bundle.main.url(forResource: cfg.resource, withExtension: "glb") {
+            setLoading(true)
             GLTFAsset.load(with: url, options: [:]) { _, status, maybeAsset, _, _ in
-                guard status == .complete, let asset = maybeAsset else { return }
+                // The handler also fires with intermediate statuses (parsing/processing) — only
+                // .error is terminal; anything else non-complete just reports progress.
+                guard status == .complete, let asset = maybeAsset else {
+                    if status == .error { setLoading(false) }
+                    return
+                }
                 let gltf = SCNScene(gltfAsset: asset)
                 DispatchQueue.main.async {
-                    guard let mesh = AtlasMarkers.unitMesh(from: gltf, material: AtlasMarkers.meshMaterial(), nodeName: cfg.nodeName) else { return }
-                    mesh.eulerAngles = cfg.euler
-                    scene.rootNode.addChildNode(mesh)
-                    AtlasMarkers.installCamera(z: 2.4, in: scene, for: view)
-                    placeMarkers(in: scene, mesh: mesh, config: cfg)
+                    guard let mesh = AtlasMarkers.unitMesh(from: gltf, material: AtlasMarkers.meshMaterial(), nodeName: cfg.nodeName) else { setLoading(false); return }
+                    AtlasMeshCache.store(mesh, for: cacheKey)
+                    install(mesh: mesh.clone(), in: scene, view: view, coordinator: context.coordinator)
                 }
             }
         }
@@ -99,7 +111,29 @@ struct PartModel3DView: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: SCNView, context: Context) {}
+    func updateUIView(_ uiView: SCNView, context: Context) {
+        // The sheet's "reset view" button bumps resetToken → animate the camera home.
+        if context.coordinator.lastResetToken != resetToken {
+            context.coordinator.lastResetToken = resetToken
+            context.coordinator.resetCamera()
+        }
+    }
+
+    // Orient + add the (cached or freshly decoded) mesh, wire the camera, and place the markers.
+    private func install(mesh: SCNNode, in scene: SCNScene, view: SCNView, coordinator: AcuTapCoordinator) {
+        mesh.eulerAngles = config.euler
+        scene.rootNode.addChildNode(mesh)
+        let cam = AtlasMarkers.installCamera(z: 2.4, in: scene, for: view)
+        coordinator.registerCamera(cam)
+        placeMarkers(in: scene, mesh: mesh, config: config)
+        setLoading(false)
+    }
+
+    // Async so the @State write never lands inside the SwiftUI update that called makeUIView.
+    private func setLoading(_ v: Bool) {
+        guard let loading = loading else { return }
+        DispatchQueue.main.async { loading.wrappedValue = v }
+    }
 
     // Geometry-based marker placement: cast a ray from the camera through each acupoint's (u,v) fraction
     // of the model (AtlasMarkers.screenMarker) so dots land on the VISIBLE surface regardless of pose —
@@ -123,12 +157,16 @@ struct PartDetailSheet: View {
     let config: PartDetail
     var onClose: () -> Void
     @State private var sel: Acupoint? = nil
+    @State private var loading = false           // set by PartModel3DView while its GLB decodes
+    @State private var resetToken = 0            // bumped by the "reset view" toolbar button
 
     var body: some View {
         NavigationStack {
             ZStack {
                 ShanshuiBackground()
-                PartModel3DView(config: config, onSelect: { sel = $0 }).ignoresSafeArea()
+                PartModel3DView(config: config, resetToken: resetToken, loading: $loading,
+                                onSelect: { sel = $0 }).ignoresSafeArea()
+                if loading { AtlasLoadingIndicator() }
                 VStack {
                     Spacer()
                     VStack(spacing: 8) {
@@ -165,9 +203,16 @@ struct PartDetailSheet: View {
             }
             .navigationTitle(AppLocale.pick(config.titleZh, config.titleEn))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) {
-                Button(AppLocale.pick("完成", "Done")) { onClose() }.tint(Ink.gold)
-            } }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button { resetToken += 1 } label: { Image(systemName: "arrow.counterclockwise") }
+                        .tint(Ink.gold)
+                        .accessibilityLabel(AppLocale.pick("重置视角", "Reset view"))
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(AppLocale.pick("完成", "Done")) { onClose() }.tint(Ink.gold)
+                }
+            }
         }
     }
 }

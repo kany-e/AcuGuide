@@ -49,6 +49,18 @@ enum ChatLLM {
         return nil
     }
 
+    // Whether THIS device/OS can run the on-device model at all — ignores the Settings toggle.
+    // Drives the chat's one-line "why is there no AI here" note: the note shows only when the
+    // capability is missing (nothing the user can flip), never when they chose to turn it off.
+    static var deviceSupported: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            if case .available = SystemLanguageModel.default.availability { return true }
+        }
+        #endif
+        return false
+    }
+
     // Compact grounding: the whole atlas as one line per point + the fixed technique guidance.
     // Kept terse — the on-device model has a small context window.
     static func instructions() -> String {

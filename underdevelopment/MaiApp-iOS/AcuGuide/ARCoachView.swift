@@ -13,6 +13,8 @@ struct ARCoachView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var acknowledged = false
     @State private var endedEarly = false          // "End" pressed — recap with partial rounds (normal, not failure)
+    @State private var userPaused = false          // explicit pause: camera stops, progress is kept
+    @State private var showEndConfirm = false      // guard banked progress against an accidental End
     @State private var feeling: String? = nil      // stable key: "relaxing" | "neutral" | "uncomfortable"
     @State private var practiceRecordId: String? = nil   // history record for this session (saved once)
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
@@ -56,7 +58,8 @@ struct ARCoachView: View {
         // machine's pause-grace and dt clamp make the gap read as a pause, never a credit jump.
         .onChange(of: scenePhase) { sp in
             guard acknowledged, engine.phase != .complete, !endedEarly else { return }
-            if sp == .background { camera.stop() } else if sp == .active { camera.start() }
+            // An explicit user pause survives an app-switch: don't auto-restart the camera under it.
+            if sp == .background { camera.stop() } else if sp == .active && !userPaused { camera.start() }
         }
         .onDisappear { camera.stop(); voice.reset() }
     }
@@ -92,7 +95,8 @@ struct ARCoachView: View {
         guard engine.roundsDone > 0 || engine.totalHeldS >= 1.0 else { return }
         let rec = PracticeRecord(id: UUID().uuidString, date: Date(), pointId: acupoint.id,
                                  rounds: engine.roundsDone, roundsTarget: engine.roundsTarget,
-                                 heldS: engine.totalHeldS, feeling: nil)
+                                 heldS: engine.totalHeldS, feeling: nil,
+                                 roundsHeldS: engine.roundTimes.isEmpty ? nil : engine.roundTimes)
         PracticeStore.shared.add(rec)
         practiceRecordId = rec.id
     }
@@ -142,10 +146,50 @@ struct ARCoachView: View {
                 Spacer()
                 feedbackCard
             }
+
+            if userPaused { pausedOverlay }
         }
         // Cap growth so the largest accessibility sizes can't break the camera overlay layout,
         // while still honoring Dynamic Type up to that bound.
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        // End with banked progress → confirm first (the recap records honestly either way).
+        .confirmationDialog(AppLocale.pick("结束本次练习？", "End this session?"),
+                            isPresented: $showEndConfirm, titleVisibility: .visible) {
+            Button(AppLocale.pick("结束并查看小结", "End and see recap"), role: .destructive) { endSession() }
+            Button(AppLocale.pick("继续练习", "Keep going"), role: .cancel) {}
+        } message: {
+            Text(AppLocale.pick("已完成 \(engine.roundsDone) 轮、累计约 \(Int(engine.totalHeldS.rounded())) 秒 — 小结会如实记录。",
+                                "\(engine.roundsDone) rounds and ~\(Int(engine.totalHeldS.rounded()))s so far — the recap records it honestly."))
+        }
+    }
+
+    // Explicit pause: the camera stops (nothing is watched or credited); round progress is kept —
+    // the engine's pause-grace and dt clamp read the gap exactly like an app-switch.
+    private func pauseSession() {
+        userPaused = true
+        camera.stop()
+        voice.reset()   // cut any mid-utterance cue
+    }
+    private func resumeSession() {
+        userPaused = false
+        camera.start()
+    }
+
+    private var pausedOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+            VStack(spacing: 16) {
+                Image(systemName: "pause.circle").font(.system(size: 44)).foregroundStyle(Ink.paper)
+                Text(AppLocale.pick("已暂停", "Paused")).font(.title3).foregroundStyle(Ink.paper)
+                Text(AppLocale.pick("进度已保留 — 准备好了就继续。", "Your progress is kept — continue when ready."))
+                    .font(.footnote).foregroundStyle(Ink.paper.opacity(0.8))
+                Button(AppLocale.pick("继续", "Resume")) { resumeSession() }
+                    .buttonStyle(GoldButtonStyle())
+            }
+            .padding(28)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
     }
 
     // On-device field-calibration toggles (Phase 1): flip the mirror or invert the
@@ -205,9 +249,24 @@ struct ARCoachView: View {
                 }
                 Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
                     .lineLimit(3).minimumScaleFactor(0.7)
+                if let hint = hintLine {
+                    Text(hint).font(.caption2).foregroundStyle(Ink.warn)
+                        .lineLimit(2).minimumScaleFactor(0.8)
+                }
             }
             Spacer()
-            Button(AppLocale.pick("结束", "End")) { endSession() }
+            Button { pauseSession() } label: {
+                Image(systemName: "pause.fill")
+                    .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(Capsule().stroke(Ink.line, lineWidth: 1))
+            }
+            .accessibilityLabel(AppLocale.pick("暂停", "Pause"))
+            .accessibilityHint(AppLocale.pick("暂停练习，进度保留", "Pauses the session; progress is kept"))
+            Button(AppLocale.pick("结束", "End")) {
+                // With real progress banked, confirm; a just-started session ends immediately.
+                if engine.roundsDone > 0 || engine.totalHeldS >= 5 { showEndConfirm = true } else { endSession() }
+            }
                 .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .background(Capsule().stroke(Ink.line, lineWidth: 1))
@@ -216,9 +275,20 @@ struct ARCoachView: View {
         .padding(14).panel().padding()
         // One VoiceOver element that re-announces the cue + hold progress as the phase changes.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(acupoint.id) \(acupoint.zh). \(engine.cue)")
+        .accessibilityLabel("\(acupoint.id) \(acupoint.zh). \(engine.cue)\(hintLine.map { " \($0)" } ?? "")")
         .accessibilityValue("\(Int(engine.progress * 100)) percent held")
         .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    // WHY-line under the cue: the engine's occlusion hint wins (specific), else the dim-scene hint —
+    // only while the coach is genuinely failing to see (never over a good hold).
+    private var hintLine: String? {
+        if let h = engine.hintText { return h }
+        let searching = engine.phase == .noHand || engine.phase == .searching || engine.phase == .wrongFace
+        if camera.lowLight && searching {
+            return AppLocale.pick("光线偏暗 — 试试更亮的地方。", "Low light — try a brighter spot.")
+        }
+        return nil
     }
 
     private var recap: some View {
@@ -231,6 +301,11 @@ struct ARCoachView: View {
                 "你在 \(acupoint.id)（\(acupoint.zh)）上完成了 \(engine.roundsDone)/\(engine.roundsTarget) 轮，累计稳定按压约 \(held) 秒。想停就停，本来就该如此。",
                 "You did \(engine.roundsDone) of \(engine.roundsTarget) rounds on \(acupoint.id) (\(acupoint.zh)) — about \(held) seconds of steady press. Stopping whenever you like is exactly right."))
                 .foregroundStyle(Ink.text).multilineTextAlignment(.center)
+            if engine.roundTimes.count > 1 {
+                Text(AppLocale.pick("各轮：", "Rounds: ")
+                     + engine.roundTimes.map { "\(Int($0.rounded()))s" }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(Ink.textDim)
+            }
             // EXPERIENCE prompt, not an outcome score: one session can't honestly be judged
             // "relief vs worse" — but comfort is real signal for which points suit you, and
             // "uncomfortable" carries the immutable stop-advice behavior.

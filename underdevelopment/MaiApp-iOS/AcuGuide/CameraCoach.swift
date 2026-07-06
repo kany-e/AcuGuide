@@ -20,6 +20,12 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     // the camera watches the receiver) — un-mirrored, like any rear-camera view.
     @Published private(set) var usingFront = true
 
+    // Dim-scene flag for the "why can't it see my hand" hint. Sampled from the luma plane every
+    // ~15th frame (a sparse grid, not the full image), with hysteresis so it never flickers.
+    @Published private(set) var lowLight = false
+    private var lumaFrameCount = 0
+    private var lastLowLight = false
+
     // Bumped on the main thread AFTER a flip's session reconfigure commits. The preview layer's
     // connection is RECREATED by the reconfigure — after SwiftUI already re-rendered for the
     // usingFront change — so without this second render pass the fresh connection never gets its
@@ -184,6 +190,8 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
         guard let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        lumaFrameCount += 1
+        if lumaFrameCount % 15 == 0 { updateLowLight(pixel) }
         let w = CVPixelBufferGetWidth(pixel), h = CVPixelBufferGetHeight(pixel)
         let aspect = CGFloat(min(w, h)) / CGFloat(max(w, h))   // portrait display aspect (W/H)
         if abs(aspect - lastAspect) > 0.001 {
@@ -218,6 +226,36 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
         let now = CACurrentMediaTime()
         DispatchQueue.main.async { self.engine.update(hands: hands, point: self.acupoint, now: now) }
+    }
+
+    // Mean of a sparse luma-plane grid (every 32nd pixel), queue-confined. Thresholds are asymmetric
+    // (enter dim < 55, leave dim > 70; video-range black is 16) so borderline scenes don't flicker
+    // the hint. Non-4:2:0 formats (never seen from this output config) simply skip the check.
+    private func updateLowLight(_ pixel: CVPixelBuffer) {
+        let fmt = CVPixelBufferGetPixelFormatType(pixel)
+        guard fmt == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ||
+              fmt == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange else { return }
+        CVPixelBufferLockBaseAddress(pixel, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixel, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(pixel, 0) else { return }
+        let w = CVPixelBufferGetWidthOfPlane(pixel, 0)
+        let h = CVPixelBufferGetHeightOfPlane(pixel, 0)
+        let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(pixel, 0)
+        let ptr = base.assumingMemoryBound(to: UInt8.self)
+        var sum = 0, n = 0
+        var y = 0
+        while y < h {
+            var x = 0
+            while x < w { sum += Int(ptr[y * rowBytes + x]); n += 1; x += 32 }
+            y += 32
+        }
+        guard n > 0 else { return }
+        let mean = Double(sum) / Double(n)
+        let low = lastLowLight ? mean < 70 : mean < 55
+        if low != lastLowLight {
+            lastLowLight = low
+            DispatchQueue.main.async { self.lowLight = low }
+        }
     }
 
     // 180°-rotated counterpart of a Vision orientation (two mirrors = rotation; parity preserved).
