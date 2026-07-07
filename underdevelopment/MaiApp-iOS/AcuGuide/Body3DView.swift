@@ -12,16 +12,23 @@ import simd
 
 // Shared state between the SwiftUI overlay and the SceneKit coordinator.
 final class AtlasModel: ObservableObject {
-    struct Label: Identifiable { let id: String; let region: BodyAtlas.Region; let point: CGPoint; let opacity: Double }
+    // Both label structs are Equatable so the 30 Hz projector can skip the @Published republish
+    // (and the SwiftUI invalidation it causes) whenever nothing on screen actually moved.
+    struct Label: Identifiable, Equatable { let id: String; let region: BodyAtlas.Region; let point: CGPoint; let opacity: Double }
     // A floating acupoint name tag drawn at a projected marker position (while a meridian is
     // selected, or while a region is focused — its revealed markers get the same tags).
-    struct PLabel: Identifiable { let id: String; let text: String; let color: Color; let point: CGPoint; let opacity: Double }
+    struct PLabel: Identifiable, Equatable { let id: String; let text: String; let color: Color; let point: CGPoint; let opacity: Double }
     @Published var labels: [Label] = []          // region labels projected to screen (full-body mode)
     @Published var pointLabels: [PLabel] = []    // acupoint name tags (selected meridian / focused region)
     @Published var focused: BodyAtlas.Region?    // non-nil while zoomed into a region
     @Published var selectedPoint: Acupoint?      // a tapped 3D acupoint marker
     @Published var selectedMeridian: Meridian?   // a tapped channel → its card + point tags
     @Published var meshLoading = true            // model.glb decode in flight → spinner in the chrome
+    // True only while the atlas is actually on screen (Body3DView .onAppear/.onDisappear — they
+    // fire on tab switches and under full-screen covers). Gates the coordinator's CADisplayLink so
+    // the projector doesn't tick at display rate for the app's lifetime after the first atlas
+    // visit (TabView keeps the view alive). Not @Published — no view renders from it.
+    var atlasVisible = true { didSet { coordinator?.syncDisplayLinkPaused() } }
     fileprivate weak var coordinator: SceneKitBody.Coordinator?
 
     // Every region (including the hand) is now an IN-SCENE camera zoom — no 2D drill-down.
@@ -93,12 +100,22 @@ struct Body3DView: View {
             if showLegend { legendPanel }
         }
         .onAppear {
+            model.atlasVisible = true            // resume the projector display link
             // The marker legend auto-shows on the first atlas visit; "seen" is stamped on dismissal
             // (not on show), so an ignored panel re-appears next time. "?" re-opens it anytime.
             if !UserDefaults.standard.bool(forKey: "atlasLegendSeen") { showLegend = true }
         }
+        // Fires on tab switches AND under full-screen covers → pause the display link so the 30 Hz
+        // projector isn't burning frames while the atlas can't be seen.
+        .onDisappear { model.atlasVisible = false }
         .sheet(isPresented: $showSettings) { SettingsSheet() }
-        .sheet(isPresented: $showHandChart) {
+        .sheet(isPresented: $showHandChart, onDismiss: {
+            // pending + onDismiss pattern: the practice button STASHES the point and dismisses;
+            // the coach cover is launched only here, after the sheet is fully gone. Dismissing the
+            // sheet and presenting the cover in the SAME update can silently drop the cover on
+            // iOS 16.0–16.3.
+            if let pt = handChartCoach { handChartCoach = nil; onPractice(pt) }
+        }) {
             // Detailed 3D hand (real fingers) for the hand drill-down — the body's hand is a mitten.
             NavigationStack {
                 ZStack {
@@ -152,7 +169,7 @@ struct Body3DView: View {
                 }
             }
             .onChange(of: handChartCoach) { v in
-                if let pt = v { showHandChart = false; handChartCoach = nil; onPractice(pt) }
+                if v != nil { showHandChart = false }   // stash → dismiss; onDismiss launches practice
             }
         }
         // Detailed-model drill-down for head / arm / foot (uses the added part GLBs).
@@ -541,6 +558,9 @@ struct SceneKitBody: UIViewRepresentable {
         private var labeledNodes: [(pt: Acupoint, node: SCNNode)] = []   // …and its points + marker nodes
         private var link: CADisplayLink?
         private var lastPublish: CFTimeInterval = 0
+        // Where the camera orbits (origin in full-body mode, the region centre when focused) —
+        // the reference point for the point-label facing fade below.
+        private var orbitCenter = simd_float3(repeating: 0)
 
         init(model: AtlasModel) { self.model = model; super.init() }
 
@@ -548,8 +568,13 @@ struct SceneKitBody: UIViewRepresentable {
             self.view = view; self.spin = spin
             let l = CADisplayLink(target: self, selector: #selector(tick))
             l.add(to: .main, forMode: .common)
+            l.isPaused = !model.atlasVisible
             link = l
         }
+
+        // The projector display link runs ONLY while the atlas is on screen; Body3DView drives
+        // model.atlasVisible from .onAppear/.onDisappear (tab switches, full-screen covers).
+        func syncDisplayLinkPaused() { link?.isPaused = !model.atlasVisible }
 
         func installBody(cam: SCNNode, radius: Float, anchorsOn mesh: SCNNode) {
             self.cam = cam; self.radius = radius
@@ -589,7 +614,9 @@ struct SceneKitBody: UIViewRepresentable {
                     out.append(.init(id: r.id, region: r,
                                      point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)), opacity: 1.0))
                 }
-                model.labels = out
+                // Republishing an unchanged array every tick would invalidate the SwiftUI overlay
+                // 30×/s while nothing moves — only publish a real change.
+                if model.labels != out { model.labels = out }
             } else if !model.labels.isEmpty {
                 model.labels = []
             }
@@ -616,20 +643,31 @@ struct SceneKitBody: UIViewRepresentable {
                             .sorted { $0.pt.id < $1.pt.id }
                     }
                 }
+                // Facing fade relative to the CURRENT camera: the body never rotates — the camera
+                // orbits (allowsCameraControl) — so a marker's static world z says nothing about
+                // facing once the user drags. Depth along the orbit axis (orbit centre → camera)
+                // equals the old world-z test exactly at the default orientation (centre at the
+                // origin, camera straight down +Z) and tracks any orbit angle; the fade band
+                // constants are unchanged.
+                var toCam = simd_float3(0, 0, 1)
+                if let pov = view.pointOfView?.presentation {
+                    let c = pov.simdWorldPosition - orbitCenter
+                    if simd_length(c) > 1e-4 { toCam = simd_normalize(c) }
+                }
                 var out: [AtlasModel.PLabel] = []
                 for (pt, node) in labeledNodes where !node.isHidden {
                     let wp = node.presentation.worldPosition
                     let p = view.projectPoint(wp)
                     guard p.z > 0 && p.z < 1 else { continue }
-                    let z = Float(wp.z)
-                    let opacity = Double(max(0, min(1, (z + 0.05) / 0.09)))
+                    let facing = simd_dot(simd_float3(wp.x, wp.y, wp.z) - orbitCenter, toCam)
+                    let opacity = Double(max(0, min(1, (facing + 0.05) / 0.09)))
                     if opacity > 0.04 {
                         out.append(.init(id: pt.id, text: "\(pt.id) · \(AppLocale.pick(pt.zh, pt.en))",
                                          color: MeridianColors.color(pt.meridian),
                                          point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)), opacity: opacity))
                     }
                 }
-                model.pointLabels = out
+                if model.pointLabels != out { model.pointLabels = out }
             } else {
                 if labeledKey != nil { labeledKey = nil; labeledNodes = [] }
                 if !model.pointLabels.isEmpty { model.pointLabels = [] }
@@ -683,6 +721,7 @@ struct SceneKitBody: UIViewRepresentable {
             SCNTransaction.commit()
             // Orbit the focused part: pinch/drag now zoom around it, not the scene origin.
             view?.defaultCameraController.target = target
+            orbitCenter = simd_float3(target.x, target.y, target.z)  // facing-fade reference (tick)
         }
 
         func unfocus() {
@@ -692,6 +731,7 @@ struct SceneKitBody: UIViewRepresentable {
             cam.eulerAngles = SCNVector3Zero
             SCNTransaction.commit()
             view?.defaultCameraController.target = SCNVector3Zero    // recenter the orbit pivot
+            orbitCenter = simd_float3(repeating: 0)
             spin.eulerAngles = SCNVector3Zero
         }
 

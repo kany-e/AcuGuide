@@ -4,6 +4,7 @@ import SwiftUI
 struct AcuGuideApp: App {
     init() {
         Diagnostics.shared.start()   // local-only MetricKit crash/hang capture (see Diagnostics)
+        ReminderPresentation.shared.install()   // reminders must present in the foreground too
     }
 
     var body: some Scene {

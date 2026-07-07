@@ -25,11 +25,21 @@ enum ChatSafety {
     static let bannedEn = ["treat", "cure", "heal", "diagnos"]
     static let bannedZh = ["治疗", "治愈", "根治", "诊断", "医治", "疗效"]
 
+    // Points deliberately excluded from the app (pregnancy-cautioned / screening-dependent). The
+    // app skips pregnancy screening precisely BECAUSE these can never appear — so a generated
+    // reply that names one must never surface (review-caught: the filter only checked claim
+    // terms). Substring match like the banned terms; a rejected reply falls back to canned copy.
+    static let excludedPointsEn = ["li4", "hegu", "sp6", "sanyinjiao", "gb21", "jianjing",
+                                   "bl60", "kunlun", "bl67", "zhiyin"]
+    static let excludedPointsZh = ["合谷", "三阴交", "肩井", "昆仑", "至阴"]
+
     static func allowed(_ text: String) -> Bool {
         guard !text.isEmpty else { return false }
         let l = text.lowercased()
         if bannedEn.contains(where: { l.contains($0) }) { return false }
         if bannedZh.contains(where: { text.contains($0) }) { return false }
+        if excludedPointsEn.contains(where: { l.contains($0) }) { return false }
+        if excludedPointsZh.contains(where: { text.contains($0) }) { return false }
         return true
     }
 
@@ -83,7 +93,9 @@ enum ChatLLM {
         \(points)
         Technique: firm-but-comfortable fingertip pressure on intact skin, about 30–60 seconds per \
         point with slow breathing, gentle small circles; stop if uncomfortable. Pregnancy-cautioned \
-        points (like LI4) are excluded from this app on purpose.
+        points are excluded from this app on purpose — NEVER name or suggest LI4/Hegu, SP6, GB21, \
+        BL60, or BL67 in a reply; if asked about them, say the app leaves them out deliberately \
+        and suggest a point from the atlas instead.
         """
     }
 
@@ -100,6 +112,12 @@ enum ChatLLM {
 #if canImport(FoundationModels)
 @available(iOS 26.0, *)
 struct FoundationModelGenerator: ChatGenerator {
+    // Built once — the full-atlas grounding string was being rebuilt (map+join over every point)
+    // on every message. The SESSION stays per-call on purpose: a reused LanguageModelSession
+    // accumulates its own transcript on top of the history we already carry in the prompt, so it
+    // would double-count context and eventually overflow the small on-device window.
+    private static let cachedInstructions = ChatLLM.instructions()
+
     var isAvailable: Bool {
         guard AppSettings.shared.llmChat else { return false }
         if case .available = SystemLanguageModel.default.availability { return true }
@@ -107,7 +125,7 @@ struct FoundationModelGenerator: ChatGenerator {
     }
 
     func generate(query: String, history: [ChatMessage]) async throws -> String {
-        let session = LanguageModelSession(instructions: ChatLLM.instructions())
+        let session = LanguageModelSession(instructions: Self.cachedInstructions)
         let response = try await session.respond(to: ChatLLM.prompt(query: query, history: history))
         return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
     }

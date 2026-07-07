@@ -1,6 +1,7 @@
 import SceneKit
 import UIKit
 import SwiftUI
+import GLTFKit2
 import simd
 
 // Shared SceneKit primitives for the 3D atlas + part drill-downs, so the marker material, the
@@ -199,15 +200,68 @@ enum AtlasMarkers {
 
     // Resolve a hit-test to an acupoint by walking up to a node named "acu:<id>". (Body3DView keeps
     // its own variant because it also resolves meridian channels in the same pass.)
+    //
+    // Only the NEAREST hit decides: hitTest returns results nearest-first, so if the first thing
+    // under the finger is the mesh, a depth-hidden far-side marker behind it (KI1 under the foot
+    // dorsum, palm points through the dorsal hand) must NOT be tappable straight through the
+    // surface. Walking further down the hit list would do exactly that. Halos are CHILDREN of the
+    // marker node, so when the nearest hit is a halo the ancestor walk still resolves "acu:".
     static func acupoint(in hits: [SCNHitTestResult]) -> Acupoint? {
-        for h in hits {
-            var n: SCNNode? = h.node
-            while let node = n {
-                if let name = node.name, name.hasPrefix("acu:") { return Acupoint.byId[String(name.dropFirst(4))] }
-                n = node.parent
-            }
+        guard let first = hits.first else { return nil }
+        var n: SCNNode? = first.node
+        while let node = n {
+            if let name = node.name, name.hasPrefix("acu:") { return Acupoint.byId[String(name.dropFirst(4))] }
+            n = node.parent
         }
         return nil
+    }
+
+    // Shared GLB scaffolding for the detailed drill-down views (hand + head/arm/foot). Resolves the
+    // prepared unit mesh from AtlasMeshCache — or decodes the bundled GLB, prepares it via unitMesh,
+    // and stores the never-parented master — then orients it, adds it to the scene, wires the
+    // explicit camera (registered with the tap coordinator for "reset view"), and hands the mesh to
+    // `placeMarkers`. Preserves the cache's clone-from-master semantics: every install gets a clone.
+    // The loading flag is reported ASYNC so the @State write never lands inside the SwiftUI update
+    // that ran makeUIView.
+    static func installDetailMesh(resource: String, nodeName: String? = nil,
+                                  euler: SCNVector3, cameraZ: Float,
+                                  in scene: SCNScene, view: SCNView, coordinator: AcuTapCoordinator,
+                                  loading: Binding<Bool>?,
+                                  placeMarkers: @escaping (SCNNode) -> Void) {
+        func setLoading(_ v: Bool) {
+            guard let loading else { return }
+            DispatchQueue.main.async { loading.wrappedValue = v }
+        }
+        func install(_ mesh: SCNNode) {
+            mesh.eulerAngles = euler
+            scene.rootNode.addChildNode(mesh)
+            let cam = installCamera(z: cameraZ, in: scene, for: view)
+            coordinator.registerCamera(cam)
+            placeMarkers(mesh)
+            setLoading(false)
+        }
+        let cacheKey = AtlasMeshCache.key(resource: resource, nodeName: nodeName)
+        if let cached = AtlasMeshCache.mesh(for: cacheKey) {
+            install(cached)
+        } else if let url = Bundle.main.url(forResource: resource, withExtension: "glb") {
+            setLoading(true)
+            GLTFAsset.load(with: url, options: [:]) { _, status, maybeAsset, _, _ in
+                // The handler also fires with intermediate statuses (parsing/processing) — only
+                // .error is terminal; anything else non-complete just reports progress.
+                guard status == .complete, let asset = maybeAsset else {
+                    if status == .error { setLoading(false) }
+                    return
+                }
+                let gltf = SCNScene(gltfAsset: asset)
+                DispatchQueue.main.async {
+                    guard let mesh = unitMesh(from: gltf, material: meshMaterial(), nodeName: nodeName) else {
+                        setLoading(false); return
+                    }
+                    AtlasMeshCache.store(mesh, for: cacheKey)
+                    install(mesh.clone())
+                }
+            }
+        }
     }
 
     // The warm parchment-sage PBR material shared by the detailed hand / part drill-down meshes.

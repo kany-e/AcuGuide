@@ -1,6 +1,5 @@
 import SwiftUI
 import SceneKit
-import GLTFKit2
 import simd
 
 // Detailed 3D hand (hand_low_poly.glb by scribbletoad, CC-BY 4.0) for the hand drill-down — it has
@@ -9,29 +8,27 @@ import simd
 //
 // Acupoint markers: this asset is arbitrarily posed in its own coordinate frame, so axis-aligned
 // bbox-fraction placement lands off-surface. Instead we map the VALIDATED 2D hand-atlas positions
-// (the same 360×440 box HandAtlasView uses) into the dorsal viewing plane and RAYCAST each onto the
-// mesh surface in world space — robust to the mesh's odd local axes. The mapping is a small tunable
-// affine (HandMarkerCalib); if the points read mirrored/rotated on device, flip one flag there
-// (the same kind of one-line visual nudge TE3 needed). Markers are tappable (onSelect). Shared
-// marker/material/mesh/tap helpers live in SceneKitAtlas.
+// (the 360×440 atlas box the point data in Acupoints.swift is calibrated to) into the dorsal
+// viewing plane and RAYCAST each onto the mesh surface in world space — robust to the mesh's odd
+// local axes. The mapping is a small tunable affine (HandMarkerCalib); if the points read
+// mirrored/rotated on device, flip one flag there (the same kind of one-line visual nudge TE3
+// needed). Markers are tappable (onSelect). Shared marker/material/mesh/tap helpers live in
+// SceneKitAtlas.
 struct HandModel3DView: UIViewRepresentable {
     var resetToken: Int = 0                      // bump to animate the camera back to canonical
     var loading: Binding<Bool>? = nil            // reports GLB decode state to the sheet chrome
     var onSelect: (Acupoint) -> Void = { _ in }
 
     // Atlas→dorsal-plane mapping. After centre+scale+rotate, fingers run along world Y and the
-    // dorsal face looks toward +Z (the camera). These map atlas (x,y in 360×440) → world (X,Y);
-    // each marker is then raycast onto the surface. Tweak here if the layout needs nudging. Only
-    // points whose atlas (x,y) falls inside [ax/ay range] are placed — so the dorsal hand points
-    // (TE3/SI3/PC8/HT7) map on, while the forearm points (PC6 y=344 / SJ5 y=320) are left to the
-    // body atlas rather than fired off the hand mesh.
+    // dorsal face looks toward +Z (the camera). These map atlas (x,y in 360×440) → normalized (u,v)
+    // in the hand's on-screen bounding box; each marker is then raycast onto the surface
+    // (AtlasMarkers.screenMarker). Tweak here if the layout needs nudging. Only points whose atlas
+    // (x,y) falls inside [ax/ay range] are placed — so the dorsal hand points (TE3/SI3/PC8/HT7)
+    // map on, while the forearm points (PC6 y=344 / SJ5 y=320) are left to the body atlas rather
+    // than fired off the hand mesh.
     enum HandMarkerCalib {
         static let flipX = false
         static let flipY = true                 // atlas y grows down (toward wrist) → world Y grows up
-        static let spanX: Float = 0.30          // world half-width the atlas x-range maps onto
-        static let spanY: Float = 0.42          // world half-height the atlas y-range maps onto
-        static let centerX: Float = 0
-        static let centerY: Float = 0.0
         // Calibrated against the CENTERED unit mesh in the chart pose (fingers up, thumb left): the
         // thumb widens the screen bbox, so the atlas x-range maps onto a WIDER virtual box (0…320)
         // to compress the ulnar column back onto the hand. Tuned via the DetailSnapshotTests render.
@@ -39,13 +36,6 @@ struct HandModel3DView: UIViewRepresentable {
         static let ayMin: Double = 45,  ayMax: Double = 300   // atlas y extent of the hand
         static func contains(_ ax: Double, _ ay: Double) -> Bool {
             ax >= axMin && ax <= axMax && ay >= ayMin && ay <= ayMax
-        }
-        static func world(_ ax: Float, _ ay: Float) -> (Float, Float) {
-            var u = (ax - Float(axMin)) / Float(axMax - axMin) - 0.5
-            var v = (ay - Float(ayMin)) / Float(ayMax - ayMin) - 0.5
-            if flipX { u = -u }
-            if flipY { v = -v }
-            return (centerX + u * 2 * spanX, centerY + v * 2 * spanY)
         }
         // Normalized (u,v) in ~[-0.5…0.5] — a fraction of the hand's on-screen bounding box, for the
         // camera-space marker placement (AtlasMarkers.screenMarker).
@@ -97,25 +87,15 @@ struct HandModel3DView: UIViewRepresentable {
         // (lastResetToken 0); sync here so the first updateUIView doesn't fire a spurious reset.
         context.coordinator.lastResetToken = resetToken
 
-        let cacheKey = AtlasMeshCache.key(resource: "hand_low_poly")
-        if let cached = AtlasMeshCache.mesh(for: cacheKey) {
-            install(mesh: cached, in: scene, view: view, coordinator: context.coordinator)
-        } else if let url = Bundle.main.url(forResource: "hand_low_poly", withExtension: "glb") {
-            setLoading(true)
-            GLTFAsset.load(with: url, options: [:]) { _, status, maybeAsset, _, _ in
-                // The handler also fires with intermediate statuses (parsing/processing) — only
-                // .error is terminal; anything else non-complete just reports progress.
-                guard status == .complete, let asset = maybeAsset else {
-                    if status == .error { setLoading(false) }
-                    return
-                }
-                let gltf = SCNScene(gltfAsset: asset)
-                DispatchQueue.main.async {
-                    guard let mesh = AtlasMarkers.unitMesh(from: gltf, material: AtlasMarkers.meshMaterial()) else { setLoading(false); return }
-                    AtlasMeshCache.store(mesh, for: cacheKey)
-                    install(mesh: mesh.clone(), in: scene, view: view, coordinator: context.coordinator)
-                }
-            }
+        // Shared cache/decode/camera scaffolding (SceneKitAtlas.installDetailMesh); this view only
+        // supplies the pose + its marker placement. Chart pose: fingers up, thumb left, dorsum to
+        // the camera — matches the 2D hand atlas convention, so the atlas (x,y)→(u,v) mapping lands
+        // on the same anatomy.
+        AtlasMarkers.installDetailMesh(resource: "hand_low_poly",
+                                       euler: SCNVector3(0, 0.72, Float.pi), cameraZ: 2.3,
+                                       in: scene, view: view, coordinator: context.coordinator,
+                                       loading: loading) { mesh in
+            placeMarkers(mesh: mesh, in: scene)
         }
 
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(AcuTapCoordinator.handleTap(_:)))
@@ -129,24 +109,6 @@ struct HandModel3DView: UIViewRepresentable {
             context.coordinator.lastResetToken = resetToken
             context.coordinator.resetCamera()
         }
-    }
-
-    // Orient + add the (cached or freshly decoded) mesh, wire the camera, and place the markers.
-    private func install(mesh: SCNNode, in scene: SCNScene, view: SCNView, coordinator: AcuTapCoordinator) {
-        // Chart pose: fingers up, thumb left, dorsum to the camera — matches the 2D hand
-        // atlas convention, so the atlas (x,y)→(u,v) mapping lands on the same anatomy.
-        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
-        scene.rootNode.addChildNode(mesh)
-        let cam = AtlasMarkers.installCamera(z: 2.3, in: scene, for: view)
-        coordinator.registerCamera(cam)
-        placeMarkers(mesh: mesh, in: scene)
-        setLoading(false)
-    }
-
-    // Async so the @State write never lands inside the SwiftUI update that called makeUIView.
-    private func setLoading(_ v: Bool) {
-        guard let loading = loading else { return }
-        DispatchQueue.main.async { loading.wrappedValue = v }
     }
 
     // Geometry-based marker placement: cast a ray from the camera through each in-range hand point's

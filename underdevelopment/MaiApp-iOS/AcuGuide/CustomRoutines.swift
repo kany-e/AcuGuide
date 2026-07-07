@@ -46,16 +46,23 @@ final class CustomRoutineStore: ObservableObject {
         }
     }
 
-    // Insert-or-replace by id; new routines append (stable card order).
-    func save(_ routine: CustomRoutine) {
+    // Insert-or-replace by id; new routines append (stable card order). At the cap a NEW routine
+    // is REFUSED (returns false) — user-authored content must never be silently evicted the way a
+    // capped telemetry log is (review-caught: saving a 21st routine deleted the oldest one).
+    @discardableResult
+    func save(_ routine: CustomRoutine) -> Bool {
         if let i = routines.firstIndex(where: { $0.id == routine.id }) {
             routines[i] = routine
-        } else {
-            routines.append(routine)
-            if routines.count > Self.cap { routines.removeFirst(routines.count - Self.cap) }
+            persist()
+            return true
         }
+        guard routines.count < Self.cap else { return false }
+        routines.append(routine)
         persist()
+        return true
     }
+
+    var isAtCap: Bool { routines.count >= Self.cap }
 
     func delete(id: String) {
         routines.removeAll { $0.id == id }
@@ -79,6 +86,7 @@ struct RoutineBuilderView: View {
     @State private var name: String
     @State private var steps: [CustomRoutine.Step]
     @State private var showPicker = false
+    @State private var capRefused = false
 
     private static let maxSteps = 8
 
@@ -92,11 +100,7 @@ struct RoutineBuilderView: View {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !steps.isEmpty
     }
 
-    private var minutes: Int {
-        let rounds = steps.reduce(0) { $0 + $1.rounds }
-        let seconds = Double(rounds) * CoachConst.holdTargetS + Double(max(0, rounds - 1)) * CoachConst.restS
-        return max(1, Int((seconds / 60).rounded()))
-    }
+    private var minutes: Int { Routine.minutes(forRounds: steps.reduce(0) { $0 + $1.rounds }) }
 
     var body: some View {
         NavigationStack {
@@ -146,6 +150,13 @@ struct RoutineBuilderView: View {
                                 .font(.footnote).foregroundStyle(Ink.textDim)
                         }
                     }
+                    if capRefused {
+                        Section {
+                            Text(AppLocale.pick("已达到 20 个套组的上限 — 删除一个再保存新的。",
+                                                "You've reached the 20-routine limit — delete one to save a new one."))
+                                .font(.footnote).foregroundStyle(Ink.terracotta)
+                        }
+                    }
                 }
                 .scrollContentBackground(.hidden)
             }
@@ -161,8 +172,7 @@ struct RoutineBuilderView: View {
                         var r = editing ?? CustomRoutine(name: "", steps: [])
                         r.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
                         r.steps = steps
-                        CustomRoutineStore.shared.save(r)
-                        dismiss()
+                        if CustomRoutineStore.shared.save(r) { dismiss() } else { capRefused = true }
                     }
                     .tint(Ink.gold)
                     .disabled(!canSave)
@@ -197,17 +207,7 @@ private struct RoutinePointPicker: View {
                                     Button {
                                         onPick(pt)
                                     } label: {
-                                        HStack(spacing: 10) {
-                                            Circle().fill(MeridianColors.color(pt.meridian))
-                                                .frame(width: 9, height: 9).accessibilityHidden(true)
-                                            Text("\(pt.id) · \(AppLocale.pick(pt.zh, pt.en))")
-                                                .font(.subheadline).foregroundStyle(Ink.text)
-                                            Spacer()
-                                            Image(systemName: pt.mediapipeTarget != nil ? "camera.viewfinder" : "timer")
-                                                .font(.caption).foregroundStyle(Ink.textDim)
-                                                .accessibilityHidden(true)
-                                        }
-                                        .accessibilityElement(children: .combine)
+                                        AcupointListRow(pt: pt)
                                     }
                                 }
                             }

@@ -17,7 +17,7 @@ validated web logic), and a **themed AI chatbot** — all in the same ink-and-go
 | `Theme.swift` | Ink-and-gold palette (1:1 with MaiApp's `styles.css` tokens) + panel/button styles. |
 | `Acupoints.swift` | Full bilingual hand atlas from `data.js` (TE3 + PC6/SJ5/PC8/HT7/SI3; TE3 only AR; no LI4). |
 | `Body3DView.swift` | SceneKit body — loads `model.glb` via **GLTFKit2** (sage material), capsule fallback; pulsing hand hotspot. |
-| `HandAtlasView.swift` | Hand acupoint map — real `HAND_PTS` Catmull-Rom silhouette + radial skin gradient + tendon hints. |
+| `HandModel3DView.swift` | Detailed 3D hand drill-down (scribbletoad's CC-BY model) with raycast acupoint markers. |
 | `HandModel.swift` | Vision joints + geometry: `weightedTarget`, `handSize`, **calibrated dorsal/palmar test**. |
 | `Coach.swift` | `CoachEngine` — position + hold + steadiness state machine (no cadence; correct technique). |
 | `CameraCoach.swift` | AVCapture + `VNDetectHumanHandPoseRequest` → drives `CoachEngine`; camera preview. |

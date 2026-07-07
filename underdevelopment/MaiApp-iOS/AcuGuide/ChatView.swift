@@ -88,6 +88,12 @@ final class ChatService {
         return CoachAnswer(text: generalReply(), suggestions: practiceable(headlinePoints))
     }
 
+    // Whole-word English tokenization, shared by every matcher (each used to roll its own —
+    // review-caught drift risk between the red-flag screen and the symptom matcher).
+    static func wordTokens(_ lowered: String) -> Set<String> {
+        Set(lowered.split { !$0.isLetter }.map(String.init))
+    }
+
     // Practiceable = has a validated AR target. Dedup, cap a few so the bubble stays compact.
     private func practiceable(_ pts: [Acupoint]) -> [Acupoint] {
         var seen = Set<String>(); var out: [Acupoint] = []
@@ -128,7 +134,7 @@ final class ChatService {
              ["TE4", "PC7"]),
         ]
         func kwContains(_ s: String) -> Bool { lowered.contains(s) || raw.contains(s) }
-        let tokens = Set(lowered.split { !$0.isLetter }.map(String.init))
+        let tokens = ChatService.wordTokens(lowered)
         func pairHalf(_ s: String) -> Bool {
             s.allSatisfy(\.isASCII) ? tokens.contains(s) : raw.contains(s)
         }
@@ -164,8 +170,7 @@ final class ChatService {
             "worse", "worsening", "pregnant", "pregnancy", "bleeding", "pacemaker",
             "infection", "infected", "swelling", "swollen", "injury", "injured", "fracture", "fractured",
         ]
-        let tokens = lowered.split { !$0.isLetter }.map(String.init)
-        if tokens.contains(where: { words.contains($0) }) { return true }
+        if !ChatService.wordTokens(lowered).isDisjoint(with: words) { return true }
         // Chinese cues — specific medical terms; substring is safe (and matchPoint guards prose).
         let zh = ["剧痛", "剧烈", "麻木", "头晕", "无力", "加重", "恶化", "胸痛",
                   "怀孕", "妊娠", "出血", "起搏器", "呼吸困难", "喘不过气",
@@ -344,6 +349,7 @@ struct ChatView: View {
     @State private var input = ""
     @State private var sending = false
     @State private var showClearConfirm = false
+    @State private var chatGeneration = 0   // bumped on Clear; stale in-flight replies are dropped
     @FocusState private var inputFocused: Bool     // dismissable keyboard (was: no way to close it)
     private let service = ChatService()
 
@@ -403,6 +409,7 @@ struct ChatView: View {
         .confirmationDialog(AppLocale.pick("清空对话？", "Clear this conversation?"),
                             isPresented: $showClearConfirm, titleVisibility: .visible) {
             Button(AppLocale.pick("清空", "Clear"), role: .destructive) {
+                chatGeneration += 1   // an in-flight reply must not resurrect into the cleared chat
                 messages = [ChatView.greetingMessage()]
                 ChatStore.clear()
             }
@@ -413,6 +420,11 @@ struct ChatView: View {
                 Spacer()
                 Button(AppLocale.pick("收起", "Done")) { inputFocused = false }.tint(Ink.gold)
             }
+        }
+        // The greeting is generated in the language active at view creation — refresh it when the
+        // user toggles languages so the first bubble doesn't stay in the old one.
+        .onChange(of: settings.lang) { _ in
+            if !messages.isEmpty { messages[0] = ChatView.greetingMessage() }
         }
     }
 
@@ -467,12 +479,17 @@ struct ChatView: View {
         // appends "User: <query>" itself, so capturing after duplicated the question in every prompt.
         let hist = messages
         messages.append(.init(role: .user, text: q)); input = ""; sending = true
-        Task {
+        let gen = chatGeneration
+        // @MainActor: the deterministic pipeline reads AppSettings/AppLocale (@Published state) —
+        // running it on a background executor was an off-main read of main-published state. The
+        // LLM path still suspends (respond is async), so the main thread is never blocked.
+        Task { @MainActor in
             let r = await service.reply(to: q, history: hist)
-            await MainActor.run {
-                messages.append(.init(role: .coach, text: r.text, suggestions: r.suggestions)); sending = false
-                ChatStore.save(messages)   // survive app restarts (greeting excluded)
-            }
+            sending = false
+            // Cleared mid-flight → drop the orphan (it used to be appended AND persisted).
+            guard gen == chatGeneration else { return }
+            messages.append(.init(role: .coach, text: r.text, suggestions: r.suggestions))
+            ChatStore.save(messages)   // survive app restarts (greeting excluded)
         }
     }
 }

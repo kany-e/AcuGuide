@@ -9,13 +9,24 @@ final class AcuGuideTests: XCTestCase {
     // AppSettings.lang, which defaults to the device/simulator locale and persists — so on a Chinese
     // simulator those assertions would see Chinese copy and fail. Pin English here so the suite is
     // deterministic regardless of the ambient locale (the logic under test is locale-independent).
+    // AppSettings.lang's didSet persists into the HOST APP's real UserDefaults — restore the
+    // pre-test value in tearDown so running the suite doesn't flip the simulator app to English
+    // for a Chinese-locale user (review-caught pollution).
+    private var priorLang: AppSettings.Lang = .en
+
     override func setUp() {
         super.setUp()
+        priorLang = AppSettings.shared.lang
         AppSettings.shared.lang = .en
         // Pin the chat's deterministic paths: no default on-device generator in tests (a host sim
         // MAY have Apple Intelligence, which would make the free-form fallback nondeterministic).
         // LLM behavior is tested separately with an injected mock (ChatLLMTests).
         ChatService.defaultGeneratorEnabled = false
+    }
+
+    override func tearDown() {
+        AppSettings.shared.lang = priorLang
+        super.tearDown()
     }
 
     // The AR-coached set = the 8 documented hand/wrist points (TE3 + the others, sourced to WHO 2008).
@@ -69,6 +80,15 @@ final class AcuGuideTests: XCTestCase {
         for (id, c) in Acupoint.coachCues { check("coachCues[\(id)]", [c.alignEn, c.holdEn, c.alignZh, c.holdZh]) }
         // Meridian descriptions (rewritten from the Atlas of Acupuncture Points pathways).
         for m in Meridian.all { check(m.id, [m.descEn, m.descZh]) }
+        // Runtime-reachable copy beyond the datasets (the scan used to cover only the atlas
+        // tables, so view copy could drift unchecked). View-local literals still aren't
+        // enumerable at runtime — this covers every shared/static source of user-facing text.
+        for r in Routine.all { check("routine[\(r.id)]", [r.zh, r.en, r.descZh, r.descEn]) }
+        for f in ChatService.faqs { check("faq[\(f.topic)]", [f.aZh, f.aEn]) }
+        check("persona", [CoachPersona.name])
+        // (ChatLLM.instructions() is deliberately NOT scanned: it QUOTES the banned words to
+        // forbid them to the model, and it is model-facing, not user-facing — ChatSafety.allowed
+        // enforces the rule on what the model actually says.)
     }
 
     // Offline chat: a red-flag question (even one naming a point) must route to stop-and-seek-care,

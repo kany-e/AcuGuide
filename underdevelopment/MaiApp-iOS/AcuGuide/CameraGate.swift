@@ -9,6 +9,10 @@ import AVFoundation
 // starts are idempotent). The atlas/chat remain fully usable without ever granting the camera.
 struct CameraGate<Content: View>: View {
     var onAuthorized: () -> Void = {}
+    // Optional camera-free escape: hosts that HAVE a no-camera equivalent (the coach → guided
+    // timer) surface it on the permission screens, so a denied camera never dead-ends a session
+    // or a routine step. Locators (face/torso) have no equivalent and leave it nil.
+    var onUseTimer: (() -> Void)? = nil
     @ViewBuilder let content: () -> Content
     @State private var status = AVCaptureDevice.authorizationStatus(for: .video)
 
@@ -55,6 +59,10 @@ struct CameraGate<Content: View>: View {
                 Text(text).font(.subheadline).foregroundStyle(Ink.text)
                     .multilineTextAlignment(.center).padding(.horizontal, 8)
                 Button(button, action: action).buttonStyle(GoldButtonStyle())
+                if let onUseTimer {
+                    Button(AppLocale.pick("不用相机 · 计时引导", "Use the guided timer instead")) { onUseTimer() }
+                        .font(.subheadline).tint(Ink.gold)
+                }
             }
             .padding(28)
         }

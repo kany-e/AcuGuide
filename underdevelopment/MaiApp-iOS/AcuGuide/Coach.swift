@@ -77,6 +77,11 @@ final class CoachStateMachine {
 
     var progress: Double { min(1, holdTime / holdTargetS) }
 
+    // Engagement as of the LAST step — the single source for "was the press engaged a frame ago"
+    // (the engine used to reconstruct this from its own published phase with two different member
+    // sets; review-caught drift risk).
+    var isEngaged: Bool { engaged }
+
     private func dt(_ t: Double) -> Double {
         defer { prevT = t }
         if let p = prevT, t - p > 0 { return min(t - p, CoachConst.maxFrameDtS) }
@@ -166,10 +171,30 @@ final class CoachStateMachine {
 final class CoachEngine: ObservableObject {
     @Published var phase: CoachPhase = .noHand
     @Published var ringCenter: CGPoint? = nil      // normalized, top-left origin (smoothed)
-    @Published var ringRadius: CGFloat = 0          // normalized
+    @Published var ringRadius: CGFloat = 0          // fraction of the frame WIDTH (isotropic units)
     @Published var pressTip: CGPoint? = nil
     @Published var progress: Double = 0             // 0...1 hold completion of the CURRENT round
     @Published var cue: String = "Bring your hand into the frame."
+
+    // Portrait display aspect (W/H, <1) of the live frame — set by CameraCoach before each update.
+    // Landmarks arrive normalized PER AXIS (x/W, y/H), which is anisotropic: 1.0 of y spans ~1.78×
+    // the pixels of 1.0 of x on a 9:16 frame. All hit-test geometry below therefore measures in
+    // ISOTROPIC width units via isoDist — otherwise the accept region is a tall ellipse ~1.78× the
+    // drawn ring vertically, and handSize swings ~1.78× with hand rotation (review-caught).
+    var frameAspect: CGFloat = 9.0 / 16.0
+
+    // Isotropic distance in width units: y-offsets are scaled by H/W (= 1/frameAspect).
+    private func isoDist(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
+        let dx = a.x - b.x
+        let dy = (a.y - b.y) / max(frameAspect, 0.1)
+        return (dx * dx + dy * dy).squareRoot()
+    }
+    // Hand scale (wrist → middle MCP) in the same isotropic width units, so tolerance fractions
+    // don't inflate/shrink with hand orientation.
+    private func isoHandSize(_ h: Hand) -> CGFloat? {
+        guard let w = h.p(.wrist), let m = h.p(.middleMCP) else { return nil }
+        return isoDist(w, m)
+    }
 
     // Session layer: repeated press/release rounds on top of the validated per-round state machine
     // (the machine itself stays a pure single-hold automaton — fixtures still validate it).
@@ -177,7 +202,11 @@ final class CoachEngine: ObservableObject {
     @Published private(set) var sessionComplete = false
     let roundsTarget: Int
     private let restS: Double
-    private var restUntil: Double? = nil            // non-nil while in the release gap
+    // Release gap between rounds, counted down by FRAME time (dt-clamped) rather than a wall-clock
+    // deadline: frames stop while the user pauses or app-switches, so the guided rest freezes with
+    // them instead of silently expiring behind a pause overlay that promised "progress is kept".
+    private var restLeft: Double? = nil             // non-nil while in the release gap
+    private var restLastT: Double = 0               // last frame timestamp seen during the gap
     private var restRemaining = 0                   // whole seconds, for the rest cue
     private var heldAccum = 0.0                     // banked hold seconds from finished rounds
     var totalHeldS: Double { heldAccum + machine.holdTime }   // for the recap (quit-anytime honest)
@@ -246,7 +275,7 @@ final class CoachEngine: ObservableObject {
     func reset() {
         machine.reset(); smoother.reset(); pressSmoother.reset(); roleReset()
         lastFaceCorrect = false; lastTipT = -.infinity; lonePresserSince = nil
-        roundsDone = 0; sessionComplete = false; restUntil = nil; heldAccum = 0
+        roundsDone = 0; sessionComplete = false; restLeft = nil; heldAccum = 0
         roundTimes = []; clearHint()
         phase = .noHand; ringCenter = nil; pressTip = nil; progress = 0
         cue = AppLocale.pick("把手放到镜头前就好。", "Bring your hand into view whenever you're ready.")
@@ -273,15 +302,19 @@ final class CoachEngine: ObservableObject {
         // Release gap between rounds — timer-driven, NOT machine-driven: the user is told to let go,
         // so hands leaving the frame is expected and must not flash NO_HAND. The last ring stays on
         // screen (dim) as the guide back; the round machine restarts clean when the gap ends.
-        if let until = restUntil {
-            if now < until {
-                restRemaining = Int((until - now).rounded(.up))
+        if let left = restLeft {
+            let d = min(max(0, now - restLastT), CoachConst.maxFrameDtS)   // clamp: a pause/app-switch gap counts as one frame
+            restLastT = now
+            let remaining = left - d
+            if remaining > 0 {
+                restLeft = remaining
+                restRemaining = Int(remaining.rounded(.up))
                 pressTip = nil
                 clearHint()
                 apply(.resting, point: point, hasPresser: false)
                 return
             }
-            restUntil = nil                                            // machine was reset when the gap began
+            restLeft = nil                                             // machine was reset when the gap began
             smoother.reset(); pressSmoother.reset(); lastTipT = -.infinity
         }
 
@@ -327,6 +360,7 @@ final class CoachEngine: ObservableObject {
                     smoother.reset(); pressSmoother.reset(); roleReset(); lastFaceCorrect = false
                     lastTipT = -.infinity
                     ringCenter = nil; pressTip = nil
+                    clearHint()   // the NO_HAND cue supersedes the stale occlusion hint
                     apply(machine.step(noHandInput(now)), point: point, hasPresser: false)
                     return
                 }
@@ -364,7 +398,7 @@ final class CoachEngine: ObservableObject {
         // the steadiness run. Keep the last ring; drop the now-stale press tip. Do NOT reset the
         // smoother — geometry resumes continuously.
         guard let rawCenter = receiver.weightedTarget(target.anchors),
-              receiver.handSize > 0 else {
+              let handScale = isoHandSize(receiver), handScale > 0 else {
             pressTip = nil
             // Sustained anchor loss = the pressing hand is covering the receiver's landmarks.
             occlusionHint(now, AppLocale.pick("让手腕和指节露出来一点。",
@@ -376,7 +410,7 @@ final class CoachEngine: ObservableObject {
             return
         }
         clearHint()   // geometry is resolving again
-        let hs = receiver.handSize
+        let hs = handScale
         // M1 shadow mode: run the learned CoreML head next to the affine target + log the delta. Never
         // alters the ring/state machine — reads the hand only. See LearnedLocalizer / M1 experiment.
         ShadowLocalizer.shared.record(hand: receiver, point: point, affine: rawCenter, handSize: hs, pressing: presser != nil)
@@ -409,7 +443,7 @@ final class CoachEngine: ObservableObject {
             let tip = pressSmoother.filter(measured.point, now)
             pressTip = tip; hasPresser = true
             lastTipT = now
-            let dd = dist(tip, center)
+            let dd = isoDist(tip, center)
             // Palm-glaze gate (user-reported: "whatever hand part glazes over the area, it tracks"):
             // when a palm covers the target, Vision still hallucinates a LOW-confidence tip under it,
             // which used to start engagement. A NEW engagement now needs a confident tip; an ongoing
@@ -417,7 +451,7 @@ final class CoachEngine: ObservableObject {
             // The confidence comes from the pressTip MEASUREMENT itself, so the DIP/PIP-reconstructed
             // tip (confidence 0 — an unmeasured guess) can sustain but never start an engagement.
             // Fixture/test hands carry no confidences → default reliable, so the validated paths hold.
-            let wasEngaged = phase == .holding || phase == .onTargetUnstable
+            let wasEngaged = machine.isEngaged
             inEnter = dd < tol && (measured.confidence >= 0.4 || wasEngaged)
             inExit = dd < tol * CoachConst.exitRadiusMult
             offN = Double(dd / hs)
@@ -445,7 +479,8 @@ final class CoachEngine: ObservableObject {
                 // gap), so totalHeldS = banked + live never double-counts a finished round.
                 heldAccum += machine.holdTime
                 machine.reset()
-                restUntil = now + restS
+                restLeft = restS
+                restLastT = now
                 restRemaining = Int(restS.rounded(.up))
                 pressTip = nil
                 apply(.resting, point: point, hasPresser: false)
@@ -462,10 +497,14 @@ final class CoachEngine: ObservableObject {
                         insideEnterRadius: false, insideExitRadius: false, offsetXHandSize: nil)
     }
 
+    // Guarded writes: this runs every camera frame, and an unconditional @Published assignment
+    // invalidates the SwiftUI overlay 30×/sec even when nothing changed.
     private func apply(_ phase: CoachPhase, point: Acupoint, hasPresser: Bool) {
-        self.phase = phase
-        progress = machine.progress
-        cue = cueFor(phase, point: point, hasPresser: hasPresser)
+        if self.phase != phase { self.phase = phase }
+        let p = machine.progress
+        if progress != p { progress = p }
+        let newCue = cueFor(phase, point: point, hasPresser: hasPresser)
+        if cue != newCue { cue = newCue }
     }
 
     private func cueFor(_ phase: CoachPhase, point: Acupoint, hasPresser: Bool) -> String {
@@ -542,7 +581,7 @@ final class CoachEngine: ObservableObject {
             // (user-reported on multiple points). A lone presser means the receiver is occluded,
             // NOT that roles changed.
             if let lrw = lastReceiverWrist, let lpw = lastPresserWrist, let w = h.p(.wrist),
-               dist(w, lpw) < dist(w, lrw) {
+               isoDist(w, lpw) < isoDist(w, lrw) {
                 // Anchors stay FROZEN here: re-anchoring the presser to the lone hand every frame
                 // made the classification self-latch (the anchor followed the hand wherever it
                 // moved, so it could never be re-read as the receiver). The engine's
@@ -559,7 +598,7 @@ final class CoachEngine: ObservableObject {
         func score(_ recv: Hand, _ other: Hand) -> CGFloat {
             guard let t = recv.weightedTarget(target.anchors),
                   let tip = other.pressTip(target.pressFinger)?.point else { return .greatestFiniteMagnitude }
-            return dist(t, tip)
+            return isoDist(t, tip)
         }
         let sA = score(a, b), sB = score(b, a)
         let prefAIsReceiver = sA <= sB
@@ -568,8 +607,8 @@ final class CoachEngine: ObservableObject {
         // does not give stable IDs across frames), then only flip on sustained disagreement.
         if let lrw = lastReceiverWrist, let lpw = lastPresserWrist,
            let aw = a.p(.wrist), let bw = b.p(.wrist) {
-            let cost1 = dist(aw, lrw) + dist(bw, lpw)   // a=receiver, b=presser
-            let cost2 = dist(bw, lrw) + dist(aw, lpw)   // b=receiver, a=presser
+            let cost1 = isoDist(aw, lrw) + isoDist(bw, lpw)   // a=receiver, b=presser
+            let cost2 = isoDist(bw, lrw) + isoDist(aw, lpw)   // b=receiver, a=presser
             let stickyAIsReceiver = cost1 <= cost2
 
             // ROLE LOCK while engaged on the point (on-target / holding / pause-grace): mid-press the
@@ -577,7 +616,7 @@ final class CoachEngine: ObservableObject {
             // points (PC6/SJ5, target extrapolated past the wrist) it repeatedly flipped the ring onto
             // the MASSAGING hand. Nobody swaps hands mid-press: while engaged, keep the sticky roles
             // and don't accumulate swap votes. Swaps confirm only while genuinely searching.
-            let engaged = phase == .holding || phase == .onTargetUnstable || phase == .paused
+            let engaged = machine.isEngaged || phase == .paused
             if engaged { swapVotes = 0; return commitRoles(aIsReceiver: stickyAIsReceiver, a: a, b: b) }
 
             // While searching, a disagreement only counts toward a swap when the swapped assignment

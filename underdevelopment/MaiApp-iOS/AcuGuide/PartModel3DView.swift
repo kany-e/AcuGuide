@@ -1,6 +1,5 @@
 import SwiftUI
 import SceneKit
-import GLTFKit2
 import simd
 
 // Reusable detailed drill-down for a single body-part model (head / arm / foot), mirroring the
@@ -91,26 +90,14 @@ struct PartModel3DView: UIViewRepresentable {
         // (lastResetToken 0); sync here so the first updateUIView doesn't fire a spurious reset.
         context.coordinator.lastResetToken = resetToken
 
+        // Shared cache/decode/camera scaffolding (SceneKitAtlas.installDetailMesh); this view only
+        // supplies the part's canonical pose + its marker placement.
         let cfg = config
-        let cacheKey = AtlasMeshCache.key(resource: cfg.resource, nodeName: cfg.nodeName)
-        if let cached = AtlasMeshCache.mesh(for: cacheKey) {
-            install(mesh: cached, in: scene, view: view, coordinator: context.coordinator)
-        } else if let url = Bundle.main.url(forResource: cfg.resource, withExtension: "glb") {
-            setLoading(true)
-            GLTFAsset.load(with: url, options: [:]) { _, status, maybeAsset, _, _ in
-                // The handler also fires with intermediate statuses (parsing/processing) — only
-                // .error is terminal; anything else non-complete just reports progress.
-                guard status == .complete, let asset = maybeAsset else {
-                    if status == .error { setLoading(false) }
-                    return
-                }
-                let gltf = SCNScene(gltfAsset: asset)
-                DispatchQueue.main.async {
-                    guard let mesh = AtlasMarkers.unitMesh(from: gltf, material: AtlasMarkers.meshMaterial(), nodeName: cfg.nodeName) else { setLoading(false); return }
-                    AtlasMeshCache.store(mesh, for: cacheKey)
-                    install(mesh: mesh.clone(), in: scene, view: view, coordinator: context.coordinator)
-                }
-            }
+        AtlasMarkers.installDetailMesh(resource: cfg.resource, nodeName: cfg.nodeName,
+                                       euler: cfg.euler, cameraZ: 2.4,
+                                       in: scene, view: view, coordinator: context.coordinator,
+                                       loading: loading) { mesh in
+            placeMarkers(in: scene, mesh: mesh, config: cfg)
         }
 
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(AcuTapCoordinator.handleTap(_:)))
@@ -124,22 +111,6 @@ struct PartModel3DView: UIViewRepresentable {
             context.coordinator.lastResetToken = resetToken
             context.coordinator.resetCamera()
         }
-    }
-
-    // Orient + add the (cached or freshly decoded) mesh, wire the camera, and place the markers.
-    private func install(mesh: SCNNode, in scene: SCNScene, view: SCNView, coordinator: AcuTapCoordinator) {
-        mesh.eulerAngles = config.euler
-        scene.rootNode.addChildNode(mesh)
-        let cam = AtlasMarkers.installCamera(z: 2.4, in: scene, for: view)
-        coordinator.registerCamera(cam)
-        placeMarkers(in: scene, mesh: mesh, config: config)
-        setLoading(false)
-    }
-
-    // Async so the @State write never lands inside the SwiftUI update that called makeUIView.
-    private func setLoading(_ v: Bool) {
-        guard let loading = loading else { return }
-        DispatchQueue.main.async { loading.wrappedValue = v }
     }
 
     // Geometry-based marker placement: cast a ray from the camera through each acupoint's (u,v) fraction

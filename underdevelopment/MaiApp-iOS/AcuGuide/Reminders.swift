@@ -1,6 +1,18 @@
 import Foundation
 import UserNotifications
 
+// Foreground presentation: without a delegate, iOS silently swallows a reminder that fires while
+// the app is open — the user simply loses that day's nudge (review-caught). Installed once at app
+// start; a static keeps the delegate reference alive (the center holds it weakly).
+final class ReminderPresentation: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = ReminderPresentation()
+    func install() { UNUserNotificationCenter.current().delegate = self }
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+}
+
 // Optional daily practice reminder — one local notification, scheduled on-device (consistent with
 // the no-server posture). Copy stays inside the wellness rules. Sync is idempotent: it always
 // removes the pending request first, then re-schedules if enabled and authorized.

@@ -11,6 +11,17 @@ import SwiftUI   // Color(hex:) + UIColor(Color)
 // subtle ink line (core #363c2f, soft halo #5b6551) so it "sits on the body". We keep that.
 enum BodyAtlas {
 
+    // Hit-test categories. The body SURFACE keeps SceneKit's default category (1) and is the ONLY
+    // legal target for the surface-snap raycasts below; everything decorative that gets parented
+    // under the mesh — channel tubes, their invisible 0.03-radius hit-proxy cylinders, joint
+    // spheres, acupoint markers — is category 2. Body3DView adds channels() to the mesh BEFORE
+    // markers() snap, so without this mask a marker's snap ray could land on a tube/proxy (up to
+    // ~0.03 proud of the skin) instead of the body. The mask pins the invariant regardless of
+    // build order. (Tap hit-tests are unaffected: view.hitTest without a categoryBitMask option
+    // matches every category.)
+    static let surfaceCategory = 1
+    static let decorationCategory = 2
+
     // ---- Bind-pose bone positions in mesh space (from model.glb inverseBindMatrices) ----
     static let bone: [String: SIMD3<Float>] = [
         "Head":  [0,  0.0115, 1.5631], "Neck": [0, 0.0300, 1.4869], "Chest": [0, 0.0000, 1.2792],
@@ -66,6 +77,9 @@ enum BodyAtlas {
         let spine = [b("Hips"), b("Spine"), b("Chest"), b("Neck")]
         root.addChildNode(channel(spine, dx: 0, meridian: "ren", mesh: mesh, front: true))
         root.addChildNode(channel(spine, dx: 0, meridian: "du",  mesh: mesh, front: false))
+        // Everything built above is decoration: exclude it from the surface-snap raycasts (see
+        // surfaceCategory). categoryBitMask is NOT inherited, so stamp every node in the tree.
+        root.enumerateHierarchy { n, _ in n.categoryBitMask = decorationCategory }
         return root
     }
 
@@ -134,6 +148,7 @@ enum BodyAtlas {
         let hits = mesh.hitTestWithSegment(from: a, to: bb, options: [
             SCNHitTestOption.backFaceCulling.rawValue: false,
             SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.closest.rawValue,
+            SCNHitTestOption.categoryBitMask.rawValue: surfaceCategory,   // body only, never tubes/markers
         ])
         guard let h = hits.first else { return nil }
         return Float(h.localCoordinates.y) + (front ? -0.006 : 0.006)
@@ -195,7 +210,9 @@ enum BodyAtlas {
     // `center` is the body point the camera frames on zoom; `radius` is that part's extent (so the
     // dolly distance fills the view with the PART, not the whole figure). `anchor` is where the
     // label floats (pushed to the front −y and nudged outward so the small labels don't pile up).
-    struct Region: Identifiable {
+    // Equatable so AtlasModel.Label can be Equatable — the 30 Hz projector republishes its label
+    // arrays only when they actually change.
+    struct Region: Identifiable, Equatable {
         let id: String; let zh: String; let en: String
         let anchor: SIMD3<Float>; let center: SIMD3<Float>; let radius: Float; let isHand: Bool
     }
@@ -280,6 +297,9 @@ enum BodyAtlas {
             node.isHidden = true        // revealed only for the focused region / selected meridian
             root.addChildNode(node)
         }
+        // Markers are decoration too: a later surface-snap raycast must never land on a marker
+        // sphere (see surfaceCategory). Stamped per-node — categoryBitMask is not inherited.
+        root.enumerateHierarchy { n, _ in n.categoryBitMask = decorationCategory }
         return root
     }
 
@@ -287,6 +307,8 @@ enum BodyAtlas {
     // cross-section at the marker's height z) from outside the body toward the central axis, and place
     // the marker just proud of the first surface hit — so an estimate that floated off the mesh lands
     // on it. Points near the vertical axis (vertex/sole) have no radial direction, so keep the estimate.
+    // The raycast is category-masked to the body surface: by the time markers snap, the channel tubes
+    // and their fat invisible hit-proxies are already children of `mesh` and would otherwise be hit.
     private static func snapToSurface(_ p: SIMD3<Float>, mesh: SCNNode) -> SIMD3<Float> {
         let radial = SIMD3<Float>(p.x, p.y, 0)
         let r = simd_length(radial)
@@ -297,6 +319,7 @@ enum BodyAtlas {
         let hits = mesh.hitTestWithSegment(from: SCNVector3(start), to: SCNVector3(axisPt), options: [
             SCNHitTestOption.backFaceCulling.rawValue: false,
             SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.closest.rawValue,
+            SCNHitTestOption.categoryBitMask.rawValue: surfaceCategory,   // body only, never tubes/markers
         ])
         guard let h = hits.first else { return p }
         let hit = SIMD3<Float>(Float(h.localCoordinates.x), Float(h.localCoordinates.y), Float(h.localCoordinates.z))

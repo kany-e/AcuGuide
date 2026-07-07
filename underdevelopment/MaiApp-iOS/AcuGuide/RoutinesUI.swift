@@ -59,8 +59,7 @@ struct RoutineDetailSheet: View {
                     Spacer()
                     Button(AppLocale.pick("开始套组", "Start routine")) { onStart() }
                         .buttonStyle(GoldButtonStyle()).frame(maxWidth: .infinity)
-                    Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
-                        .font(.caption2).foregroundStyle(Ink.textDim).frame(maxWidth: .infinity)
+                    WellnessFooter()
                 }
                 .padding()
             }
@@ -86,19 +85,18 @@ struct RoutineRunView: View {
             } else if let pt = routine.steps[stepIndex].point {
                 stepSession(pt, rounds: routine.steps[stepIndex].rounds)
                     .id(stepIndex)
+            } else {
+                // A step whose pointId no longer resolves must not soft-lock the run — skip it.
+                Color.clear.onAppear { stepIndex += 1 }
             }
         }
     }
 
+    // One shared session factory (PracticeSessionView) — it owns the camera-vs-timer dispatch AND
+    // the camera-denied timer fallback, so a routine step is never unpassable.
     @ViewBuilder private func stepSession(_ pt: Acupoint, rounds: Int) -> some View {
-        let next = nextHandOff
-        if pt.mediapipeTarget != nil {
-            ARCoachView(acupoint: pt, roundsTarget: rounds, onNext: next,
-                        acknowledgedInitially: stepIndex > 0)
-        } else {
-            TimerSessionView(acupoint: pt, roundsTarget: rounds, onNext: next,
-                             acknowledgedInitially: stepIndex > 0)
-        }
+        PracticeSessionView(point: pt, rounds: rounds, onNext: nextHandOff,
+                            acknowledgedInitially: stepIndex > 0)
     }
 
     private var nextHandOff: (label: String, action: () -> Void) {
@@ -124,8 +122,7 @@ struct RoutineRunView: View {
                                     "Every point of “\(routine.en)” is in your practice history."))
                     .foregroundStyle(Ink.text).multilineTextAlignment(.center)
                 Button(AppLocale.pick("完成", "Done")) { onClose() }.buttonStyle(GoldButtonStyle())
-                Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
-                    .font(.caption2).foregroundStyle(Ink.textDim)
+                WellnessFooter()
             }
             .padding(28)
         }

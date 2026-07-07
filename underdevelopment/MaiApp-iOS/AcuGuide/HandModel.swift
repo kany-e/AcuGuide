@@ -77,14 +77,17 @@ struct Hand {
         return hypot(m.x - w.x, m.y - w.y)
     }
 
-    // Weighted sum of named landmarks → the acupoint target (image-normalized).
+    // Weighted MEAN of named landmarks → the acupoint target (image-normalized). Normalizing by the
+    // weight total matters: every shipped anchor set happens to sum to 1.0, so raw-sum and mean are
+    // identical today — but a future set that doesn't sum to 1 would silently scale the point toward
+    // or away from the origin. (Review-caught latent trap.)
     func weightedTarget(_ anchors: [AnchorWeight]) -> CGPoint? {
         var x: CGFloat = 0, y: CGFloat = 0, total: CGFloat = 0
         for a in anchors {
             guard let pt = p(a.landmark) else { return nil }
             x += pt.x * a.weight; y += pt.y * a.weight; total += a.weight
         }
-        return total > 0 ? CGPoint(x: x, y: y) : nil
+        return total > 0 ? CGPoint(x: x / total, y: y / total) : nil
     }
 
     // Palm vs back-of-hand via the signed cross of (wrist->index_mcp) x (wrist->pinky_mcp).

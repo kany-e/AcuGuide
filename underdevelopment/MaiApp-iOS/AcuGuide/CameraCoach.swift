@@ -40,12 +40,24 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     @Published var mirrorFlip = false {
         didSet {
             let m = mirrored
-            queue.async { [weak self] in self?.queueMirrored = m }
+            mainSceneGen += 1
+            let gen = mainSceneGen
+            queue.async { [weak self] in self?.queueMirrored = m; self?.queueSceneGen = gen }
             engine.smootherReset()
         }
     }
     var mirrored: Bool { usingFront != mirrorFlip }   // XOR — main thread / preview
     private var queueMirrored = true                  // capture queue only
+    // Camera position, queue-confined copy (configureIfNeeded runs on the queue and must not read
+    // the main-published `usingFront` — a data race, review-caught).
+    private var queuePosition: AVCaptureDevice.Position = .front
+
+    // Scene generation: bumped on main for every parity/scene change (flip, mirror toggle) and
+    // echoed to the queue copy AFTER the change lands there. Frames captured under an old parity
+    // carry the old generation and are dropped before reaching the freshly-reset engine — closing
+    // the stale-parity window between engine.cameraFlipped() and the queue's reconfigure.
+    private var mainSceneGen = 0                      // main thread only
+    private var queueSceneGen = 0                     // capture queue only
 
     private let queue = DispatchQueue(label: "camera.coach")
     private let request: VNDetectHumanHandPoseRequest = {
@@ -84,7 +96,7 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         configured = true
         session.beginConfiguration()
         session.sessionPreset = .high
-        installInput(position: usingFront ? .front : .back)
+        installInput(position: queuePosition)
 
         let output = AVCaptureVideoDataOutput()
         output.setSampleBufferDelegate(self, queue: queue)
@@ -159,20 +171,31 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         usingFront.toggle()
         let pos: AVCaptureDevice.Position = usingFront ? .front : .back
         let m = mirrored
+        mainSceneGen += 1
+        let gen = mainSceneGen
         engine.cameraFlipped()
         queue.async { [weak self] in
             guard let self else { return }
             self.queueMirrored = m
-            guard self.configured else { return }   // never authorized/configured → nothing to swap yet
+            self.queuePosition = pos
+            guard self.configured else { self.queueSceneGen = gen; return }   // never authorized/configured → nothing to swap yet
             self.session.beginConfiguration()
             // installInput validates the replacement BEFORE removing the old input; on failure
             // (Simulator, camera in use) the session keeps its previous input and we revert the
             // published state so the UI doesn't report a camera that never installed.
             if !self.installInput(position: pos) {
                 self.session.commitConfiguration()
-                DispatchQueue.main.async { self.usingFront.toggle(); self.engine.cameraFlipped() }
-                let mBack = !m
-                self.queue.async { self.queueMirrored = mBack }
+                DispatchQueue.main.async {
+                    self.usingFront.toggle(); self.engine.cameraFlipped()
+                    self.mainSceneGen += 1
+                    let genBack = self.mainSceneGen
+                    let mBack = self.mirrored
+                    let posBack: AVCaptureDevice.Position = self.usingFront ? .front : .back
+                    self.queue.async {
+                        self.queueMirrored = mBack; self.queuePosition = posBack
+                        self.queueSceneGen = genBack
+                    }
+                }
                 return
             }
             if let conn = self.session.outputs.compactMap({ $0.connection(with: .video) }).first {
@@ -181,6 +204,7 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
                 conn.setMirrored(false)   // data output stays un-mirrored; the PREVIEW mirrors
             }
             self.session.commitConfiguration()
+            self.queueSceneGen = gen      // frames from here on carry the new scene's parity
             // Second render pass so CameraPreview re-applies portrait+mirroring to the connection
             // that was just recreated (see configGeneration).
             DispatchQueue.main.async { self.configGeneration += 1 }
@@ -225,7 +249,14 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         hands.sort { !$0.weak && $1.weak }
 
         let now = CACurrentMediaTime()
-        DispatchQueue.main.async { self.engine.update(hands: hands, point: self.acupoint, now: now) }
+        let gen = queueSceneGen
+        DispatchQueue.main.async {
+            // Drop frames captured under a previous scene's parity (mid-flip window): the engine
+            // was already reset for the NEW scene and must not ingest old-parity hands.
+            guard gen == self.mainSceneGen else { return }
+            self.engine.frameAspect = aspect   // keeps the isotropic hit-test in step with the frame
+            self.engine.update(hands: hands, point: self.acupoint, now: now)
+        }
     }
 
     // Mean of a sparse luma-plane grid (every 32nd pixel), queue-confined. Thresholds are asymmetric

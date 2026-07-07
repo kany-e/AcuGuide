@@ -65,29 +65,47 @@ struct AllPointsView: View {
         NavigationLink {
             PointInfoView(point: pt, onPractice: onPractice)
         } label: {
-            HStack(spacing: 10) {
-                Circle().fill(MeridianColors.color(pt.meridian))
-                    .frame(width: 9, height: 9)
-                    .accessibilityHidden(true)
+            AcupointListRow(pt: pt, showsStar: true)
+                .accessibilityLabel("\(pt.id), \(AppLocale.pick(pt.zh, pt.en)), \(pt.meridianEn)"
+                                    + (favorites.contains(pt.id) ? ", \(AppLocale.pick("已收藏", "favorite"))" : ""))
+        }
+    }
+}
+
+// THE atlas list row (this catalog + the routine builder's picker share it): meridian dot,
+// "ID · name", camera/timer trailing icon, one combined VoiceOver element. The catalog variant
+// (showsStar) adds the English subtitle and the favorites star; the picker stays single-line.
+struct AcupointListRow: View {
+    let pt: Acupoint
+    var showsStar: Bool = false
+    @ObservedObject private var favorites = Favorites.shared   // star updates live on toggle
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle().fill(MeridianColors.color(pt.meridian))
+                .frame(width: 9, height: 9)
+                .accessibilityHidden(true)
+            if showsStar {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("\(pt.id) · \(pt.zh)")
                         .font(.subheadline).foregroundStyle(Ink.text)
                     Text(pt.en).font(.caption).foregroundStyle(Ink.textDim)
                 }
-                Spacer()
-                if favorites.contains(pt.id) {
-                    Image(systemName: "star.fill")
-                        .font(.caption).foregroundStyle(Ink.gold)
-                        .accessibilityHidden(true)
-                }
-                Image(systemName: pt.mediapipeTarget != nil ? "camera.viewfinder" : "timer")
-                    .font(.caption).foregroundStyle(Ink.textDim)
+            } else {
+                Text("\(pt.id) · \(AppLocale.pick(pt.zh, pt.en))")
+                    .font(.subheadline).foregroundStyle(Ink.text)
+            }
+            Spacer()
+            if showsStar && favorites.contains(pt.id) {
+                Image(systemName: "star.fill")
+                    .font(.caption).foregroundStyle(Ink.gold)
                     .accessibilityHidden(true)
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(pt.id), \(AppLocale.pick(pt.zh, pt.en)), \(pt.meridianEn)"
-                                + (favorites.contains(pt.id) ? ", \(AppLocale.pick("已收藏", "favorite"))" : ""))
+            Image(systemName: pt.mediapipeTarget != nil ? "camera.viewfinder" : "timer")
+                .font(.caption).foregroundStyle(Ink.textDim)
+                .accessibilityHidden(true)
         }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -143,8 +161,7 @@ struct PointInfoView: View {
                         .font(.subheadline).foregroundStyle(Ink.gold)
                         .frame(maxWidth: .infinity)
                     }
-                    Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
-                        .font(.caption2).foregroundStyle(Ink.textDim).frame(maxWidth: .infinity)
+                    WellnessFooter()
                 }
                 .padding()
             }
@@ -166,10 +183,7 @@ struct PointInfoView: View {
         }
     }
 
-    private var sessionMinutes: Int {
-        let seconds = Double(rounds) * CoachConst.holdTargetS + Double(max(0, rounds - 1)) * CoachConst.restS
-        return max(1, Int((seconds / 60).rounded()))
-    }
+    private var sessionMinutes: Int { Routine.minutes(forRounds: rounds) }
 
     private func labeled(_ title: String, _ text: String, tint: Color = Ink.text) -> some View {
         VStack(alignment: .leading, spacing: 3) {

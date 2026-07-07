@@ -5,6 +5,7 @@ import SwiftUI
 struct ARCoachView: View {
     let acupoint: Acupoint
     var onNext: (label: String, action: () -> Void)? = nil   // set when running inside a routine
+    var onUseTimer: (() -> Void)? = nil   // camera-free escape from the permission screens (PracticeSessionView swaps in the timer)
     @StateObject private var engine: CoachEngine
     @StateObject private var camera: CameraCoach
     @StateObject private var voice = CoachVoice()
@@ -22,9 +23,11 @@ struct ARCoachView: View {
 
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
          onNext: (label: String, action: () -> Void)? = nil,
-         acknowledgedInitially: Bool = false) {
+         acknowledgedInitially: Bool = false,
+         onUseTimer: (() -> Void)? = nil) {
         self.acupoint = acupoint
         self.onNext = onNext
+        self.onUseTimer = onUseTimer
         // Build the engine first, then hand the SAME instance to the camera (assign-before-use,
         // no redundant default StateObject). roundsTarget: 1 for the first-run quick try; a
         // routine step's rounds otherwise. acknowledgedInitially: steps ≥2 of a ROUTINE run —
@@ -47,7 +50,7 @@ struct ARCoachView: View {
                 // Permission gate AFTER the safety gate: the system prompt arrives in context, a
                 // denial gets an open-Settings hand-off instead of a black screen, and the capture
                 // session only ever starts once authorized.
-                CameraGate(onAuthorized: { camera.start() }) { coachLayer }
+                CameraGate(onAuthorized: { camera.start() }, onUseTimer: onUseTimer) { coachLayer }
             }
         }
         // Drive voice + haptics off phase TRANSITIONS only (debounced by the engine), and stop the
@@ -153,14 +156,8 @@ struct ARCoachView: View {
         // while still honoring Dynamic Type up to that bound.
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         // End with banked progress → confirm first (the recap records honestly either way).
-        .confirmationDialog(AppLocale.pick("结束本次练习？", "End this session?"),
-                            isPresented: $showEndConfirm, titleVisibility: .visible) {
-            Button(AppLocale.pick("结束并查看小结", "End and see recap"), role: .destructive) { endSession() }
-            Button(AppLocale.pick("继续练习", "Keep going"), role: .cancel) {}
-        } message: {
-            Text(AppLocale.pick("已完成 \(engine.roundsDone) 轮、累计约 \(Int(engine.totalHeldS.rounded())) 秒 — 小结会如实记录。",
-                                "\(engine.roundsDone) rounds and ~\(Int(engine.totalHeldS.rounded()))s so far — the recap records it honestly."))
-        }
+        .endSessionDialog(isPresented: $showEndConfirm, rounds: engine.roundsDone,
+                          heldS: engine.totalHeldS) { endSession() }
     }
 
     // Explicit pause: the camera stops (nothing is watched or credited); round progress is kept —
@@ -211,7 +208,8 @@ struct ARCoachView: View {
                     .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
                     .padding(8).background(Circle().fill(.black.opacity(0.35)))
             }
-            .accessibilityLabel(voice.muted ? "Unmute voice cues" : "Mute voice cues")
+            .accessibilityLabel(voice.muted ? AppLocale.pick("开启语音提示", "Unmute voice cues")
+                                            : AppLocale.pick("关闭语音提示", "Mute voice cues"))
             #if DEBUG
             // Field-calibration switches (debug builds only): flip the landmark mirroring or invert
             // the palm/dorsal gate in one place if either fires backwards on a given device.
@@ -291,54 +289,16 @@ struct ARCoachView: View {
         return nil
     }
 
+    // Shared recap (SessionUI.swift); verifiedHold → the camera-vouched "steady press" wording.
     private var recap: some View {
-        let held = Int(engine.totalHeldS.rounded())
-        let full = engine.sessionComplete
-        return VStack(spacing: 20) {
-            Text(full ? AppLocale.pick("保持得很好", "Nicely held")
-                      : AppLocale.pick("练习结束", "Good session")).font(.title2).foregroundStyle(Ink.gold)
-            Text(AppLocale.pick(
-                "你在 \(acupoint.id)（\(acupoint.zh)）上完成了 \(engine.roundsDone)/\(engine.roundsTarget) 轮，累计稳定按压约 \(held) 秒。想停就停，本来就该如此。",
-                "You did \(engine.roundsDone) of \(engine.roundsTarget) rounds on \(acupoint.id) (\(acupoint.zh)) — about \(held) seconds of steady press. Stopping whenever you like is exactly right."))
-                .foregroundStyle(Ink.text).multilineTextAlignment(.center)
-            if engine.roundTimes.count > 1 {
-                Text(AppLocale.pick("各轮：", "Rounds: ")
-                     + engine.roundTimes.map { "\(Int($0.rounded()))s" }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(Ink.textDim)
-            }
-            // EXPERIENCE prompt, not an outcome score: one session can't honestly be judged
-            // "relief vs worse" — but comfort is real signal for which points suit you, and
-            // "uncomfortable" carries the immutable stop-advice behavior.
-            Text(AppLocale.pick("这次按压感觉如何？", "How did that feel?")).font(.headline).foregroundStyle(Ink.text)
-            Text(AppLocale.pick("（可跳过 — 记录体验，日积月累看出哪些穴位适合你。）",
-                                "(Optional — over time this shows which points suit you.)"))
-                .font(.caption2).foregroundStyle(Ink.textDim)
-            HStack {
-                ForEach([("relaxing", AppLocale.pick("很放松", "Relaxing")),
-                         ("neutral", AppLocale.pick("一般", "Neutral")),
-                         ("uncomfortable", AppLocale.pick("不舒服", "Uncomfortable"))], id: \.0) { item in
-                    Button(item.1) {
-                        feeling = item.0
-                        if let id = practiceRecordId { PracticeStore.shared.setFeeling(id: id, feeling: item.0) }
-                    }.buttonStyle(GoldButtonStyle())
-                        .accessibilityHint(AppLocale.pick("记录这次练习的体验", "Notes how this session felt"))
-                }
-            }
-            // "Uncomfortable" → advise stopping, never "continue" (immutable safety behavior).
-            if feeling == "uncomfortable" {
-                Text(AppLocale.pick("请暂时停止。如果不适严重或持续，请考虑就医。",
-                                    "Please stop for now. If the discomfort is strong or persistent, consider seeing a professional."))
-                    .font(.footnote).foregroundStyle(Ink.terracotta).multilineTextAlignment(.center).padding()
-            }
-            // Routine flow: hand off to the next step (suppressed after "Uncomfortable" — never
-            // encourage continuing past discomfort).
-            if let next = onNext, feeling != "uncomfortable" {
-                Button(next.label) { next.action() }.buttonStyle(GoldButtonStyle())
-            }
-            Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
-                .font(.caption2).foregroundStyle(Ink.textDim)
-        }
-        .padding(28)
+        SessionRecapView(point: acupoint, roundsDone: engine.roundsDone,
+                         roundsTarget: engine.roundsTarget, heldS: engine.totalHeldS,
+                         roundTimes: engine.roundTimes, verifiedHold: true,
+                         sessionComplete: engine.sessionComplete, feeling: $feeling,
+                         onFeeling: { key in
+                             if let id = practiceRecordId { PracticeStore.shared.setFeeling(id: id, feeling: key) }
+                         },
+                         onNext: onNext)
     }
 }
 

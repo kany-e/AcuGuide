@@ -1,4 +1,6 @@
 import Foundation
+import CoreTransferable
+import UniformTypeIdentifiers
 
 // On-device practice history — the recap used to vanish the moment it was dismissed. Each coached
 // session (completed OR ended early — both first-class) saves one record; the self-reported feeling
@@ -105,11 +107,12 @@ final class PracticeStore: ObservableObject {
         guard let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) else { return (0, 0, 0) }
         var relaxing = 0, neutral = 0, uncomfortable = 0
         for r in records where r.date > cutoff {
-            switch r.feeling {
-            case "relaxing", "relief": relaxing += 1
-            case "neutral", "nochange": neutral += 1
-            case "uncomfortable", "worse": uncomfortable += 1
-            default: break
+            // FeelingScale (SessionUI.swift) owns the canonical + legacy key mapping.
+            switch FeelingScale(anyKey: r.feeling) {
+            case .relaxing: relaxing += 1
+            case .neutral: neutral += 1
+            case .uncomfortable: uncomfortable += 1
+            case nil: break
             }
         }
         return (relaxing, neutral, uncomfortable)
@@ -150,6 +153,18 @@ final class PracticeStore: ObservableObject {
         if let data = try? JSONEncoder().encode(Envelope(v: Self.schemaVersion, records: records)) {
             defaults.set(data, forKey: Self.key)
         }
+    }
+}
+
+// Lazy export payload for ShareLink: `ShareLink(item:)` builds its item on every body evaluation,
+// and eagerly pretty-printing the whole history there re-encoded up to 300 records per render
+// (review-caught). DataRepresentation's closure runs only when the user actually shares.
+struct PracticeExport: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(exportedContentType: .json) { _ in
+            Data(PracticeStore.shared.exportJSON().utf8)
+        }
+        .suggestedFileName("acuguide-practice.json")
     }
 }
 

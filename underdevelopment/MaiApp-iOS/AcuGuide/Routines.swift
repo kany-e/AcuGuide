@@ -22,9 +22,12 @@ struct Routine: Identifiable {
     var name: String { AppLocale.pick(zh, en) }
     var desc: String { AppLocale.pick(descZh, descEn) }
     // Rough session length: rounds × 30s press + 10s rests between rounds/steps.
-    var minutes: Int {
-        let rounds = steps.reduce(0) { $0 + $1.rounds }
-        let seconds = Double(rounds) * CoachConst.holdTargetS + Double(max(0, rounds - 1)) * CoachConst.restS
+    var minutes: Int { Self.minutes(forRounds: steps.reduce(0) { $0 + $1.rounds }) }
+
+    // THE session-minutes estimate (n rounds of hold + the rests between them, floored at 1) —
+    // routine cards, the builder preview and the single-point stepper all quote this one number.
+    static func minutes(forRounds n: Int) -> Int {
+        let seconds = Double(n) * CoachConst.holdTargetS + Double(max(0, n - 1)) * CoachConst.restS
         return max(1, Int((seconds / 60).rounded()))
     }
 

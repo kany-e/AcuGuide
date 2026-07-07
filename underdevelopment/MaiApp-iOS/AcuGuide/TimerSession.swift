@@ -20,8 +20,20 @@ final class TimerSession: ObservableObject {
     private var restLeft = 0.0
     private var heldAccum = 0.0
     private var ticker: Timer?
-    private var pausedByScene = false
-    private(set) var userPaused = false
+
+    // Pause is a SET of reasons, not competing booleans (the old scene/user flag pair needed
+    // n² cross-guards and still let combinations slip): the clock runs only while the set is
+    // empty. .scene = app not active (background OR inactive — an incoming-call banner must not
+    // credit hold time), .user = explicit pause button, .dialog = the End confirmation is up
+    // (the user has let go of the point to operate it).
+    enum PauseReason: Hashable { case scene, user, dialog }
+    @Published private(set) var pauseReasons: Set<PauseReason> = []
+    var userPaused: Bool { pauseReasons.contains(.user) }
+
+    // End is TERMINAL: nothing (scene resume included) may restart the ticker afterwards — an
+    // ended-early session used to be resurrected under its own recap by a background/foreground
+    // cycle (review-caught).
+    private(set) var ended = false
 
     var totalHeldS: Double { heldAccum + holdTime }
     var sessionComplete: Bool { phase == .complete }
@@ -40,20 +52,24 @@ final class TimerSession: ObservableObject {
         run()
     }
 
-    // Backgrounding pauses the clock (a timer session must not credit time the user wasn't guided
-    // through); foregrounding resumes exactly where it left off. An explicit USER pause is a
-    // separate flag so returning from an app-switch never restarts a session the user paused.
-    func scenePaused() { guard phase == .holding || phase == .resting else { return }
-        pausedByScene = true; ticker?.invalidate(); ticker = nil }
-    func sceneResumed() { guard pausedByScene else { return }; pausedByScene = false
-        if !userPaused { run() } }
+    // A session must not credit time the user isn't being guided through; resuming picks up
+    // exactly where the clock stopped. The clock runs only while pauseReasons is empty.
+    func pause(_ reason: PauseReason = .user) {
+        guard phase == .holding || phase == .resting, !ended else { return }
+        pauseReasons.insert(reason)
+        ticker?.invalidate(); ticker = nil
+    }
+    func resume(_ reason: PauseReason = .user) {
+        pauseReasons.remove(reason)
+        guard pauseReasons.isEmpty, !ended, phase == .holding || phase == .resting else { return }
+        run()
+    }
 
-    func pause() { guard phase == .holding || phase == .resting, !userPaused else { return }
-        userPaused = true; ticker?.invalidate(); ticker = nil }
-    func resume() { guard userPaused else { return }; userPaused = false
-        if !pausedByScene { run() } }
+    // Legacy names — the tests drive the scene path through these.
+    func scenePaused() { pause(.scene) }
+    func sceneResumed() { resume(.scene) }
 
-    func end() { ticker?.invalidate(); ticker = nil }
+    func end() { ended = true; ticker?.invalidate(); ticker = nil }
 
     private func run() {
         ticker?.invalidate()
@@ -64,6 +80,7 @@ final class TimerSession: ObservableObject {
 
     // Advance the session clock. Public so tests drive it deterministically without a Timer.
     func tick(_ dt: Double) {
+        if ended { return }
         switch phase {
         case .holding:
             holdTime += dt
@@ -113,7 +130,6 @@ struct TimerSessionView: View {
     @State private var feeling: String? = nil
     @State private var practiceRecordId: String? = nil
     @State private var prevPhase: TimerSession.Phase = .ready
-    @State private var userPaused = false
     @State private var showEndConfirm = false
 
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
@@ -143,8 +159,16 @@ struct TimerSessionView: View {
             if p == .complete && prevPhase != .complete { haptics.complete() }
             prevPhase = p
         }
+        // Pause on ANY non-active state (.inactive covers the incoming-call banner, Notification
+        // Center, the app switcher — the ticker must not credit unguided time through them).
+        // The model's `ended` guard keeps a finished/ended session from being resurrected here.
         .onChange(of: scenePhase) { sp in
-            if sp == .background { session.scenePaused() } else if sp == .active { session.sceneResumed() }
+            if sp == .active { session.resume(.scene) } else { session.pause(.scene) }
+        }
+        // The End dialog implies the user has let go of the point — stop the blind clock while
+        // they deliberate (dismissal by any route lands here, including tap-outside).
+        .onChange(of: showEndConfirm) { up in
+            if up { session.pause(.dialog) } else { session.resume(.dialog) }
         }
         .onDisappear { session.end(); voice.reset() }
     }
@@ -184,13 +208,12 @@ struct TimerSessionView: View {
                     .buttonStyle(GoldButtonStyle())
             } else {
                 HStack(spacing: 10) {
-                    Button(userPaused ? AppLocale.pick("继续", "Resume") : AppLocale.pick("暂停", "Pause")) {
-                        if userPaused { session.resume() } else { session.pause() }
-                        userPaused.toggle()
+                    Button(session.userPaused ? AppLocale.pick("继续", "Resume") : AppLocale.pick("暂停", "Pause")) {
+                        if session.userPaused { session.resume() } else { session.pause() }
                     }
-                        .font(.caption.weight(.semibold)).foregroundStyle(userPaused ? Ink.gold : Ink.textDim)
+                        .font(.caption.weight(.semibold)).foregroundStyle(session.userPaused ? Ink.gold : Ink.textDim)
                         .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(Capsule().stroke(userPaused ? Ink.gold : Ink.line, lineWidth: 1))
+                        .background(Capsule().stroke(session.userPaused ? Ink.gold : Ink.line, lineWidth: 1))
                         .accessibilityHint(AppLocale.pick("暂停或继续，进度保留", "Pause or resume; progress is kept"))
                     Button(AppLocale.pick("结束", "End")) {
                         if session.roundsDone > 0 || session.totalHeldS >= 5 { showEndConfirm = true }
@@ -200,26 +223,19 @@ struct TimerSessionView: View {
                         .padding(.horizontal, 14).padding(.vertical, 8)
                         .background(Capsule().stroke(Ink.line, lineWidth: 1))
                 }
-                if userPaused {
+                if session.userPaused {
                     Text(AppLocale.pick("已暂停 — 进度已保留。", "Paused — your progress is kept."))
                         .font(.caption2).foregroundStyle(Ink.textDim)
                 }
             }
 
-            Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
-                .font(.caption2).foregroundStyle(Ink.textDim)
+            WellnessFooter()
         }
         .padding()
-        .confirmationDialog(AppLocale.pick("结束本次练习？", "End this session?"),
-                            isPresented: $showEndConfirm, titleVisibility: .visible) {
-            Button(AppLocale.pick("结束并查看小结", "End and see recap"), role: .destructive) {
-                endedEarly = true; session.end()
-            }
-            Button(AppLocale.pick("继续练习", "Keep going"), role: .cancel) {}
-        } message: {
-            Text(AppLocale.pick("已完成 \(session.roundsDone) 轮、累计约 \(Int(session.totalHeldS.rounded())) 秒 — 小结会如实记录。",
-                                "\(session.roundsDone) rounds and ~\(Int(session.totalHeldS.rounded()))s so far — the recap records it honestly."))
-        }
+        // Shared confirm (SessionUI.swift). The dialog-pause side effect stays in this view's
+        // .onChange(of: showEndConfirm) — it is timer-specific, not part of the dialog.
+        .endSessionDialog(isPresented: $showEndConfirm, rounds: session.roundsDone,
+                          heldS: session.totalHeldS) { endedEarly = true; session.end() }
     }
 
     private var cueText: String {
@@ -231,46 +247,16 @@ struct TimerSessionView: View {
         }
     }
 
+    // Shared recap (SessionUI.swift). No roundTimes and no verifiedHold: the timer paced the
+    // rounds but couldn't watch the press, so the summary stays "about N seconds".
     private var recap: some View {
-        let held = Int(session.totalHeldS.rounded())
-        return VStack(spacing: 20) {
-            Text(session.sessionComplete ? AppLocale.pick("保持得很好", "Nicely held")
-                                         : AppLocale.pick("练习结束", "Good session"))
-                .font(.title2).foregroundStyle(Ink.gold)
-            Text(AppLocale.pick(
-                "你在 \(acupoint.id)（\(acupoint.zh)）上完成了 \(session.roundsDone)/\(session.roundsTarget) 轮，累计约 \(held) 秒。想停就停，本来就该如此。",
-                "You did \(session.roundsDone) of \(session.roundsTarget) rounds on \(acupoint.id) (\(acupoint.zh)) — about \(held) seconds. Stopping whenever you like is exactly right."))
-                .foregroundStyle(Ink.text).multilineTextAlignment(.center)
-            // EXPERIENCE prompt, not an outcome score (see ARCoachView recap for the rationale).
-            Text(AppLocale.pick("这次按压感觉如何？", "How did that feel?")).font(.headline).foregroundStyle(Ink.text)
-            Text(AppLocale.pick("（可跳过 — 记录体验，日积月累看出哪些穴位适合你。）",
-                                "(Optional — over time this shows which points suit you.)"))
-                .font(.caption2).foregroundStyle(Ink.textDim)
-            HStack {
-                ForEach([("relaxing", AppLocale.pick("很放松", "Relaxing")),
-                         ("neutral", AppLocale.pick("一般", "Neutral")),
-                         ("uncomfortable", AppLocale.pick("不舒服", "Uncomfortable"))], id: \.0) { item in
-                    Button(item.1) {
-                        feeling = item.0
-                        if let id = practiceRecordId { PracticeStore.shared.setFeeling(id: id, feeling: item.0) }
-                    }.buttonStyle(GoldButtonStyle())
-                        .accessibilityHint(AppLocale.pick("记录这次练习的体验", "Notes how this session felt"))
-                }
-            }
-            if feeling == "uncomfortable" {
-                Text(AppLocale.pick("请暂时停止。如果不适严重或持续，请考虑就医。",
-                                    "Please stop for now. If the discomfort is strong or persistent, consider seeing a professional."))
-                    .font(.footnote).foregroundStyle(Ink.terracotta).multilineTextAlignment(.center).padding()
-            }
-            // Routine flow hand-off — suppressed after "Uncomfortable" (never encourage continuing
-            // past discomfort).
-            if let next = onNext, feeling != "uncomfortable" {
-                Button(next.label) { next.action() }.buttonStyle(GoldButtonStyle())
-            }
-            Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
-                .font(.caption2).foregroundStyle(Ink.textDim)
-        }
-        .padding(28)
+        SessionRecapView(point: acupoint, roundsDone: session.roundsDone,
+                         roundsTarget: session.roundsTarget, heldS: session.totalHeldS,
+                         sessionComplete: session.sessionComplete, feeling: $feeling,
+                         onFeeling: { key in
+                             if let id = practiceRecordId { PracticeStore.shared.setFeeling(id: id, feeling: key) }
+                         },
+                         onNext: onNext)
     }
 
     private func savePractice() {

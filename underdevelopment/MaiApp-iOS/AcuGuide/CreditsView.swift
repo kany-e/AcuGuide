@@ -89,9 +89,7 @@ struct PrivacyView: View {
                     row("clock.arrow.circlepath", AppLocale.pick("练习记录仅保存在本机", "Practice history is local only"),
                         AppLocale.pick("练习记录（穴位、轮数、时长、自评）只保存在你的手机里，删除应用即随之删除。",
                                        "Your practice history (point, rounds, duration, self-report) lives only on your phone and is deleted with the app."))
-                    Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
-                        .font(.caption2).foregroundStyle(Ink.textDim)
-                        .frame(maxWidth: .infinity)
+                    WellnessFooter()
                         .padding(.top, 6)
                 }
                 .padding()

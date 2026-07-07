@@ -1,10 +1,11 @@
 import SwiftUI
 
-// Hand acupoint dataset, ported from MaiApp/src/data.js (the validated atlas). x,y are in the
-// 360 x 440 hand-SVG coordinate box used by HandAtlasView. `mediapipeTarget` drives the AR coach
-// and is non-nil for TE3 ONLY (the single validated AR-coached point); every other point is
-// atlas-only (display, no camera coaching). LI4 (合谷) is excluded entirely — it is
-// pregnancy-contraindicated and must never appear, not even in the atlas.
+// Acupoint dataset — hand set ported from MaiApp/src/data.js, body regions added later (all
+// WHO-2008 sourced). x,y are in the 360 x 440 hand-SVG coordinate box (drives the 3D hand
+// placement via HandMarkerCalib). `mediapipeTarget` drives the AR coach and is non-nil for the
+// EIGHT documented coached points (test-pinned: TE3 SI3 PC8 HT7 PC6 SJ5 TE4 PC7); every other
+// point is atlas/timer-only. LI4 (合谷) is excluded entirely — it is pregnancy-contraindicated
+// and must never appear, not even in the atlas.
 
 struct AnchorWeight: Hashable {
     let landmark: HandJoint   // which Vision joint
@@ -48,11 +49,11 @@ struct Acupoint: Identifiable, Hashable {
     let locationEn: String
     let indicationsZh: String
     let indicationsEn: String
-    let coachAlign: String  // AR cue (used live for TE3 only)
-    let coachHold: String   // AR cue (used live for TE3 only)
-    var coachAlignZh: String = ""   // zh AR cue (TE3 only; en stays in coachAlign)
+    let coachAlign: String  // authored AR cue (TE3 stores its own; the other 7 use coachCues)
+    let coachHold: String   // authored AR cue (see coachAlignL/coachHoldL resolution below)
+    var coachAlignZh: String = ""   // zh AR cue (authored per point; empty → coachCues table)
     var coachHoldZh: String = ""
-    let mediapipeTarget: MediaPipeTarget?   // non-nil for TE3 only
+    let mediapipeTarget: MediaPipeTarget?   // non-nil for the 8 coached points (test-pinned)
     var region: String = "hand"     // head/chest/abdomen/arm/leg/foot/hand — groups the body atlas
     var cautionZh: String = ""      // per-point safety note (shown in the detail card); empty = none
     var cautionEn: String = ""
@@ -206,7 +207,7 @@ struct Acupoint: Identifiable, Hashable {
 
         // ── Additional hand atlas points (2D chart + 3D hand drill-down; no AR coaching). ───────
         // WHO Standard 2008 locations; fingertip-safe, none pregnancy-contraindicated (LI4 remains
-        // excluded entirely). Shown wherever region=="hand" is listed (HandAtlasView + the 3D hand);
+        // excluded entirely). Shown wherever region=="hand" is listed (the 3D hand drill-down);
         // NOT added to the full-body mitten markers (Meridians.acuMarkers) — the low-poly body hand
         // has no fingers to place them against; the drill-down is the hand's canonical chart.
         Acupoint(

@@ -112,3 +112,13 @@ extension Ink {
     static let bodySage     = Color(hex: "#aebd9d")
     static let bodyEmission = Color(hex: "#2c3626")
 }
+
+// The one wellness-disclaimer footer — the exact same line was copy-pasted across 8+ screens
+// (review-caught); tone/copy changes now happen here once. Callers add their own padding.
+struct WellnessFooter: View {
+    var body: some View {
+        Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
+            .font(.caption2).foregroundStyle(Ink.textDim)
+            .frame(maxWidth: .infinity)
+    }
+}

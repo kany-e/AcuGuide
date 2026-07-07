@@ -31,6 +31,14 @@ struct SettingsSheet: View {
                             Text("English").tag(AppSettings.Lang.en)
                         }
                         .pickerStyle(.segmented)
+                        // The scheduled reminder's body text was rendered at schedule time — a
+                        // language toggle must re-render it or tomorrow's nudge arrives in the
+                        // old language.
+                        .onChange(of: settings.lang) { _ in
+                            if settings.reminderOn {
+                                PracticeReminder.sync(on: true, minutes: settings.reminderMinutes)
+                            }
+                        }
                     }
                     Section(AppLocale.pick("\(CoachPersona.name)（AI 教练）", "\(CoachPersona.name) (Coach AI)")) {
                         Toggle(AppLocale.pick("设备端 AI 回答", "On-device AI answers"), isOn: $settings.llmChat)
@@ -52,7 +60,12 @@ struct SettingsSheet: View {
                             DatePicker(AppLocale.pick("时间", "Time"), selection: reminderTime,
                                        displayedComponents: .hourAndMinute)
                                 .onChange(of: settings.reminderMinutes) { m in
-                                    PracticeReminder.sync(on: true, minutes: m)
+                                    // Same grant handling as the toggle: authorization can be
+                                    // revoked between syncs, and silently discarding the result
+                                    // left the toggle ON with no reminder scheduled.
+                                    PracticeReminder.sync(on: true, minutes: m) { granted in
+                                        if !granted { settings.reminderOn = false; reminderDenied = true }
+                                    }
                                 }
                         }
                         if reminderDenied {
@@ -80,7 +93,7 @@ struct SettingsSheet: View {
                         // History lives only on this device (by design) — the export is the user's
                         // own backup path.
                         if !PracticeStore.shared.records.isEmpty {
-                            ShareLink(item: PracticeStore.shared.exportJSON(),
+                            ShareLink(item: PracticeExport(),
                                       preview: SharePreview("AcuGuide practice history")) {
                                 Label(AppLocale.pick("导出练习记录", "Export practice history"), systemImage: "square.and.arrow.up")
                             }
@@ -98,9 +111,7 @@ struct SettingsSheet: View {
                     }
                     #endif
                     Section {
-                        Text(AppLocale.pick("仅供养生自我保养，非医疗建议。",
-                                            "Wellness self-care only — not medical advice."))
-                            .font(.footnote).foregroundStyle(Ink.textDim)
+                        WellnessFooter()
                     }
                 }
                 .scrollContentBackground(.hidden)   // let the shanshui ground show through

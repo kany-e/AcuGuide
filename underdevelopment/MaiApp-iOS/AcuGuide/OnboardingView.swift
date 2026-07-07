@@ -50,8 +50,7 @@ struct OnboardingView: View {
                         .padding(.bottom, 4)
                 }
 
-                Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
-                    .font(.caption2).foregroundStyle(Ink.textDim)
+                WellnessFooter()
                     .padding(.bottom, 18)
             }
         }

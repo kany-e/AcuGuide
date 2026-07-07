@@ -14,10 +14,36 @@ enum PracticeLaunch: Identifiable {
     }
 }
 
+// The ONE place a practice session is constructed (the camera-vs-timer dispatch used to be
+// resolved independently here and in RoutineRunView, and the routine copy never learned the
+// timer-only rule — so a camera-denied user hit an unpassable routine step). Camera sessions
+// carry a timer fallback offered from the permission screens; the safety acknowledgement
+// transfers on fallback (the gate was already confirmed inside this same session).
+struct PracticeSessionView: View {
+    let point: Acupoint
+    let rounds: Int
+    var timerOnly: Bool = false
+    var onNext: (label: String, action: () -> Void)? = nil
+    var acknowledgedInitially: Bool = false
+    @State private var fellBackToTimer = false
+
+    var body: some View {
+        if point.mediapipeTarget != nil && !timerOnly && !fellBackToTimer {
+            ARCoachView(acupoint: point, roundsTarget: rounds, onNext: onNext,
+                        acknowledgedInitially: acknowledgedInitially,
+                        onUseTimer: { fellBackToTimer = true })
+        } else {
+            TimerSessionView(acupoint: point, roundsTarget: rounds, onNext: onNext,
+                             acknowledgedInitially: acknowledgedInitially || fellBackToTimer)
+        }
+    }
+}
+
 struct RootView: View {
     @State private var launch: PracticeLaunch? = nil
     @ObservedObject private var settings = AppSettings.shared   // re-render tab labels on toggle
     @State private var showOnboarding = !AppSettings.shared.seenOnboarding
+    @State private var pendingQuickTry = false   // quick-try launch deferred to the cover's onDismiss
 
     // Bridge for children that just hand back a point (atlas markers, chat suggestions).
     private var startCoach: Binding<Acupoint?> {
@@ -44,11 +70,7 @@ struct RootView: View {
                 Group {
                     switch l {
                     case .point(let pt, let rounds, let timerOnly):
-                        if pt.mediapipeTarget != nil && !timerOnly {
-                            ARCoachView(acupoint: pt, roundsTarget: rounds)
-                        } else {
-                            TimerSessionView(acupoint: pt, roundsTarget: rounds)
-                        }
+                        PracticeSessionView(point: pt, rounds: rounds, timerOnly: timerOnly)
                     case .routine(let r):
                         RoutineRunView(routine: r) { launch = nil }
                     }
@@ -59,14 +81,19 @@ struct RootView: View {
             }
         }
         // First run: what the app is (and isn't), how the coach works, the privacy story —
-        // with an optional 30-second quick try as the very first action.
-        .fullScreenCover(isPresented: $showOnboarding) {
+        // with an optional 30-second quick try as the very first action. The quick-try launch is
+        // DEFERRED to onDismiss: dismissing one cover and presenting another in the same update is
+        // the iOS 16.0–16.3 presentation-swap drop (the second cover silently never appears).
+        .fullScreenCover(isPresented: $showOnboarding, onDismiss: {
+            if pendingQuickTry, let te3 = Acupoint.byId["TE3"] {
+                launch = .point(te3, rounds: 1, timerOnly: false)
+            }
+            pendingQuickTry = false
+        }) {
             OnboardingView { quickTry in
                 settings.seenOnboarding = true
+                pendingQuickTry = quickTry
                 showOnboarding = false
-                if quickTry, let te3 = Acupoint.byId["TE3"] {
-                    launch = .point(te3, rounds: 1, timerOnly: false)
-                }
             }
         }
     }
@@ -97,6 +124,7 @@ struct CoachHome: View {
     @State private var builderSheet: BuilderTarget? = nil
     @State private var showAllPoints = false
     @State private var showHistory = false
+    @State private var pendingLaunch: PracticeLaunch? = nil   // fired from a sheet's onDismiss
     private var coachable: [Acupoint] { Acupoint.all.filter { $0.mediapipeTarget != nil } }
 
     // One sheet, two shapes: a fresh builder or editing an existing custom routine.
@@ -248,18 +276,18 @@ struct CoachHome: View {
                         }
                     }
 
-                    Text(AppLocale.pick("仅供养生自我保养，非医疗建议。", "Wellness self-care only — not medical advice."))
-                        .font(.caption2).foregroundStyle(Ink.textDim)
-                        .frame(maxWidth: .infinity)
+                    WellnessFooter()
                         .padding(.top, 4)
                 }
                 .padding()
             }
         }
-        .sheet(item: $routineSheet) { r in
+        // Launches are DEFERRED to onDismiss: setting `launch` while a sheet is still dismissing
+        // is the iOS 16.0–16.3 presentation-swap drop (the cover silently never presents).
+        .sheet(item: $routineSheet, onDismiss: firePendingLaunch) { r in
             RoutineDetailSheet(routine: r) {
+                pendingLaunch = .routine(r)
                 routineSheet = nil
-                launch = .routine(r)
             }
         }
         .sheet(item: $builderSheet) { target in
@@ -268,15 +296,19 @@ struct CoachHome: View {
             case .edit(let cr): RoutineBuilderView(editing: cr)
             }
         }
-        .sheet(isPresented: $showAllPoints) {
+        .sheet(isPresented: $showAllPoints, onDismiss: firePendingLaunch) {
             AllPointsView { pt, rounds, timerOnly in
+                pendingLaunch = .point(pt, rounds: rounds, timerOnly: timerOnly)
                 showAllPoints = false
-                launch = .point(pt, rounds: rounds, timerOnly: timerOnly)
             }
         }
         .sheet(isPresented: $showHistory) {
             HistoryView()
         }
+    }
+
+    private func firePendingLaunch() {
+        if let p = pendingLaunch { launch = p; pendingLaunch = nil }
     }
 
     // Shared row for favorites + the coached list: tap launches the right session for the point.

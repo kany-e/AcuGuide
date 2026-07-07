@@ -43,7 +43,7 @@ struct HistoryView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    ShareLink(item: practice.exportJSON(),
+                    ShareLink(item: PracticeExport(),
                               preview: SharePreview("AcuGuide practice history")) {
                         Image(systemName: "square.and.arrow.up")
                     }
@@ -72,8 +72,10 @@ struct HistoryView: View {
                 Text(AppLocale.pick("\(r.rounds)/\(r.roundsTarget) 轮 · 共 \(Int(r.heldS.rounded())) 秒",
                                     "\(r.rounds)/\(r.roundsTarget) rounds · \(Int(r.heldS.rounded()))s held"))
                     .font(.caption).foregroundStyle(Ink.textDim)
-                if let f = feelingLabel(r.feeling) {
-                    Text(f.text).font(.caption).foregroundStyle(f.color)
+                // Same experience scale as the recap; FeelingScale absorbs the legacy keys from
+                // the outcome-framed prompt, so old records still read correctly.
+                if let f = FeelingScale(anyKey: r.feeling) {
+                    Text(f.label).font(.caption).foregroundStyle(f.color)
                 }
             }
             if let per = r.roundsHeldS, !per.isEmpty {
@@ -84,16 +86,5 @@ struct HistoryView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-    }
-
-    // Experience labels — same scale as the recap (legacy keys from the outcome-framed prompt
-    // map onto it, so old records still read correctly).
-    private func feelingLabel(_ feeling: String?) -> (text: String, color: Color)? {
-        switch feeling {
-        case "relaxing", "relief": return (AppLocale.pick("放松", "relaxing"), Ink.jade)
-        case "neutral", "nochange": return (AppLocale.pick("一般", "neutral"), Ink.textDim)
-        case "uncomfortable", "worse": return (AppLocale.pick("不舒服", "uncomfortable"), Ink.terracotta)
-        default: return nil
-        }
     }
 }

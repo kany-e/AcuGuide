@@ -89,7 +89,9 @@ class LocatorCameraBase: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 // overlay that draws them on an aspect-fill camera preview. Each region ships its own detector
 // (face landmarks / body pose) + cun mapping, but the on-screen presentation is identical.
 struct LocatorMark: Identifiable {
-    let id = UUID()
+    // Identity = the point it marks, NOT a per-instance UUID: detect() publishes a fresh array every
+    // frame, and fresh UUIDs made ForEach tear down and rebuild every mark view 30×/sec.
+    var id: String { acuId }
     let acuId: String            // atlas id (for colour + tapped-point highlight)
     let label: String            // "EX-HN3 · 印堂"
     let point: CGPoint           // normalized, TOP-LEFT origin, already mirrored to match the preview
