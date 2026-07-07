@@ -249,7 +249,7 @@ final class CoachEngine: ObservableObject {
         roundsDone = 0; sessionComplete = false; restUntil = nil; heldAccum = 0
         roundTimes = []; clearHint()
         phase = .noHand; ringCenter = nil; pressTip = nil; progress = 0
-        cue = AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
+        cue = AppLocale.pick("把手放到镜头前就好。", "Bring your hand into view whenever you're ready.")
     }
 
     // Occlusion-hint bookkeeping. The 1-second delay keeps it quiet through the transient dropouts
@@ -348,8 +348,8 @@ final class CoachEngine: ObservableObject {
                 pressTip = nil; pressSmoother.reset()
             }
             // The receiving hand has been occluded past the transient window — say so, plainly.
-            occlusionHint(now, AppLocale.pick("让接受按压的那只手完整回到画面中。",
-                                              "Keep the hand being pressed fully in view."))
+            occlusionHint(now, AppLocale.pick("让被按的那只手多露出来一些。",
+                                              "Let the hand being pressed peek back into view."))
             let result = machine.step(CoachFrameInput(
                 t: now, present: true, faceCorrect: true,
                 insideEnterRadius: false, insideExitRadius: true, offsetXHandSize: nil))
@@ -367,8 +367,8 @@ final class CoachEngine: ObservableObject {
               receiver.handSize > 0 else {
             pressTip = nil
             // Sustained anchor loss = the pressing hand is covering the receiver's landmarks.
-            occlusionHint(now, AppLocale.pick("保持受压手的手腕和指节可见。",
-                                              "Keep the wrist and knuckles of the receiving hand visible."))
+            occlusionHint(now, AppLocale.pick("让手腕和指节露出来一点。",
+                                              "Let the wrist and knuckles peek into view."))
             let result = machine.step(CoachFrameInput(
                 t: now, present: true, faceCorrect: true,
                 insideEnterRadius: false, insideExitRadius: true, offsetXHandSize: nil))
@@ -470,12 +470,12 @@ final class CoachEngine: ObservableObject {
 
     private func cueFor(_ phase: CoachPhase, point: Acupoint, hasPresser: Bool) -> String {
         switch phase {
-        case .noHand:           return AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
+        case .noHand:           return AppLocale.pick("把手放到镜头前就好。", "Bring your hand into view whenever you're ready.")
         case .wrongFace:        return faceCue(point)
         case .searching:        return hasPresser ? alignCue(point)
-                                    : AppLocale.pick("把按压的手指移入区域 — 双手都保持在画面中。",
-                                                     "Bring your pressing finger into the zone — keep both hands in view.")
-        case .onTargetUnstable: return AppLocale.pick("保持稳定。", "Hold it steady.")
+                                    : AppLocale.pick("另一只手的指尖慢慢移过来，两只手都留在画面里。",
+                                                     "Ease your other fingertip over — keep both hands in view.")
+        case .onTargetUnstable: return AppLocale.pick("就是这里 — 轻轻稳住。", "That's the spot — settle in gently.")
         case .holding:          return holdCue(point)
         case .resting:          return AppLocale.pick(
                                     "很好 — 松开手指，缓慢呼吸。\(restRemaining) 秒后开始第 \(min(roundsDone + 1, roundsTarget))/\(roundsTarget) 轮。",
@@ -498,8 +498,8 @@ final class CoachEngine: ObservableObject {
                                  "Turn your palm up so the inner side of your forearm faces the camera.")
         }
         return p.requiresDorsal
-            ? AppLocale.pick("把手背朝向相机。", "Turn the back of your hand toward the camera.")
-            : AppLocale.pick("把手掌朝向相机。", "Turn your palm toward the camera.")
+            ? AppLocale.pick("翻一下手，让手背对着镜头。", "Turn your hand over so the back faces the camera.")
+            : AppLocale.pick("翻一下手，让手心对着镜头。", "Turn your hand over so the palm faces the camera.")
     }
 
     // Per-point cues where authored (TE3), otherwise a generic cue keyed to the surface — so every
@@ -514,13 +514,13 @@ final class CoachEngine: ObservableObject {
                                  "Palm up and forearm steady — about two finger-widths above the wrist crease — line your fingertip up with the ring.")
         }
         return p.requiresDorsal
-            ? AppLocale.pick("手背朝向相机，把指尖对准圆圈。", "Back of the hand to the camera — line your fingertip up with the ring.")
-            : AppLocale.pick("手掌朝向相机，把指尖对准圆圈。", "Palm to the camera — line your fingertip up with the ring.")
+            ? AppLocale.pick("手背对着镜头，让指尖轻轻找到圆圈。", "Back of the hand to the camera — let your fingertip find the ring.")
+            : AppLocale.pick("手心对着镜头，让指尖轻轻找到圆圈。", "Palm to the camera — let your fingertip find the ring.")
     }
     private func holdCue(_ p: Acupoint) -> String {
         if !p.coachHoldL.isEmpty { return p.coachHoldL }
-        return AppLocale.pick("很好 — 稳定用力，配合缓慢呼吸，可做小幅轻柔画圈。",
-                              "Good — firm, steady pressure with slow breathing, small gentle circles.")
+        return AppLocale.pick("很好 — 稳稳按住，跟着呼吸，慢慢画小圈。",
+                              "Good — keep it steady, breathe slow, small easy circles.")
     }
 
     // MARK: - Sticky role assignment

@@ -78,6 +78,22 @@ final class DetailSnapshotTests: XCTestCase {
             .appendingPathComponent("detail_hand.png")
         try img.pngData()!.write(to: out)
         print("SNAPSHOT wrote \(out.path)")
+
+        // Second render from BEHIND the hand (the palm side, mirrored on screen like flipping a
+        // real hand over) so the far-side palmar markers (PC8/HT7/HT8/LU9/LU10) can be eyeballed
+        // too — the frontal render hides exactly the points placed with farSide: true.
+        let backCam = SCNNode(); backCam.camera = SCNCamera()
+        backCam.camera?.fieldOfView = 45; backCam.camera?.zNear = 0.01; backCam.camera?.zFar = 100
+        backCam.position = SCNVector3(0, 0, -2.3)
+        backCam.eulerAngles = SCNVector3(0, Float.pi, 0)
+        scene.rootNode.addChildNode(backCam)
+        let palmImg = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil).also {
+            $0.scene = scene; $0.pointOfView = backCam
+        }.snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
+        let palmOut = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("detail_hand_palm.png")
+        try palmImg.pngData()!.write(to: palmOut)
+        print("SNAPSHOT wrote \(palmOut.path)")
     }
 
     func testDetailViewsPlaceMarkersOnModel() throws {

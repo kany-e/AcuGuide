@@ -264,8 +264,8 @@ final class ChatService {
 
     private func generalReply() -> String {
         AppLocale.pick(
-            "你好 — 我可以介绍全身的安全穴位（手部如 中渚 TE3、内关 PC6；头部如 印堂、太阳；腿部如 足三里 ST36；足部如 太冲 LR3 等），讲解十四经络，并解答按压方法、时长、安全等常见问题。可按名称询问任意穴位或经络。仅供养生自我保养参考。",
-            "Hi — I can explain safe acupoints across the body (hand points like TE3 / PC6, head points like Yintang / Taiyang, the leg point ST36 Zusanli, the foot point LR3 Taichong, and more), describe the fourteen meridians, and answer common questions about how to press, how long, and safety. Ask about any point or meridian by name. Wellness self-care only.")
+            "我是小脉 — 可以带你认识全身的安全穴位（手部如 中渚 TE3、内关 PC6；头部如 印堂、太阳；腿部如 足三里 ST36；足部如 太冲 LR3 等），讲讲十四经络，也可以聊按压方法、时长、安全这些常见问题。按名称问我任意穴位或经络就行。仅供养生自我保养参考。",
+            "I'm Mai — I can walk you through safe acupoints across the body (hand points like TE3 / PC6, head points like Yintang / Taiyang, the leg point ST36 Zusanli, the foot point LR3 Taichong, and more), tell you about the fourteen meridians, and chat about how to press, how long, and safety. Just ask about any point or meridian by name. Wellness self-care only.")
     }
 
     // Verified general-knowledge FAQ (sourced + adversarially reviewed; wellness-only framing).
@@ -349,8 +349,8 @@ struct ChatView: View {
 
     static func greetingMessage() -> ChatMessage {
         .init(role: .coach, text: AppLocale.pick(
-            "你好 — 可以问我任意穴位或经络（如 足三里、肺经），以及按压方法、时长、孕期与安全等问题。",
-            "Hi — ask me about any acupoint or meridian (e.g. Zusanli, the Lung meridian), or about how to press, how long, pregnancy, and safety."))
+            "你好，我是小脉 — 可以问我任意穴位或经络（如 足三里、肺经），也可以聊聊按压方法、时长、孕期与安全。",
+            "Hi, I'm Mai — ask me about any acupoint or meridian (e.g. Zusanli, the Lung meridian), or about how to press, how long, pregnancy, and safety."))
     }
 
     var body: some View {
@@ -362,8 +362,8 @@ struct ChatView: View {
                         // model at all (a Settings toggle can't help; the built-in paths still work).
                         if !ChatLLM.deviceSupported {
                             Text(AppLocale.pick(
-                                "此设备不支持设备端 AI 生成回答。教练会照常使用内建的穴位图谱、经络与常见问题作答。",
-                                "On-device AI replies aren't supported on this device. The coach still answers from its built-in atlas, meridians and FAQ."))
+                                "此设备不支持设备端 AI 生成回答。小脉会照常用内建的穴位图谱、经络与常见问题回答。",
+                                "On-device AI replies aren't supported on this device. Mai still answers from the built-in atlas, meridians and FAQ."))
                                 .font(.caption2).foregroundStyle(Ink.textDim)
                                 .frame(maxWidth: .infinity, alignment: .center)
                         }
@@ -429,7 +429,7 @@ struct ChatView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel((m.role == .coach ? "Coach" : "You") + ": " + m.text)
+        .accessibilityLabel((m.role == .coach ? CoachPersona.name : AppLocale.pick("你", "You")) + ": " + m.text)
     }
 
     // Tappable "Practice with camera" buttons under a coach reply — launch the AR coach.

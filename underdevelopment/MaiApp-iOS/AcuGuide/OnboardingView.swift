@@ -21,17 +21,17 @@ struct OnboardingView: View {
                         .tag(0)
                     pageView(
                         icon: "camera.viewfinder",
-                        title: AppLocale.pick("相机引导按压", "The camera coaches your press"),
+                        title: AppLocale.pick("小脉陪你按", "Mai coaches your press"),
                         text: AppLocale.pick(
-                            "选择一个手部穴位，摄像头会在你的手上标出位置，引导你分轮按压 — 按 30 秒、松开呼吸、再来一轮。随时可以结束。",
-                            "Pick a hand point and the camera marks it on your hand, then coaches rounds of pressing — 30 seconds on, release and breathe, repeat. End whenever you like."))
+                            "选择一个手部穴位，小脉会在你的手上标出位置，陪你一轮一轮按 — 按 30 秒、松开呼吸、再来一轮。想停随时停。",
+                            "Pick a hand point and Mai marks it on your hand, then keeps you company through the rounds — 30 seconds on, release and breathe, repeat. End whenever you like."))
                         .tag(1)
                     pageView(
                         icon: "lock.shield",
                         title: AppLocale.pick("一切都在设备上", "Everything stays on your device"),
                         text: AppLocale.pick(
-                            "相机画面即时处理，不保存、不上传。没有账户、没有统计、没有服务器 — AI 教练也在设备上运行。",
-                            "Camera frames are processed live — never stored, never uploaded. No accounts, no analytics, no servers; even the Coach AI runs on-device."))
+                            "相机画面即时处理，不保存、不上传。没有账户、没有统计、没有服务器 — 小脉也完全在设备上运行。",
+                            "Camera frames are processed live — never stored, never uploaded. No accounts, no analytics, no servers; even Mai runs entirely on-device."))
                         .tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .always))

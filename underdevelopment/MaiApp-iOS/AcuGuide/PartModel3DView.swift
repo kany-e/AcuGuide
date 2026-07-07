@@ -35,7 +35,10 @@ struct PartDetail: Identifiable {
             // Frontal at identity: real eyes/nose/ears, so the face points read anatomically.
             id: "head", resource: "arms_hands_head_legs_and_feet__low_poly_female",
             nodeName: "polySurface1_lambert1_0", euler: SCNVector3(0, 0, 0),
-            layout: ["EX-HN3": [0.00, 0.05], "EX-HN5": [0.33, 0.05], "GV20": [0.00, 0.48], "EX-HN1": [0.00, 0.40]],
+            // GV20 sits ON the vertex (0.48 floated the dome above the crown); EX-HN1 is its
+            // just-anterior companion on the top of the dome, not the forehead slope; EX-HN5 lands
+            // in the temple hollow, a touch more lateral. Tuned via detail_head.png.
+            layout: ["EX-HN3": [0.00, 0.05], "EX-HN5": [0.36, 0.05], "GV20": [0.00, 0.455], "EX-HN1": [0.00, 0.415]],
             back: [],
             titleZh: "头", titleEn: "Head",
             creditZh: "头部模型 · pnhtuan（CC-BY 4.0）", creditEn: "Head model · pnhtuan (CC-BY 4.0)"),
@@ -45,7 +48,9 @@ struct PartDetail: Identifiable {
             // surface — like KI1 on the sole, they reveal on rotation.
             id: "arm", resource: "arms_hands_head_legs_and_feet__low_poly_female",
             nodeName: "polySurface6_lambert1_0", euler: SCNVector3(0, 0.5, -0.8),
-            layout: ["LI11": [0.20, 0.05], "LU5": [0.15, 0.00], "TE4": [-0.23, 0.03], "PC7": [-0.25, -0.05]],
+            // LI11/LU5 belong AT the elbow crease (0.20 drifted onto the upper arm). Tuned via
+            // detail_arm.png.
+            layout: ["LI11": [0.16, 0.04], "LU5": [0.13, 0.00], "TE4": [-0.23, 0.03], "PC7": [-0.25, -0.05]],
             back: ["LU5", "PC7"],
             titleZh: "手臂", titleEn: "Arm",
             creditZh: "手臂模型 · pnhtuan（CC-BY 4.0）", creditEn: "Arm model · pnhtuan (CC-BY 4.0)"),
@@ -54,7 +59,9 @@ struct PartDetail: Identifiable {
         "foot": PartDetail(
             id: "foot", resource: "arms_hands_head_legs_and_feet__low_poly_female",
             nodeName: "polySurface9_lambert1_0", euler: SCNVector3(-0.4, Float.pi / 2, 0),
-            layout: ["LR3": [0.06, -0.10], "ST44": [0.26, -0.11], "KI1": [0.14, -0.22], "KI3": [-0.22, -0.10]],
+            // LR3 sits distal on the dorsum (toward the 1st/2nd web), ST44 right at the toe
+            // webbing — both were a touch proximal. Tuned via detail_foot.png.
+            layout: ["LR3": [0.10, -0.11], "ST44": [0.29, -0.13], "KI1": [0.14, -0.22], "KI3": [-0.22, -0.10]],
             back: ["KI1"],                       // Yongquan is on the sole — raycast onto the under-surface
             titleZh: "足部", titleEn: "Foot",
             creditZh: "足部模型 · pnhtuan（CC-BY 4.0）", creditEn: "Foot model · pnhtuan (CC-BY 4.0)"),

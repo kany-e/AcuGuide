@@ -57,11 +57,20 @@ struct HandModel3DView: UIViewRepresentable {
             return (u, v)
         }
 
-        // Per-point visual nudges (in u,v) on TOP of the linear map: the mesh's ulnar border slants
-        // toward the wrist, which a linear atlas→bbox map can't follow — and the atlas (x,y) can't
-        // move because the 2D chart is calibrated to it. Same one-time-nudge philosophy as
-        // PartDetail.layout. Tuned via DetailSnapshotTests' detail_hand.png render.
-        static let nudge: [String: SIMD2<Float>] = ["HT7": [-0.10, 0.01], "SI4": [-0.05, 0.00]]
+        // Per-point visual nudges (in u,v) on TOP of the linear map: this mesh's splayed fingers
+        // stretch the bbox upward and its ulnar border slants toward the wrist, neither of which a
+        // linear atlas→bbox map can follow — and the atlas (x,y) can't move because the 2D chart is
+        // calibrated to it. Same one-time-nudge philosophy as PartDetail.layout. Tuned via
+        // DetailSnapshotTests' detail_hand.png / detail_hand_palm.png renders (user-reported: TE3
+        // sat up on the finger bases instead of the metacarpal groove behind the knuckles).
+        static let nudge: [String: SIMD2<Float>] = [
+            "TE3": [0.02, -0.14],   // down off the finger bases, into the 4th/5th metacarpal groove
+            "TE2": [0.04, -0.12],   // down to the ring/little web margin
+            "SI3": [0.05, -0.06],   // onto the ulnar border just behind the 5th knuckle
+            "HT7": [-0.10, 0.01],
+            "SI4": [-0.05, 0.00],
+            "LU9": [-0.10, 0.00],   // out to the RADIAL end of the palmar wrist crease
+        ]
 
         // Final placement mapping for a hand point: linear atlas→bbox map + its visual nudge.
         static func uv(for pt: Acupoint) -> (Float, Float) {

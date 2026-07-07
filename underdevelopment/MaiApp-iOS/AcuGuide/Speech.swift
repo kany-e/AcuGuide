@@ -45,15 +45,15 @@ final class CoachVoice: ObservableObject {
 
     private func phrase(for phase: CoachPhase, requiresDorsal: Bool) -> String? {
         switch phase {
-        case .noHand:           return AppLocale.pick("把手放进画面。", "Bring your hand into the frame.")
+        case .noHand:           return AppLocale.pick("把手放到镜头前吧。", "Bring your hand into view.")
         case .wrongFace:        return requiresDorsal
-            ? AppLocale.pick("把手背朝向相机。", "Turn the back of your hand toward the camera.")
-            : AppLocale.pick("把手掌朝向相机。", "Turn your palm toward the camera.")
-        case .searching:        return AppLocale.pick("移动到高亮区域。", "Move toward the highlighted area.")
-        case .onTargetUnstable: return AppLocale.pick("保持稳定。", "Hold it steady.")
-        case .holding:          return AppLocale.pick("很好，稳定地用力。", "Good — firm, steady pressure.")
+            ? AppLocale.pick("翻一下手，手背对着镜头。", "Turn your hand over — back to the camera.")
+            : AppLocale.pick("翻一下手，手心对着镜头。", "Turn your hand over — palm to the camera.")
+        case .searching:        return AppLocale.pick("顺着圆圈慢慢找。", "Ease over toward the ring.")
+        case .onTargetUnstable: return AppLocale.pick("就是这里，轻轻稳住。", "That's it — settle in.")
+        case .holding:          return AppLocale.pick("很好，就这样稳稳按住。", "Good — keep that steady press.")
         case .resting:          return AppLocale.pick("松开手指，放松呼吸。", "Release — and breathe.")
-        case .paused:           return AppLocale.pick("快好了，回到穴位上。", "Almost — move back onto the point.")
+        case .paused:           return AppLocale.pick("没关系，慢慢回到穴位上。", "No rush — ease back onto the point.")
         case .complete:         return AppLocale.pick("保持得很好，完成了。", "Nicely held — all done.")
         }
     }

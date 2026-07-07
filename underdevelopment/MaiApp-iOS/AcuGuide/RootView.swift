@@ -35,7 +35,7 @@ struct RootView: View {
                 .tabItem { Label(AppLocale.pick("练习", "Practice"), systemImage: "camera.viewfinder") }
 
             ChatView(startCoach: startCoach)
-                .tabItem { Label(AppLocale.pick("AI 教练", "Coach AI"), systemImage: "bubble.left.and.bubble.right") }
+                .tabItem { Label(CoachPersona.name, systemImage: "bubble.left.and.bubble.right") }
         }
         .tint(Ink.gold)
         // One launcher for every practice shape: camera coach / timer session / routine run.
@@ -130,7 +130,7 @@ struct CoachHome: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(AppLocale.pick("第一次？先试一轮", "First time? Try one round"))
                                         .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.text)
-                                    Text(AppLocale.pick("30 秒，相机带你按中渚 TE3。", "30 seconds — the camera guides you on TE3."))
+                                    Text(AppLocale.pick("30 秒，小脉带你按中渚 TE3。", "30 seconds — Mai walks you through TE3."))
                                         .font(.caption).foregroundStyle(Ink.textDim)
                                 }
                                 Spacer()

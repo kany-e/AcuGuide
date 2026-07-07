@@ -176,8 +176,8 @@ struct TimerSessionView: View {
             }
 
             if session.phase == .ready {
-                Text(AppLocale.pick("按说明找到该处，用指尖以稳而舒适的力度按住，然后开始。",
-                                    "Find the spot with the instructions above, settle your fingertip with firm-but-comfortable pressure, then begin."))
+                Text(AppLocale.pick("照上面的说明找到位置，让指尖以舒服的力度贴住，准备好就开始。",
+                                    "Find the spot with the notes above, let your fingertip settle in comfortably, and begin whenever you're ready."))
                     .font(.footnote).foregroundStyle(Ink.textDim)
                     .multilineTextAlignment(.center).padding(.horizontal, 30)
                 Button(AppLocale.pick("开始", "Begin")) { session.start() }

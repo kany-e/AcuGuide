@@ -24,6 +24,13 @@ enum AppLocale {
     static func pick(_ zh: String, _ en: String) -> String { isChinese ? zh : en }
 }
 
+// The coach's friendly face — copy says 小脉/Mai rather than "the camera" / "the AI" (user
+// feedback: the machine-voiced phrasing read cold). ONE constant so the persona can be renamed in
+// one place; it never replaces the honest "(On-device AI …)" labeling on generated replies.
+enum CoachPersona {
+    static var name: String { AppLocale.pick("小脉", "Mai") }
+}
+
 struct Acupoint: Identifiable, Hashable {
     let id: String          // "TE3"
     let zh: String          // 中渚
@@ -86,10 +93,10 @@ struct Acupoint: Identifiable, Hashable {
             locationEn: "On the back of the hand, in the groove behind the heads of the 4th and 5th metacarpals (behind the ring- and little-finger knuckles).",
             indicationsZh: "传统上常用于头侧紧张、耳部不适，以及手背与腕部紧张等相关调理。",
             indicationsEn: "Traditionally used in acupuncture practice for side-of-head tension, ear discomfort, and tension across the back of the hand and wrist.",
-            coachAlign: "Back of the hand up. Find the groove behind your ring and pinky knuckles.",
-            coachHold: "Good — firm, steady pressure with slow breathing, small gentle circles.",
-            coachAlignZh: "手背朝上。找到无名指与小指掌指关节后方的凹沟。",
-            coachHoldZh: "很好 — 稳定用力，配合缓慢呼吸，可做小幅轻柔画圈。",
+            coachAlign: "Back of the hand up — feel for the soft groove just behind your ring and pinky knuckles.",
+            coachHold: "Good — keep it steady, breathe slow, small easy circles.",
+            coachAlignZh: "手背朝上，摸一摸无名指和小指指节后方的小凹沟。",
+            coachHoldZh: "很好 — 稳稳按住，跟着呼吸，慢慢画小圈。",
             // TE3 = centre of the 4th/5th metacarpal gap, stepped ~20% proximally into the
             // depression just behind the 4th MCP. Per the WHO Standard (WPRO 2008) + a sourced
             // landmark study: 0.5·(ringMCP+pinkyMCP) + 0.20·(wrist−gap) ⇒ ring 0.40 / pinky 0.40 /
@@ -574,33 +581,33 @@ struct Acupoint: Identifiable, Hashable {
     // unchanged. Fed into the live searching-phase cue via coachAlignL / coachHoldL.
     static let coachCues: [String: (alignEn: String, holdEn: String, alignZh: String, holdZh: String)] = [
         "PC6": ("Palm up. Three finger-widths above the wrist crease, in the groove between the two central tendons.",
-                "Good — steady, comfortable pressure with slow breathing.",
+                "Good — settle in, and let your breathing slow right down.",
                 "掌心朝上。腕横纹上三横指，两条中央肌腱之间的凹沟处。",
-                "很好 — 稳定舒适地按压，配合缓慢呼吸。"),
+                "很好 — 稳稳按住，让呼吸慢慢沉下来。"),
         "SJ5": ("Back of the forearm up. Three finger-widths above the wrist crease, between the two bones — directly opposite Neiguan.",
-                "Good — gentle, steady pressure with slow breaths.",
+                "Nice — light and steady, easy breaths.",
                 "前臂背面朝上。腕背横纹上三横指，两骨之间，正对内关。",
-                "很好 — 轻柔而稳定地按压，缓慢呼吸。"),
+                "很好 — 力度轻而稳，呼吸放缓。"),
         "PC8": ("Palm up. Curl your middle finger to the palm — press where its tip lands, in the centre.",
-                "Good — soft, steady pressure, breathing slowly.",
+                "Good — a soft, steady press; let the whole palm relax.",
                 "掌心朝上。将中指弯向掌心，指尖所落的掌心中央处即是。",
-                "很好 — 柔和而稳定地按压，缓慢呼吸。"),
+                "很好 — 柔柔按住，让整个手掌放松。"),
         "HT7": ("Palm up. Find the small round bone at the little-finger base of the palm; the point sits just inside it on the wrist crease.",
-                "Good — light, steady pressure with slow breathing.",
+                "Good — a light, steady hold; let your shoulders soften too.",
                 "掌心朝上。找到小指侧掌根的小圆骨，穴位就在其内侧的腕横纹上。",
-                "很好 — 轻柔而稳定地按压，配合缓慢呼吸。"),
+                "很好 — 轻轻按住，肩膀也一起放松。"),
         "SI3": ("Make a loose fist. Find the very end of the palm crease on the little-finger side, where the skin colour changes.",
-                "Good — steady, comfortable pressure with slow breaths.",
+                "Nice — steady right there, slow easy breaths.",
                 "轻轻握拳。找到小指侧掌横纹的尽头、赤白肉际处。",
-                "很好 — 稳定舒适地按压，缓慢呼吸。"),
+                "很好 — 就这样稳稳按住，慢慢呼吸。"),
         "TE4": ("Back of the wrist up. On the wrist crease, in the hollow toward the little-finger side of the central tendon.",
-                "Good — gentle, steady pressure, breathing slowly.",
+                "Good — gentle and steady, along with your breath.",
                 "手腕背面朝上。腕背横纹上，中央肌腱靠小指侧的凹陷处。",
-                "很好 — 轻柔而稳定地按压，缓慢呼吸。"),
+                "很好 — 轻而稳地按住，跟着呼吸。"),
         "PC7": ("Palm up. The middle of the wrist crease, in the hollow between the two central tendons.",
-                "Good — light, steady pressure with slow breathing.",
+                "Good — a light, steady press; let the wrist go loose.",
                 "掌心朝上。腕掌横纹正中，两条中央肌腱之间的凹陷处。",
-                "很好 — 轻柔而稳定地按压，配合缓慢呼吸。"),
+                "很好 — 轻轻按住，让手腕放松下来。"),
     ]
 }
 
