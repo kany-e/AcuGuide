@@ -33,8 +33,8 @@ struct CameraGate<Content: View>: View {
                 icon: "camera.on.rectangle",
                 title: AppLocale.pick("相机权限已关闭", "Camera access is off"),
                 text: AppLocale.pick(
-                    "在系统设置中允许 AcuGuide 使用相机后，小脉才能在画面里陪你练。图谱与问答无需相机。",
-                    "Allow AcuGuide to use the camera in Settings so Mai can coach you on screen. The atlas and chat work without it."),
+                    "在系统设置中允许 AcuGuide 使用相机后，\(CoachPersona.name) 才能在画面里陪你练。图谱与问答无需相机。",
+                    "Allow AcuGuide to use the camera in Settings so \(CoachPersona.name) can coach you on screen. The atlas and chat work without it."),
                 button: AppLocale.pick("打开设置", "Open Settings")) {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
                         UIApplication.shared.open(url)

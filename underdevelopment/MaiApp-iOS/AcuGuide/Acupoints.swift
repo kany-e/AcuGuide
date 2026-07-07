@@ -24,11 +24,13 @@ enum AppLocale {
     static func pick(_ zh: String, _ en: String) -> String { isChinese ? zh : en }
 }
 
-// The coach's friendly face — copy says 小脉/Mai rather than "the camera" / "the AI" (user
-// feedback: the machine-voiced phrasing read cold). ONE constant so the persona can be renamed in
-// one place; it never replaces the honest "(On-device AI …)" labeling on generated replies.
+// The coach's friendly face — copy says "Acu" rather than "the camera" / "the AI" (user feedback:
+// the machine-voiced phrasing read cold; name chosen by the user). Same name in both languages —
+// it echoes the app name and sits naturally in Chinese prose ("我是 Acu", like "Siri 帮你…").
+// ONE constant, interpolated everywhere, so a rename is a one-line change; it never replaces the
+// honest "(On-device AI …)" labeling on generated replies.
 enum CoachPersona {
-    static var name: String { AppLocale.pick("小脉", "Mai") }
+    static let name = "Acu"
 }
 
 struct Acupoint: Identifiable, Hashable {

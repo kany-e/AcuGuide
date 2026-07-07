@@ -130,7 +130,8 @@ struct CoachHome: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(AppLocale.pick("第一次？先试一轮", "First time? Try one round"))
                                         .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.text)
-                                    Text(AppLocale.pick("30 秒，小脉带你按中渚 TE3。", "30 seconds — Mai walks you through TE3."))
+                                    Text(AppLocale.pick("30 秒，\(CoachPersona.name) 带你按中渚 TE3。",
+                                                        "30 seconds — \(CoachPersona.name) walks you through TE3."))
                                         .font(.caption).foregroundStyle(Ink.textDim)
                                 }
                                 Spacer()

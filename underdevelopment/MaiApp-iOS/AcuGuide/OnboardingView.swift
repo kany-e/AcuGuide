@@ -21,17 +21,17 @@ struct OnboardingView: View {
                         .tag(0)
                     pageView(
                         icon: "camera.viewfinder",
-                        title: AppLocale.pick("小脉陪你按", "Mai coaches your press"),
+                        title: AppLocale.pick("\(CoachPersona.name) 陪你按", "\(CoachPersona.name) coaches your press"),
                         text: AppLocale.pick(
-                            "选择一个手部穴位，小脉会在你的手上标出位置，陪你一轮一轮按 — 按 30 秒、松开呼吸、再来一轮。想停随时停。",
-                            "Pick a hand point and Mai marks it on your hand, then keeps you company through the rounds — 30 seconds on, release and breathe, repeat. End whenever you like."))
+                            "选择一个手部穴位，\(CoachPersona.name) 会在你的手上标出位置，陪你一轮一轮按 — 按 30 秒、松开呼吸、再来一轮。想停随时停。",
+                            "Pick a hand point and \(CoachPersona.name) marks it on your hand, then keeps you company through the rounds — 30 seconds on, release and breathe, repeat. End whenever you like."))
                         .tag(1)
                     pageView(
                         icon: "lock.shield",
                         title: AppLocale.pick("一切都在设备上", "Everything stays on your device"),
                         text: AppLocale.pick(
-                            "相机画面即时处理，不保存、不上传。没有账户、没有统计、没有服务器 — 小脉也完全在设备上运行。",
-                            "Camera frames are processed live — never stored, never uploaded. No accounts, no analytics, no servers; even Mai runs entirely on-device."))
+                            "相机画面即时处理，不保存、不上传。没有账户、没有统计、没有服务器 — \(CoachPersona.name) 也完全在设备上运行。",
+                            "Camera frames are processed live — never stored, never uploaded. No accounts, no analytics, no servers; even \(CoachPersona.name) runs entirely on-device."))
                         .tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .always))
