@@ -223,11 +223,42 @@ struct LabelCaptureView: View {
             }
         } }
         .ignoresSafeArea()
-        .overlay(alignment: .top) { topBar.padding(.top, 4) }
         .overlay(alignment: .bottom) { bottomBar.padding(.bottom, 8) }
         .onDisappear { cam.stop() }
         .navigationTitle("Label capture")
         .navigationBarTitleDisplayMode(.inline)
+        // The picker lives IN the navigation bar: as a floating overlay chip it sat inside the
+        // (transparent) nav bar's hit region over the edge-to-edge camera, which swallowed every
+        // tap — the point could never be switched (user-reported).
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Menu {
+                    ForEach(ShadowLocalizer.points, id: \.self) { id in
+                        Button { pointId = id; tapN = nil } label: {
+                            if id == pointId {
+                                Label("\(id)  ·  \(store.perPoint[id] ?? 0)", systemImage: "checkmark")
+                            } else {
+                                Text("\(id)  ·  \(store.perPoint[id] ?? 0)")
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(pointId).font(.headline)
+                        Text("\(store.perPoint[pointId] ?? 0)").font(.subheadline).foregroundStyle(Ink.gold)
+                        Image(systemName: "chevron.down").font(.caption2)
+                    }
+                    .foregroundStyle(Ink.paper)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Capsule().fill(.black.opacity(0.45)))
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Text("total \(store.count)").font(.subheadline).foregroundStyle(Ink.paper.opacity(0.85))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Capsule().fill(.black.opacity(0.45)))
+            }
+        }
     }
 
     // Non-hittable drawing layer: hand joints (white), affine reference ring (meridian colour), tap crosshair (gold).
@@ -253,32 +284,6 @@ struct LabelCaptureView: View {
             }
         }
         .allowsHitTesting(false)
-    }
-
-    private var topBar: some View {
-        HStack {
-            Menu {
-                ForEach(ShadowLocalizer.points, id: \.self) { id in
-                    Button { pointId = id; tapN = nil } label: {
-                        Label("\(id)  ·  \(store.perPoint[id] ?? 0)", systemImage: id == pointId ? "checkmark" : "")
-                    }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(pointId).font(.headline)
-                    Text("\(store.perPoint[pointId] ?? 0)").font(.subheadline).foregroundStyle(Ink.gold)
-                    Image(systemName: "chevron.down").font(.caption2)
-                }
-                .foregroundStyle(Ink.paper)
-                .padding(.horizontal, 12).padding(.vertical, 7)
-                .background(Capsule().fill(.black.opacity(0.45)))
-            }
-            Spacer()
-            Text("total \(store.count)").font(.subheadline).foregroundStyle(Ink.paper.opacity(0.85))
-                .padding(.horizontal, 12).padding(.vertical, 7)
-                .background(Capsule().fill(.black.opacity(0.45)))
-        }
-        .padding(.horizontal)
     }
 
     @ViewBuilder private var bottomBar: some View {
