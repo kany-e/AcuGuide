@@ -100,16 +100,20 @@ struct Acupoint: Identifiable, Hashable {
             coachHold: "Good — keep it steady, breathe slow, small easy circles.",
             coachAlignZh: "手背朝上，摸一摸无名指和小指指节后方的小凹沟。",
             coachHoldZh: "很好 — 稳稳按住，跟着呼吸，慢慢画小圈。",
-            // TE3 = centre of the 4th/5th metacarpal gap, stepped ~20% proximally into the
-            // depression just behind the 4th MCP. Per the WHO Standard (WPRO 2008) + a sourced
-            // landmark study: 0.5·(ringMCP+pinkyMCP) + 0.20·(wrist−gap) ⇒ ring 0.40 / pinky 0.40 /
-            // wrist 0.20, ring-biased to 0.46/0.34 toward the 4th MCP. NO middleMCP (it pulls the
-            // point radially out of the gap). 0.20 wrist sits it behind the knuckle, not on it.
+            // TE3 anchors are FITTED FROM OWNED EXPERT LABELS (Jul 7 2026): 9 device-captured
+            // labels (M3 harness, both hands; claude-deliverables/data/te3_labels_2026-07-07.jsonl),
+            // shared-weight least squares in isotropic units, leave-one-out mean error 0.096·handSize
+            // (max 0.154) — vs 0.233 mean / 1-of-9 inside tolerance for the previous WHO-text-derived
+            // ring .46/pinky .34/wrist .20. The fit is more ULNAR and much more PROXIMAL than the
+            // anatomical fractions suggested because Vision's MCP landmarks sit distal of the
+            // anatomical joint heads (on the knuckle bumps) — exactly the bias text-derivation can't
+            // see. Richer joint sets LOO-scored marginally better but with |w|≈2–3 (noise-amplifying
+            // overfit on n=9); this 3-anchor form keeps every weight ≤ 0.5. Re-fit if more labels land.
             mediapipeTarget: MediaPipeTarget(
                 anchors: [
-                    AnchorWeight(landmark: .ringMCP, weight: 0.46),
-                    AnchorWeight(landmark: .pinkyMCP, weight: 0.34),
-                    AnchorWeight(landmark: .wrist, weight: 0.20),
+                    AnchorWeight(landmark: .ringMCP, weight: 0.11),
+                    AnchorWeight(landmark: .pinkyMCP, weight: 0.47),
+                    AnchorWeight(landmark: .wrist, weight: 0.42),
                 ],
                 toleranceXHandSize: 0.16,
                 pressFinger: .indexTip

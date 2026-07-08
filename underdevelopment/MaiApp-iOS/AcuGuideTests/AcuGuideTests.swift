@@ -167,6 +167,12 @@ final class AcuGuideTests: XCTestCase {
         ]
         for (label, hand) in hands {
             for (pid, id) in ShadowLocalizer.points.enumerated() {
+                // TE3's affine anchor was re-fitted from owned expert labels (Jul 2026 —
+                // ring .11/pinky .47/wrist .42; see Acupoints.swift), so the head — distilled from
+                // the OLD anchor — now deliberately diverges there (~0.22 handSizes, the size of
+                // the label correction). The other 7 points still prove the coordinate
+                // conventions. Re-include TE3 once the head is retrained on the labels.
+                if id == "TE3" { continue }
                 guard let anchors = Acupoint.byId[id]?.mediapipeTarget?.anchors,
                       let affine = hand.weightedTarget(anchors),
                       let learned = ShadowLocalizer.shared.predict(hand: hand, pointId: pid)?.target else {
@@ -195,6 +201,9 @@ final class AcuGuideTests: XCTestCase {
         print("── shadow capture (LIVE front-camera convention) ── handSizes ──")
         var meanAsis = 0.0, meanUnmir = 0.0, cnt = 0.0
         for (pid, id) in ShadowLocalizer.points.enumerated() {
+            // TE3 excluded for the same reason as testLearnedHeadMatchesAffineAnchors: its affine
+            // anchor is now label-fitted, so head-vs-affine parity no longer holds there.
+            if id == "TE3" { continue }
             guard let anchors = Acupoint.byId[id]?.mediapipeTarget?.anchors,
                   let affine = live.weightedTarget(anchors),
                   let asis = ShadowLocalizer.shared.predict(hand: live, pointId: pid, mirrorInput: false)?.target,
