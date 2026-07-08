@@ -82,6 +82,22 @@ final class DetailSnapshotTests: XCTestCase {
         try img.pngData()!.write(to: out)
         print("SNAPSHOT wrote \(out.path)")
 
+        // Third render from a 3/4 SIDE angle: depth errors are invisible in the two axis views (a
+        // plane-fallback marker projects to the correct screen spot from the canonical camera) —
+        // this is the render that shows floating markers, if any survive the onSurface assertion.
+        let sideCam = SCNNode(); sideCam.camera = SCNCamera()
+        sideCam.camera?.fieldOfView = 45; sideCam.camera?.zNear = 0.01; sideCam.camera?.zFar = 100
+        sideCam.position = SCNVector3(1.8, 0.3, 1.5)
+        sideCam.look(at: SCNVector3(0, 0, 0))
+        scene.rootNode.addChildNode(sideCam)
+        let sideImg = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil).also {
+            $0.scene = scene; $0.pointOfView = sideCam
+        }.snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
+        let sideOut = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("detail_hand_side.png")
+        try sideImg.pngData()!.write(to: sideOut)
+        print("SNAPSHOT wrote \(sideOut.path)")
+
         // Second render from BEHIND the hand (the palm side, mirrored on screen like flipping a
         // real hand over) so the far-side palmar markers (PC8/HT7/HT8/LU9/LU10) can be eyeballed
         // too — the frontal render hides exactly the points placed with farSide: true.

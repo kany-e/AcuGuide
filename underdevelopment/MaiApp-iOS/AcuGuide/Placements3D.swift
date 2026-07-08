@@ -36,8 +36,12 @@ enum AcupointPlacements {
         "HT7": Placement3D(body: [-0.352, -0.075, 0.922], detailUV: [ 0.069, -0.341], detailFarSide: true),  // ulnar palmar wrist, pisiform
         "PC8": Placement3D(body: [-0.365, -0.088, 0.885], detailUV: [ 0.081, -0.163], detailFarSide: true),  // palm centre, 2nd/3rd MC
         "HT8": Placement3D(                               detailUV: [ 0.194, -0.092], detailFarSide: true),  // where the pinky tip lands in a fist
-        "LU10": Placement3D(                              detailUV: [-0.100, -0.233], detailFarSide: true),  // thenar, 1st MC midpoint
-        "LU9": Placement3D(                               detailUV: [-0.137, -0.367], detailFarSide: true),  // radial end of palmar wrist crease
+        // LU9/LU10 pulled IN toward the palm centreline (was u −0.10/−0.137): their old rays fell
+        // off the radial silhouette into empty space, so the far-side raycast missed and the
+        // markers floated beside the wrist (user-reported two floaters). u ≈ −0.05 keeps them on
+        // the thenar/radial-wrist band, over solid mesh, matching LI5's on-hand column.
+        "LU10": Placement3D(                              detailUV: [-0.050, -0.235], detailFarSide: true),  // thenar, 1st MC midpoint
+        "LU9": Placement3D(                               detailUV: [-0.070, -0.350], detailFarSide: true),  // radial end of palmar wrist crease
         "LI5": Placement3D(                               detailUV: [-0.062, -0.312]),                       // anatomical snuffbox
         // ── Forearm (full-body atlas only — no detail sheet reaches them) ────────────────────
         "PC6": Placement3D(body: [-0.323, -0.050, 1.002]),  // palmar forearm, 2 cun above the crease

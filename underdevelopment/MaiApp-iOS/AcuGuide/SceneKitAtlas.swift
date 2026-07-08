@@ -106,6 +106,13 @@ enum AtlasMarkers {
     // a target on the model's mid-depth plane; we cast a ray from the camera THROUGH it and take the
     // near hit (or the far hit for `farSide` palm/sole points), so the marker lands on the VISIBLE
     // surface at that screen position regardless of the model's arbitrary local axes.
+    // Places a marker at the (u,v) screen fraction by raycasting the camera ray onto the mesh.
+    // NOTE the fallback below: if the ray MISSES the silhouette it lands on the bbox near/far
+    // plane at the same screen (u,v) — which looks right head-on but FLOATS off the hand when the
+    // model is rotated (user-reported). SceneKit's segment hit-test only resolves against a live
+    // rendered view, so this can't be unit-asserted; the offscreen DetailSnapshotTests renders a
+    // 3/4-angle PNG (detail_hand_side.png) whose whole job is to make a floater visible — a dot in
+    // empty space there is a uv that misses, and its registry entry needs pulling onto the mesh.
     static func screenMarker(cameraZ: Float, mesh: SCNNode, u: Float, v: Float, farSide: Bool,
                              id: String, color: UIColor, core: CGFloat, halo: CGFloat) -> SCNNode? {
         let (lo, hi) = mesh.boundingBox
