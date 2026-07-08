@@ -98,19 +98,19 @@
     </div>
     <div class="meta">
       <div class="fresh"><span class="dot"></span> Last refreshed <b id="refreshed">—</b></div>
-      <div>Branch <b>IOS-APP</b> · HEAD <b>8e077cf</b>+dash · origin/IOS-APP <b>38133c4</b> (push = clean fast-forward, +9)</div>
-      <div>Last commit <b>2026-07-07</b> · working tree <b>dashboard only</b></div>
+      <div>Branch <b>IOS-APP</b> · HEAD <b>0ba22c9</b> (R14.6) · origin/IOS-APP <b>38133c4</b> (push = clean fast-forward, +12)</div>
+      <div>Last commit <b>2026-07-07 23:53</b> · working tree <b>SceneKitAtlas edit + dashboard</b></div>
     </div>
   </header>
 
   <!-- metrics -->
   <div class="metrics">
     <div class="metric"><div class="n">5<small>/5</small></div><div class="l good">Phases shipped</div></div>
-    <div class="metric"><div class="n">66</div><div class="l">iOS-port commits</div></div>
-    <div class="metric"><div class="n">44<small>+4</small></div><div class="l">Swift modules · tests</div></div>
-    <div class="metric"><div class="n">~9.9k</div><div class="l">Lines of Swift</div></div>
+    <div class="metric"><div class="n">72</div><div class="l">iOS-port commits</div></div>
+    <div class="metric"><div class="n">45<small>+5</small></div><div class="l">Swift modules · tests</div></div>
+    <div class="metric"><div class="n">~10.3k</div><div class="l">Lines of Swift</div></div>
     <div class="metric"><div class="n" style="color:var(--jade)">66/66</div><div class="l good">Tests passing</div></div>
-    <div class="metric"><div class="n" style="color:var(--jade)">R2–R14</div><div class="l good">All rounds shipped</div></div>
+    <div class="metric"><div class="n" style="color:var(--jade)">R2–R14.5</div><div class="l good">All rounds shipped</div></div>
   </div>
 
   <div class="grid">
@@ -199,6 +199,10 @@
           <div class="top"><span class="name">Round-14 — Full-app review fixes <span>· isotropic ring geometry · timer terminal state + pause reasons · one session factory + camera fallback · LLM excluded-point filter · projector pause · dedup (recap/GLB/rows/footer)</span></span><span class="tag done">done · 8cd6aac · 52 fixed, 2 deferred</span></div>
           <div class="bar"><i style="width:100%"></i></div>
         </div>
+        <div class="phase">
+          <div class="top"><span class="name">Round-14.1–14.5 — Post-review hardening <span>· TE3 anchor re-fit from 9 owned labels (1/9 → 9/9 in-ring) · label-capture picker moved into nav bar · ONE 3D-placement registry + SI4 fix · registry guarantees pinned by test · 7-test deterministic stress suite</span></span><span class="tag done">done · 8e077cf · 66/66</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        </div>
       </section>
 
       <section class="card">
@@ -251,20 +255,20 @@
           <span class="chip">AcuGuideApp</span><span class="chip">RootView</span><span class="chip">Theme</span><span class="chip">Shanshui</span>
           <span class="chip">Typography</span><span class="chip">AppSettings</span><span class="chip">Settings</span>
           <span class="chip">Acupoints</span><span class="chip">Meridians</span><span class="chip">Body3DView</span><span class="chip">HandModel</span>
-          <span class="chip">HandModel3DView</span><span class="chip">PartModel3DView</span><span class="chip">SceneKitAtlas</span>
+          <span class="chip">HandModel3DView</span><span class="chip">PartModel3DView</span><span class="chip">SceneKitAtlas</span><span class="chip new">Placements3D</span>
           <span class="chip">Coach</span><span class="chip">CameraCoach</span><span class="chip">CameraGate</span><span class="chip">CameraLocator</span>
           <span class="chip">OneEuroFilter</span><span class="chip">HandVision</span><span class="chip">ARCoachView</span>
           <span class="chip">FaceAtlasView</span><span class="chip">FaceLandmarks</span><span class="chip">TorsoAtlasView</span><span class="chip">TorsoLandmarks</span>
-          <span class="chip new">AllPointsView</span>
+          <span class="chip">AllPointsView</span>
           <span class="chip">ChatView</span><span class="chip">ChatLLM</span><span class="chip">Speech</span><span class="chip">Haptics</span>
           <span class="chip">Reminders</span><span class="chip">OnboardingView</span><span class="chip">CreditsView</span>
-          <span class="chip">SourcesView</span><span class="chip">LearnedLocalizer</span><span class="chip">LabelCapture</span><span class="chip new">Diagnostics</span>
-          <span class="chip">PracticeStore</span><span class="chip new">Routines</span><span class="chip new">RoutinesUI</span><span class="chip new">SessionUI</span>
-          <span class="chip new">TimerSession</span><span class="chip new">CustomRoutines</span><span class="chip new">HistoryView</span>
+          <span class="chip">SourcesView</span><span class="chip">LearnedLocalizer</span><span class="chip">LabelCapture</span><span class="chip">Diagnostics</span>
+          <span class="chip">PracticeStore</span><span class="chip">Routines</span><span class="chip">RoutinesUI</span><span class="chip">SessionUI</span>
+          <span class="chip">TimerSession</span><span class="chip">CustomRoutines</span><span class="chip">HistoryView</span>
         </div>
         <div style="height:12px"></div>
         <div class="chips">
-          <span class="chip t">AcuGuideTests</span><span class="chip t">CoachStateMachineTests</span><span class="chip t">CoachEngineFixtureTests</span><span class="chip t">DetailSnapshotTests</span>
+          <span class="chip t">AcuGuideTests</span><span class="chip t">CoachStateMachineTests</span><span class="chip t">CoachEngineFixtureTests</span><span class="chip t">DetailSnapshotTests</span><span class="chip t">StressTests</span>
         </div>
       </section>
 
@@ -286,7 +290,7 @@
       <span><span class="sw" style="background:var(--blue)"></span> tests</span>
       <span><span class="sw" style="background:var(--jade)"></span> new this round</span>
     </div>
-    <div style="margin-top:10px">Generated from live git state on branch <b>IOS-APP</b> · AcuGuide repo · HEAD <b>01fd801</b> (Round 14.2) · +2 iOS commits since last refresh (R14.1 label-fitted TE3 · R14.2 label-capture picker) · test pass-state (58/58) re-verified this refresh · wellness self-care, not medical advice.</div>
+    <div style="margin-top:10px">Generated from live git state on branch <b>IOS-APP</b> · AcuGuide repo · HEAD <b>971a091</b> (R14.5 + dash) · metrics reconciled to R14.5 (69 iOS commits · 45+5 Swift files · ~10.3k LOC) · tests <b>66/66</b> from last verified R14.5 run (not re-run this refresh — no Xcode in refresh env) · in-progress: SceneKitAtlas surface-hit guard (uncommitted) · wellness self-care, not medical advice.</div>
   </footer>
 
 </div>
