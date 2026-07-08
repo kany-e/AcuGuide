@@ -55,11 +55,12 @@ final class DetailSnapshotTests: XCTestCase {
         let (mn, mx) = worldAABB(mesh)
         let pad: Float = 0.12
         var placed = 0
-        typealias Calib = HandModel3DView.HandMarkerCalib
-        for pt in Acupoint.all where pt.region == "hand" && Calib.contains(pt.x, pt.y) {
-            let (u, v) = Calib.uv(for: pt)
-            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v,
-                                                    farSide: !pt.requiresDorsal, id: pt.id,
+        // Placement comes from the ONE registry (AcupointPlacements), exactly as HandModel3DView
+        // places it — points without a detailUV (forearm PC6/SJ5) are correctly absent.
+        for pt in Acupoint.all where pt.region == "hand" {
+            guard let plc = AcupointPlacements.table[pt.id], let uv = plc.detailUV else { continue }
+            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: uv.x, v: uv.y,
+                                                    farSide: plc.detailFarSide, id: pt.id,
                                                     color: UIColor(MeridianColors.color(pt.meridian)),
                                                     core: 0.022, halo: 0.04) else {
                 XCTFail("hand/\(pt.id) produced no marker"); continue }

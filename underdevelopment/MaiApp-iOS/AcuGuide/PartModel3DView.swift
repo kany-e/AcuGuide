@@ -27,43 +27,36 @@ struct PartDetail: Identifiable {
     var points: [Acupoint] { Acupoint.all.filter { $0.region == id && layout[$0.id] != nil } }
 
     static func forRegion(_ region: String) -> PartDetail? { byRegion[region] }
+
+    // Marker positions come from the ONE placement registry (AcupointPlacements —
+    // Placements3D.swift); this table only authors each part's mesh + canonical pose.
+    private static func make(id: String, resource: String, nodeName: String?, euler: SCNVector3,
+                             titleZh: String, titleEn: String,
+                             creditZh: String, creditEn: String) -> PartDetail {
+        let d = AcupointPlacements.detailLayout(region: id)
+        return PartDetail(id: id, resource: resource, nodeName: nodeName, euler: euler,
+                          layout: d.layout, back: d.back,
+                          titleZh: titleZh, titleEn: titleEn, creditZh: creditZh, creditEn: creditEn)
+    }
+
     static let byRegion: [String: PartDetail] = [
         // Head/arm/foot all come from the composite body model — its parts (real face, full arm with
         // hand, proper foot) are far better formed than the standalone single-part GLBs they replaced.
-        "head": PartDetail(
-            // Frontal at identity: real eyes/nose/ears, so the face points read anatomically.
-            id: "head", resource: "arms_hands_head_legs_and_feet__low_poly_female",
-            nodeName: "polySurface1_lambert1_0", euler: SCNVector3(0, 0, 0),
-            // GV20 sits ON the vertex (0.48 floated the dome above the crown); EX-HN1 is its
-            // just-anterior companion on the top of the dome, not the forehead slope; EX-HN5 lands
-            // in the temple hollow, a touch more lateral. Tuned via detail_head.png.
-            layout: ["EX-HN3": [0.00, 0.05], "EX-HN5": [0.36, 0.05], "GV20": [0.00, 0.455], "EX-HN1": [0.00, 0.415]],
-            back: [],
-            titleZh: "头", titleEn: "Head",
-            creditZh: "头部模型 · pnhtuan（CC-BY 4.0）", creditEn: "Head model · pnhtuan (CC-BY 4.0)"),
-        "arm": PartDetail(
-            // Full arm (shoulder → hand), horizontal with the dorsum to the camera (matches the foot's
-            // chart style). Palmar points (LU5 cubital crease / PC7 wrist crease) raycast to the FAR
-            // surface — like KI1 on the sole, they reveal on rotation.
-            id: "arm", resource: "arms_hands_head_legs_and_feet__low_poly_female",
-            nodeName: "polySurface6_lambert1_0", euler: SCNVector3(0, 0.5, -0.8),
-            // LI11/LU5 belong AT the elbow crease (0.20 drifted onto the upper arm). Tuned via
-            // detail_arm.png.
-            layout: ["LI11": [0.16, 0.04], "LU5": [0.13, 0.00], "TE4": [-0.23, 0.03], "PC7": [-0.25, -0.05]],
-            back: ["LU5", "PC7"],
-            titleZh: "手臂", titleEn: "Arm",
-            creditZh: "手臂模型 · pnhtuan（CC-BY 4.0）", creditEn: "Arm model · pnhtuan (CC-BY 4.0)"),
-        // Proper foot from the composite body model (polySurface9) — the standalone foot_low_poly asset
-        // was a malformed, stubby lump. 3/4 lateral view (toes right, dorsum to camera).
-        "foot": PartDetail(
-            id: "foot", resource: "arms_hands_head_legs_and_feet__low_poly_female",
-            nodeName: "polySurface9_lambert1_0", euler: SCNVector3(-0.4, Float.pi / 2, 0),
-            // LR3 sits distal on the dorsum (toward the 1st/2nd web), ST44 right at the toe
-            // webbing — both were a touch proximal. Tuned via detail_foot.png.
-            layout: ["LR3": [0.10, -0.11], "ST44": [0.29, -0.13], "KI1": [0.14, -0.22], "KI3": [-0.22, -0.10]],
-            back: ["KI1"],                       // Yongquan is on the sole — raycast onto the under-surface
-            titleZh: "足部", titleEn: "Foot",
-            creditZh: "足部模型 · pnhtuan（CC-BY 4.0）", creditEn: "Foot model · pnhtuan (CC-BY 4.0)"),
+        // Frontal head at identity: real eyes/nose/ears, so the face points read anatomically.
+        "head": make(id: "head", resource: "arms_hands_head_legs_and_feet__low_poly_female",
+                     nodeName: "polySurface1_lambert1_0", euler: SCNVector3(0, 0, 0),
+                     titleZh: "头", titleEn: "Head",
+                     creditZh: "头部模型 · pnhtuan（CC-BY 4.0）", creditEn: "Head model · pnhtuan (CC-BY 4.0)"),
+        // Full arm (shoulder → hand), horizontal with the dorsum to the camera.
+        "arm": make(id: "arm", resource: "arms_hands_head_legs_and_feet__low_poly_female",
+                    nodeName: "polySurface6_lambert1_0", euler: SCNVector3(0, 0.5, -0.8),
+                    titleZh: "手臂", titleEn: "Arm",
+                    creditZh: "手臂模型 · pnhtuan（CC-BY 4.0）", creditEn: "Arm model · pnhtuan (CC-BY 4.0)"),
+        // Proper foot (3/4 lateral view, toes right, dorsum to camera).
+        "foot": make(id: "foot", resource: "arms_hands_head_legs_and_feet__low_poly_female",
+                     nodeName: "polySurface9_lambert1_0", euler: SCNVector3(-0.4, Float.pi / 2, 0),
+                     titleZh: "足部", titleEn: "Foot",
+                     creditZh: "足部模型 · pnhtuan（CC-BY 4.0）", creditEn: "Foot model · pnhtuan (CC-BY 4.0)"),
     ]
 }
 

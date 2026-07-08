@@ -241,49 +241,17 @@ enum BodyAtlas {
 
     // MARK: 3D acupoint markers (on the RIGHT hand / forearm)
 
-    // Approximated from the GLB hand/forearm bones to the sourced surfaces (see Acupoints.swift):
-    // dorsal points sit on the back (+y), palmar on the front (−y); forearm points (PC6/SJ5) ride
-    // up toward the elbow. LI4 is excluded. Tuned visually against the small low-poly hand.
+    // Positions come from the ONE placement registry (AcupointPlacements — Placements3D.swift);
+    // the meridian (for marker colour) comes from the point data itself. Mesh space is z-up,
+    // right=−x, front=−y; estimates are surface-snapped below, so slightly-off values still land
+    // on the body. LI4 is excluded (never in Acupoint.all).
     struct AcuMarker { let id: String; let meridian: String; let pos: SIMD3<Float> }
-    static let acuMarkers: [AcuMarker] = [
-        // Hand / forearm (right hand). ──────────────────────────────────────────────────────────
-        AcuMarker(id: "TE3", meridian: "sj",    pos: [-0.370, -0.043, 0.883]),  // dorsal, 4th/5th MC groove
-        AcuMarker(id: "SI3", meridian: "si",    pos: [-0.398, -0.055, 0.848]),  // ulnar edge, prox. 5th MC
-        AcuMarker(id: "PC8", meridian: "pc",    pos: [-0.365, -0.088, 0.885]),  // palmar, centre of palm
-        AcuMarker(id: "HT7", meridian: "heart", pos: [-0.352, -0.075, 0.922]),  // palmar wrist, ulnar
-        AcuMarker(id: "PC6", meridian: "pc",    pos: [-0.323, -0.050, 1.002]),  // palmar forearm (2 cun up)
-        AcuMarker(id: "SJ5", meridian: "sj",    pos: [-0.323, -0.004, 1.002]),  // dorsal forearm, opp. PC6
-        // Body-region points — first-pass anatomical estimates in mesh space (z-up, right=−x,
-        // front=−y), placed off the GLB skeleton + WHO surface hints. Markers draw on top of the
-        // body, so they read even when slightly off-surface; fine-tune visually like TE3 if needed.
-        // Head & face ─────────────────────────────────────────────────────────────────────────
-        AcuMarker(id: "EX-HN3", meridian: "extra", pos: [ 0.000, -0.085, 1.630]), // glabella, front midline
-        AcuMarker(id: "EX-HN5", meridian: "extra", pos: [-0.080, -0.025, 1.630]), // right temple (lateral)
-        AcuMarker(id: "GV20",   meridian: "du",    pos: [ 0.000,  0.000, 1.760]), // vertex (top of head)
-        AcuMarker(id: "EX-HN1", meridian: "extra", pos: [ 0.000, -0.035, 1.748]), // around the vertex
-        // Chest ───────────────────────────────────────────────────────────────────────────────
-        AcuMarker(id: "CV17",   meridian: "ren",    pos: [ 0.000, -0.100, 1.220]), // mid-sternum
-        AcuMarker(id: "KI27",   meridian: "kidney", pos: [-0.065, -0.090, 1.350]), // under right collarbone
-        // Abdomen ───────────────────────────────────────────────────────────────────────────────
-        AcuMarker(id: "CV12",   meridian: "ren",     pos: [ 0.000, -0.100, 1.080]), // upper abdomen midline
-        AcuMarker(id: "ST25",   meridian: "stomach", pos: [-0.060, -0.100, 0.965]), // right of navel
-        // Arm (right elbow + wrist) ─────────────────────────────────────────────────────────────
-        AcuMarker(id: "LI11",   meridian: "li",    pos: [-0.295, -0.010, 1.155]), // lateral elbow crease
-        AcuMarker(id: "LU5",    meridian: "lung",  pos: [-0.265, -0.050, 1.150]), // anterior elbow crease
-        AcuMarker(id: "TE4",    meridian: "sj",    pos: [-0.345,  0.005, 0.960]), // dorsal wrist
-        AcuMarker(id: "PC7",    meridian: "pc",    pos: [-0.350, -0.085, 0.952]), // palmar wrist crease
-        // Leg (right knee + lower leg) ──────────────────────────────────────────────────────────
-        AcuMarker(id: "ST36",   meridian: "stomach", pos: [-0.115, -0.060, 0.400]), // below knee, front-lat
-        AcuMarker(id: "GB34",   meridian: "gb",      pos: [-0.135, -0.045, 0.480]), // below knee, lateral
-        AcuMarker(id: "SP10",   meridian: "spleen",  pos: [-0.075, -0.055, 0.620]), // inner thigh, above knee
-        AcuMarker(id: "ST34",   meridian: "stomach", pos: [-0.135, -0.060, 0.620]), // outer thigh, above knee
-        AcuMarker(id: "ST35",   meridian: "stomach", pos: [-0.125, -0.065, 0.500]), // outer knee eye
-        // Foot & ankle (right) ──────────────────────────────────────────────────────────────────
-        AcuMarker(id: "LR3",    meridian: "liver",   pos: [-0.120, -0.100, 0.060]), // dorsum, 1st/2nd MT
-        AcuMarker(id: "ST44",   meridian: "stomach", pos: [-0.130, -0.135, 0.045]), // dorsum, 2nd/3rd toe
-        AcuMarker(id: "KI1",    meridian: "kidney",  pos: [-0.120, -0.075, 0.025]), // sole, anterior third
-        AcuMarker(id: "KI3",    meridian: "kidney",  pos: [-0.105,  0.020, 0.110]), // inner ankle
-    ]
+    static var acuMarkers: [AcuMarker] {
+        Acupoint.all.compactMap { pt in
+            guard let pos = AcupointPlacements.table[pt.id]?.body else { return nil }
+            return AcuMarker(id: pt.id, meridian: pt.meridian, pos: pos)
+        }
+    }
 
     // Small glowing meridian-colored spheres; node names ("acu:<id>") let a tap hit-test identify
     // the point. Added to the mesh (raw coords) so they ride the body through pose + spin.
