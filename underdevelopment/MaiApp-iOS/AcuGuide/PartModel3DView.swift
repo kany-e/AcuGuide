@@ -8,11 +8,12 @@ import simd
 // tap helpers live in SceneKitAtlas.
 //
 // These assets are arbitrarily posed (Maya/FBX frames), so placement is a tunable layout, not a
-// derived anatomy. `PartDetail.euler` orients the model and `layout` gives each point a normalized
-// (u,v) in the camera plane ([-0.5…0.5], u→right, v→up); the marker is raycast onto the surface so
-// it sits ON the mesh regardless of the model's local axes. Points in `back` are raycast from the
-// FAR side (e.g. KI1 on the sole), so they land on the back surface and reveal on rotation. If a
-// part reads rotated/mirrored on device, tweak its `euler` / `layout` here (a one-time visual nudge).
+// derived anatomy. `PartDetail.euler` orients the model; each point's normalized (u,v) in the
+// camera plane ([-0.5…0.5], u→right, v→up) is AUTHORED in AcupointPlacements (Placements3D.swift)
+// and raycast onto the surface, so it sits ON the mesh regardless of the model's local axes.
+// Points in `back` are raycast from the FAR side (e.g. KI1 on the sole) and reveal on rotation.
+// If a part reads rotated/mirrored on device, tweak its `euler` HERE; to move a marker, edit its
+// registry entry in Placements3D.swift (the euler is load-bearing for every uv tuned under it).
 
 struct PartDetail: Identifiable {
     let id: String                              // region id (head/arm/foot) — also the title key

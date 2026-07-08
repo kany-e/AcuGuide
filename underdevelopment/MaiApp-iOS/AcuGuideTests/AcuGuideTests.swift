@@ -60,6 +60,26 @@ final class AcuGuideTests: XCTestCase {
                        "LI4 is pregnancy-contraindicated and must never appear.")
     }
 
+    // The 3D-placement registry (AcupointPlacements) must stay LOCKED to the atlas — every consumer
+    // is a guard-let/compactMap that silently skips a mismatch, so without these pins a typo'd or
+    // renamed key just makes a marker vanish while the suite stays green (review-caught):
+    // (1) every registry key resolves to a real point; (2) the full-body atlas keeps all 27 markers;
+    // (3) hand-sheet farSide mirrors the point's palmar surface (it was structurally derived as
+    // !requiresDorsal before R14.3 baked it; arm/foot sheets legitimately differ — requiresDorsal is
+    // a hand-AR concept — so this is pinned for the hand only).
+    func testPlacementRegistryLockedToAtlas() {
+        for key in AcupointPlacements.table.keys {
+            XCTAssertNotNil(Acupoint.byId[key], "registry key '\(key)' matches no atlas point — renamed or typo'd?")
+        }
+        XCTAssertEqual(BodyAtlas.acuMarkers.count, 27,
+                       "full-body atlas marker count changed — a body: entry was dropped or mis-keyed")
+        for pt in Acupoint.all where pt.region == "hand" {
+            guard let p = AcupointPlacements.table[pt.id], p.detailUV != nil else { continue }
+            XCTAssertEqual(p.detailFarSide, !pt.requiresDorsal,
+                           "\(pt.id): hand-sheet farSide must sit on the point's own surface (palmar ⇔ far side)")
+        }
+    }
+
     // The immutable rule: no treat / cure / heal / diagnose anywhere in user-facing copy.
     // Scans the whole bilingual atlas + the reference side tables + meridian descriptions
     // (the datasets most likely to drift on edits). "heal" ⊂ "health", so this also forbids
@@ -148,9 +168,12 @@ final class AcuGuideTests: XCTestCase {
     }
 
     // M1 shadow-mode: the learned CoreML head, run through the app's ShadowLocalizer on a synthetic
-    // full hand, must reproduce the affine `weightedTarget` for all 8 coachable points to well under a
-    // pixel (delta in handSize units). Proves the in-app learned path + coordinate conventions match the
-    // trained head (no train/serve skew) — the no-regression floor, verified on Apple's own stack.
+    // full hand, must reproduce the affine `weightedTarget` for the 7 text-derived coachable points to
+    // well under a pixel (delta in handSize units); TE3 — whose affine anchor is now label-fitted while
+    // the head was distilled from the OLD anchor — gets a LOOSE sanity bound instead (expected ~0.22,
+    // asserted < 0.5 so a NaN/wild pid-path regression still fails). Proves the in-app learned path +
+    // coordinate conventions match the trained head (no train/serve skew). Retrain the head on the
+    // owned labels, then tighten TE3 back to 0.02.
     func testLearnedHeadMatchesAffineAnchors() {
         let base: [HandJoint: CGPoint] = [
             .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
@@ -167,19 +190,19 @@ final class AcuGuideTests: XCTestCase {
         ]
         for (label, hand) in hands {
             for (pid, id) in ShadowLocalizer.points.enumerated() {
-                // TE3's affine anchor was re-fitted from owned expert labels (Jul 2026 —
-                // ring .11/pinky .47/wrist .42; see Acupoints.swift), so the head — distilled from
-                // the OLD anchor — now deliberately diverges there (~0.22 handSizes, the size of
-                // the label correction). The other 7 points still prove the coordinate
-                // conventions. Re-include TE3 once the head is retrained on the labels.
-                if id == "TE3" { continue }
                 guard let anchors = Acupoint.byId[id]?.mediapipeTarget?.anchors,
                       let affine = hand.weightedTarget(anchors),
                       let learned = ShadowLocalizer.shared.predict(hand: hand, pointId: pid)?.target else {
                     XCTFail("\(id): could not compute learned/affine target"); continue }
                 let d = Double(hypot(learned.x - affine.x, learned.y - affine.y)) / Double(hand.handSize)
                 print(String(format: "shadow-test %@ %@: Δ=%.5f handSizes", label, id, d))
-                XCTAssertLessThan(d, 0.02, "\(label) \(id) learned head diverges from the affine anchor by \(d) handSizes")
+                // TE3's affine anchor was re-fitted from owned expert labels (R14.1 — ring .11 /
+                // pinky .47 / wrist .42; see Acupoints.swift), so the head — distilled from the OLD
+                // anchor — deliberately diverges there by ~0.22 handSizes (the size of the label
+                // correction). A LOOSE bound keeps its pid path exercised (NaN / wild-coordinate
+                // regressions still fail); tighten back to 0.02 once the head is retrained.
+                let bound = (id == "TE3") ? 0.5 : 0.02
+                XCTAssertLessThan(d, bound, "\(label) \(id) learned head diverges from the affine anchor by \(d) handSizes")
             }
         }
     }
@@ -201,8 +224,9 @@ final class AcuGuideTests: XCTestCase {
         print("── shadow capture (LIVE front-camera convention) ── handSizes ──")
         var meanAsis = 0.0, meanUnmir = 0.0, cnt = 0.0
         for (pid, id) in ShadowLocalizer.points.enumerated() {
-            // TE3 excluded for the same reason as testLearnedHeadMatchesAffineAnchors: its affine
-            // anchor is now label-fitted, so head-vs-affine parity no longer holds there.
+            // TE3 excluded from the MEANS: its affine anchor is label-fitted (R14.1), so
+            // head-vs-affine parity no longer holds there. Its pid path stays exercised by the
+            // loose bound in testLearnedHeadMatchesAffineAnchors.
             if id == "TE3" { continue }
             guard let anchors = Acupoint.byId[id]?.mediapipeTarget?.anchors,
                   let affine = live.weightedTarget(anchors),

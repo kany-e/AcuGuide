@@ -1,5 +1,3 @@
-import simd
-
 // THE single 3D-placement registry: every representation the 3D views need for one point lives in
 // ONE entry, tuned here and only here. This closes the review's two deferred altitude findings:
 // (a) the same point's position used to be authored in two unrelated tables — BodyAtlas.acuMarkers
@@ -72,7 +70,9 @@ enum AcupointPlacements {
         "KI3":  Placement3D(body: [-0.105,  0.020, 0.110], detailUV: [-0.220, -0.100]),
     ]
 
-    // Detail-sheet placements for one region, in the shapes PartDetail/the hand sheet consume.
+    // THE registry-consumption rule for detail sheets — PartDetail.byRegion, the hand sheet's
+    // placeMarkers, and the snapshot test all read through here, so a change to what gets placed
+    // (filtering, farSide policy) lands everywhere at once.
     static func detailLayout(region: String) -> (layout: [String: SIMD2<Float>], back: Set<String>) {
         var layout: [String: SIMD2<Float>] = [:]
         var back: Set<String> = []

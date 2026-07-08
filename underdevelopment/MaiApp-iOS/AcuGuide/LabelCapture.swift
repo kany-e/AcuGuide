@@ -233,32 +233,36 @@ struct LabelCaptureView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Menu {
-                    ForEach(ShadowLocalizer.points, id: \.self) { id in
-                        Button { pointId = id; tapN = nil } label: {
-                            if id == pointId {
-                                Label("\(id)  ·  \(store.perPoint[id] ?? 0)", systemImage: "checkmark")
-                            } else {
-                                Text("\(id)  ·  \(store.perPoint[id] ?? 0)")
-                            }
+                    // Picker gives the selection checkmark + a11y for free (was a hand-rolled
+                    // Button/checkmark branch per row).
+                    Picker("Point", selection: $pointId) {
+                        ForEach(ShadowLocalizer.points, id: \.self) { id in
+                            Text("\(id)  ·  \(store.perPoint[id] ?? 0)").tag(id)
                         }
                     }
                 } label: {
-                    HStack(spacing: 6) {
+                    chip {
                         Text(pointId).font(.headline)
                         Text("\(store.perPoint[pointId] ?? 0)").font(.subheadline).foregroundStyle(Ink.gold)
                         Image(systemName: "chevron.down").font(.caption2)
                     }
-                    .foregroundStyle(Ink.paper)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(Capsule().fill(.black.opacity(0.45)))
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Text("total \(store.count)").font(.subheadline).foregroundStyle(Ink.paper.opacity(0.85))
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(Capsule().fill(.black.opacity(0.45)))
+                chip {
+                    Text("total \(store.count)").font(.subheadline).foregroundStyle(Ink.paper.opacity(0.85))
+                }
             }
         }
+        .onChange(of: pointId) { _ in tapN = nil }   // a stale tap must not save under the new point
+    }
+
+    // The one over-camera nav-bar chip style (both toolbar items share it).
+    private func chip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 6, content: content)
+            .foregroundStyle(Ink.paper)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Capsule().fill(.black.opacity(0.45)))
     }
 
     // Non-hittable drawing layer: hand joints (white), affine reference ring (meridian colour), tap crosshair (gold).

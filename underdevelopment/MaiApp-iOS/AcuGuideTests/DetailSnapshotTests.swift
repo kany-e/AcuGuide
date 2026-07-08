@@ -37,9 +37,10 @@ final class DetailSnapshotTests: XCTestCase {
         return (mn, mx)
     }
 
-    // Same contract for the detailed HAND: every region=="hand" point inside the calib box must land
-    // on the hand mesh (dorsal near-side / palmar far-side), exactly as HandModel3DView places them.
-    // Renders detail_hand.png for eyeballing.
+    // Same contract for the detailed HAND: every registry entry with a detailUV must land on the
+    // hand mesh (dorsal near-side / palmar far-side), consumed through the SAME
+    // AcupointPlacements.detailLayout rule HandModel3DView places with — the test can't drift from
+    // the app. Renders detail_hand.png (+ detail_hand_palm.png) for eyeballing.
     func testHandViewPlacesMarkersOnModel() throws {
         guard let mesh = loadUnitMesh("hand_low_poly") else { XCTFail("no hand mesh"); return }
         let scene = SCNScene()
@@ -55,18 +56,19 @@ final class DetailSnapshotTests: XCTestCase {
         let (mn, mx) = worldAABB(mesh)
         let pad: Float = 0.12
         var placed = 0
-        // Placement comes from the ONE registry (AcupointPlacements), exactly as HandModel3DView
-        // places it — points without a detailUV (forearm PC6/SJ5) are correctly absent.
-        for pt in Acupoint.all where pt.region == "hand" {
-            guard let plc = AcupointPlacements.table[pt.id], let uv = plc.detailUV else { continue }
+        // Consumed through the SAME detailLayout rule as HandModel3DView.placeMarkers — points
+        // without a detailUV (forearm PC6/SJ5) are correctly absent.
+        let d = AcupointPlacements.detailLayout(region: "hand")
+        for (id, uv) in d.layout {
+            guard let pt = Acupoint.byId[id] else { XCTFail("hand/\(id) not in the atlas"); continue }
             guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: uv.x, v: uv.y,
-                                                    farSide: plc.detailFarSide, id: pt.id,
+                                                    farSide: d.back.contains(id), id: id,
                                                     color: UIColor(MeridianColors.color(pt.meridian)),
                                                     core: 0.022, halo: 0.04) else {
-                XCTFail("hand/\(pt.id) produced no marker"); continue }
+                XCTFail("hand/\(id) produced no marker"); continue }
             let p = SIMD3<Float>(Float(m.position.x), Float(m.position.y), Float(m.position.z))
             XCTAssertTrue(all(p .>= mn - pad) && all(p .<= mx + pad),
-                          "hand/\(pt.id) marker \(p) fell outside the hand box \(mn)…\(mx)")
+                          "hand/\(id) marker \(p) fell outside the hand box \(mn)…\(mx)")
             scene.rootNode.addChildNode(m)
             placed += 1
         }

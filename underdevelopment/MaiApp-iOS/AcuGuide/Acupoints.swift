@@ -1,11 +1,12 @@
 import SwiftUI
 
 // Acupoint dataset — hand set ported from MaiApp/src/data.js, body regions added later (all
-// WHO-2008 sourced). x,y are in the 360 x 440 hand-SVG coordinate box (drives the 3D hand
-// placement via HandMarkerCalib). `mediapipeTarget` drives the AR coach and is non-nil for the
-// EIGHT documented coached points (test-pinned: TE3 SI3 PC8 HT7 PC6 SJ5 TE4 PC7); every other
-// point is atlas/timer-only. LI4 (合谷) is excluded entirely — it is pregnancy-contraindicated
-// and must never appear, not even in the atlas.
+// WHO-2008 sourced). x,y are legacy 360×440 hand-chart coordinates (still used by search/data
+// provenance only — ALL 3D marker positions are authored in AcupointPlacements, Placements3D.swift).
+// `mediapipeTarget` drives the AR coach and is non-nil for the EIGHT documented coached points
+// (test-pinned: TE3 SI3 PC8 HT7 PC6 SJ5 TE4 PC7); every other point is atlas/timer-only.
+// LI4 (合谷) is excluded entirely — it is pregnancy-contraindicated and must never appear,
+// not even in the atlas.
 
 struct AnchorWeight: Hashable {
     let landmark: HandJoint   // which Vision joint

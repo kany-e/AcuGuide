@@ -1,6 +1,5 @@
 import SwiftUI
 import SceneKit
-import simd
 
 // Detailed 3D hand (hand_low_poly.glb by scribbletoad, CC-BY 4.0) for the hand drill-down — it has
 // real fingers, unlike the body's low-poly mitten. Static mesh (no rig): render the geometry
@@ -37,8 +36,10 @@ struct HandModel3DView: UIViewRepresentable {
 
         // Shared cache/decode/camera scaffolding (SceneKitAtlas.installDetailMesh); this view only
         // supplies the pose + its marker placement. Chart pose: fingers up, thumb left, dorsum to
-        // the camera — matches the 2D hand atlas convention, so the atlas (x,y)→(u,v) mapping lands
-        // on the same anatomy.
+        // the camera. The pose and cameraZ are LOAD-BEARING for placement: every registry detailUV
+        // was tuned in exactly this frame — re-posing the mesh silently shifts all ten markers off
+        // their anatomy (the snapshot test only asserts in-bbox), so retune the registry if this
+        // ever changes.
         AtlasMarkers.installDetailMesh(resource: "hand_low_poly",
                                        euler: SCNVector3(0, 0.72, Float.pi), cameraZ: 2.3,
                                        in: scene, view: view, coordinator: context.coordinator,
@@ -63,13 +64,15 @@ struct HandModel3DView: UIViewRepresentable {
     // point's (u,v) fraction of the model (AtlasMarkers.screenMarker) so the dots land on the
     // VISIBLE hand. Dorsal points hit the near surface; palmar points take the far (palm) surface.
     // Points with no detailUV (the forearm's PC6/SJ5) are simply not placed here — they belong to
-    // the full-body atlas. Pure geometry — no view timing.
+    // the full-body atlas. Consumes AcupointPlacements.detailLayout — the ONE registry-consumption
+    // rule shared with the part sheets and the snapshot test. Pure geometry — no view timing.
     private func placeMarkers(mesh: SCNNode, in scene: SCNScene) {
-        for pt in Acupoint.all where pt.region == "hand" {
-            guard let p = AcupointPlacements.table[pt.id], let uv = p.detailUV else { continue }
+        let d = AcupointPlacements.detailLayout(region: "hand")
+        for (id, uv) in d.layout {
+            guard let pt = Acupoint.byId[id] else { continue }
             if let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: uv.x, v: uv.y,
-                                                 farSide: p.detailFarSide,
-                                                 id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
+                                                 farSide: d.back.contains(id),
+                                                 id: id, color: UIColor(MeridianColors.color(pt.meridian)),
                                                  core: 0.022, halo: 0.04) {
                 scene.rootNode.addChildNode(m)
             }
