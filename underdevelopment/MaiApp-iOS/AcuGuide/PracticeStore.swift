@@ -168,27 +168,29 @@ struct PracticeExport: Transferable {
     }
 }
 
-// Starred acupoints — quick access to the points someone actually returns to. A plain string-set
-// in UserDefaults; local-only like everything else.
-final class Favorites: ObservableObject {
-    static let shared = Favorites()
-
+// Shared base for the app's local-only "set of point ids in UserDefaults" stores (Favorites,
+// LocatedStore) — the id-set + observable plumbing lived twice before. Subclasses add their own
+// domain accessors. Persists as a sorted string array so the on-disk order is stable.
+class IDSetStore: ObservableObject {
     @Published private(set) var ids: Set<String> = []
-
     private let defaults: UserDefaults
-    private static let key = "favoritePoints"
+    private let key: String
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        if let arr = defaults.stringArray(forKey: Self.key) { ids = Set(arr) }
+    init(key: String, defaults: UserDefaults = .standard) {
+        self.key = key; self.defaults = defaults
+        if let arr = defaults.stringArray(forKey: key) { ids = Set(arr) }
     }
 
-    func contains(_ pointId: String) -> Bool { ids.contains(pointId) }
+    func contains(_ id: String) -> Bool { ids.contains(id) }
+    func insert(_ id: String) { guard !ids.contains(id) else { return }; ids.insert(id); persist() }
+    func toggle(_ id: String) { if ids.contains(id) { ids.remove(id) } else { ids.insert(id) }; persist() }
+    private func persist() { defaults.set(ids.sorted(), forKey: key) }
+}
 
-    func toggle(_ pointId: String) {
-        if ids.contains(pointId) { ids.remove(pointId) } else { ids.insert(pointId) }
-        defaults.set(ids.sorted(), forKey: Self.key)
-    }
+// Starred acupoints — quick access to the points someone actually returns to.
+final class Favorites: IDSetStore {
+    static let shared = Favorites()
+    init(defaults: UserDefaults = .standard) { super.init(key: "favoritePoints", defaults: defaults) }
 
     // Favorites in atlas order (Acupoint.all order), so the row reads like the catalog.
     var points: [Acupoint] { Acupoint.all.filter { ids.contains($0.id) } }

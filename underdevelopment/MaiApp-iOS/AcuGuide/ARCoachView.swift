@@ -45,14 +45,17 @@ struct ARCoachView: View {
             ShanshuiBackground()
             if !acknowledged {
                 SafetyGate { acknowledged = true }
+            } else if engine.phase == .complete || endedEarly || feeling != nil {
+                // Recap check comes BEFORE the locate step so a finished/ended session can never be
+                // masked by the locate branch (it can't be reached with the camera-start gate below,
+                // but ordering it first is the defensive belt).
+                recap.onAppear(perform: savePractice)
             } else if !located && acupoint.hasFindGuide {
                 // Find the spot by FEEL first, then the camera marker just confirms it — a more
                 // accurate press than chasing the dot cold (user-requested).
                 LocateStep(point: acupoint,
                            onFound: { LocatedStore.shared.markLocated(acupoint.id); located = true },
                            onSkip: { located = true })
-            } else if engine.phase == .complete || endedEarly || feeling != nil {
-                recap.onAppear(perform: savePractice)
             } else {
                 // Permission gate AFTER the safety gate: the system prompt arrives in context, a
                 // denial gets an open-Settings hand-off instead of a black screen, and the capture
@@ -67,12 +70,22 @@ struct ARCoachView: View {
         // background); returning restarts it (start is idempotent + authorization-gated). The
         // machine's pause-grace and dt clamp make the gap read as a pause, never a credit jump.
         .onChange(of: scenePhase) { sp in
-            guard acknowledged, engine.phase != .complete, !endedEarly else { return }
+            // Only manage the camera once we're actually on the coach screen — NOT during the
+            // safety gate or the find-it LocateStep. Without inCameraPhase, an app-switch bounce
+            // while reading the (camera-less) locate step would start the capture session behind a
+            // text screen: green privacy indicator on, phantom voice/haptics, and silently-banked
+            // hold time surfacing later as a phantom recap (review-caught).
+            guard acknowledged, inCameraPhase, engine.phase != .complete, !endedEarly else { return }
             // An explicit user pause survives an app-switch: don't auto-restart the camera under it.
             if sp == .background { camera.stop() } else if sp == .active && !userPaused { camera.start() }
         }
         .onDisappear { camera.stop(); voice.reset() }
     }
+
+    // We're on the live coach screen (camera should run) — i.e. past the safety gate AND past the
+    // find-it locate step (or the point has no locate step). The CameraGate branch is the only place
+    // that mounts the preview + first starts the camera; this keeps the scenePhase restart in step.
+    private var inCameraPhase: Bool { located || !acupoint.hasFindGuide }
 
     private func handlePhaseChange(to phase: CoachPhase) {
         voice.update(phase: phase, requiresDorsal: acupoint.requiresDorsal)

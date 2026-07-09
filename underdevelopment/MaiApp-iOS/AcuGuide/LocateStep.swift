@@ -1,25 +1,13 @@
 import SwiftUI
 
 // Remembers which points the user has located by feel before — so the locate step can greet a
-// repeat visit warmly ("you've found this before") rather than re-teaching from scratch. Local-only,
-// a plain id-set in UserDefaults, like Favorites. This is the honest version of "save the spot for
+// repeat visit warmly ("you've found this before") rather than re-teaching from scratch. Shares the
+// id-set-in-UserDefaults base with Favorites. This is the honest version of "save the spot for
 // later": we record that you confirmed it, not a fake per-user coordinate.
-final class LocatedStore: ObservableObject {
+final class LocatedStore: IDSetStore {
     static let shared = LocatedStore()
-    @Published private(set) var ids: Set<String> = []
-    private let defaults: UserDefaults
-    private static let key = "locatedPoints"
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        if let arr = defaults.stringArray(forKey: Self.key) { ids = Set(arr) }
-    }
-    func contains(_ id: String) -> Bool { ids.contains(id) }
-    func markLocated(_ id: String) {
-        guard !ids.contains(id) else { return }
-        ids.insert(id)
-        defaults.set(ids.sorted(), forKey: Self.key)
-    }
+    init(defaults: UserDefaults = .standard) { super.init(key: "locatedPoints", defaults: defaults) }
+    func markLocated(_ id: String) { insert(id) }
 }
 
 // The find-it-by-feel step, shown BETWEEN the safety gate and the live camera for every coached
@@ -54,25 +42,19 @@ struct LocateStep: View {
                 }
 
                 // How to find it — the plain-language guide.
-                VStack(alignment: .leading, spacing: 8) {
-                    Label(AppLocale.pick("这样找", "How to find it"), systemImage: "hand.point.up.left")
-                        .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
+                guideCard(AppLocale.pick("这样找", "How to find it"), icon: "hand.point.up.left") {
                     Text(point.findHow).font(.body).foregroundStyle(Ink.text)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(14).frame(maxWidth: .infinity, alignment: .leading).panel()
 
                 // The sensation that confirms it — the "do you feel the indent?" prompt.
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(AppLocale.pick("感觉一下", "Feel for it"), systemImage: "sparkle.magnifyingglass")
-                        .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
+                guideCard(AppLocale.pick("感觉一下", "Feel for it"), icon: "sparkle.magnifyingglass") {
                     Text(point.findFeel).font(.subheadline).foregroundStyle(Ink.gold)
                     Text(AppLocale.pick("轻轻按一按，找到略有胀感的那一点 — 那就是它。",
                                         "Press gently around it and settle on the point that feels slightly tender — that's the one."))
                         .font(.caption).foregroundStyle(Ink.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(14).frame(maxWidth: .infinity, alignment: .leading).panel()
 
                 Button(AppLocale.pick("找到了 · 打开相机", "Found it · open the camera")) { onFound() }
                     .buttonStyle(GoldButtonStyle()).frame(maxWidth: .infinity)
@@ -87,5 +69,16 @@ struct LocateStep: View {
             }
             .padding(28)
         }
+    }
+
+    // One panel card: a small captioned header + its content (both guide cards share it).
+    @ViewBuilder private func guideCard<Content: View>(_ title: String, icon: String,
+                                                       @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: icon)
+                .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
+            content()
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading).panel()
     }
 }
