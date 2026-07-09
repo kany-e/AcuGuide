@@ -11,8 +11,9 @@ final class TorsoCamera: LocatorCameraBase {
     override func detect(_ pixel: CVPixelBuffer, orientation: CGImagePropertyOrientation, aspect: CGFloat) -> [LocatorMark] {
         let handler = VNImageRequestHandler(cvPixelBuffer: pixel, orientation: orientation, options: [:])
         try? handler.perform([request])
-        let body = (request.results as? [VNHumanBodyPoseObservation])?.first
-        return body.map { TorsoAcupoints.marks(from: $0, aspect: aspect, mirrored: mirrored) } ?? []
+        // request.results is already [VNHumanBodyPoseObservation]? on this SDK — the old `as?` was a
+        // same-type conditional downcast (compiler warning).
+        return request.results?.first.map { TorsoAcupoints.marks(from: $0, aspect: aspect, mirrored: mirrored) } ?? []
     }
 }
 

@@ -12,8 +12,9 @@ final class FaceCamera: LocatorCameraBase {
     override func detect(_ pixel: CVPixelBuffer, orientation: CGImagePropertyOrientation, aspect: CGFloat) -> [LocatorMark] {
         let handler = VNImageRequestHandler(cvPixelBuffer: pixel, orientation: orientation, options: [:])
         try? handler.perform([request])
-        let face = (request.results as? [VNFaceObservation])?.first
-        return face.map { FaceAcupoints.marks(from: $0, mirrored: mirrored) } ?? []
+        // request.results is already [VNFaceObservation]? on this SDK — the old `as?` was a
+        // same-type conditional downcast (compiler warning).
+        return request.results?.first.map { FaceAcupoints.marks(from: $0, mirrored: mirrored) } ?? []
     }
 }
 

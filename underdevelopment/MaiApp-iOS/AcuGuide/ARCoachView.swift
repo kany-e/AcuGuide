@@ -20,6 +20,7 @@ struct ARCoachView: View {
     @State private var practiceRecordId: String? = nil   // history record for this session (saved once)
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
+    @State private var located = false             // find-it-by-feel step done → into the camera
 
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
          onNext: (label: String, action: () -> Void)? = nil,
@@ -44,6 +45,12 @@ struct ARCoachView: View {
             ShanshuiBackground()
             if !acknowledged {
                 SafetyGate { acknowledged = true }
+            } else if !located && acupoint.hasFindGuide {
+                // Find the spot by FEEL first, then the camera marker just confirms it — a more
+                // accurate press than chasing the dot cold (user-requested).
+                LocateStep(point: acupoint,
+                           onFound: { LocatedStore.shared.markLocated(acupoint.id); located = true },
+                           onSkip: { located = true })
             } else if engine.phase == .complete || endedEarly || feeling != nil {
                 recap.onAppear(perform: savePractice)
             } else {

@@ -87,6 +87,13 @@ struct Acupoint: Identifiable, Hashable {
     var roleZh: String { Acupoint.classicalRole[id]?.zh ?? "" }
     var role: String { AppLocale.pick(roleZh, roleEn) }
 
+    // Plain-language "find it by feel first" guide for the coached points (see Acupoint.findGuide).
+    // Present only where authored; the coach shows it as a locate step BEFORE the camera so the user
+    // has the spot under their finger before the marker appears.
+    var hasFindGuide: Bool { Acupoint.findGuide[id] != nil }
+    var findHow: String { AppLocale.pick(Acupoint.findGuide[id]?.findZh ?? "", Acupoint.findGuide[id]?.findEn ?? "") }
+    var findFeel: String { AppLocale.pick(Acupoint.findGuide[id]?.feelZh ?? "", Acupoint.findGuide[id]?.feelEn ?? "") }
+
     static let all: [Acupoint] = [
         // ── The one validated AR-coached point. ──────────────────────────────────────────────
         Acupoint(
@@ -616,6 +623,46 @@ struct Acupoint: Identifiable, Hashable {
                 "Good — a light, steady press; let the wrist go loose.",
                 "掌心朝上。腕掌横纹正中，两条中央肌腱之间的凹陷处。",
                 "很好 — 轻轻按住，让手腕放松下来。"),
+    ]
+
+    // Plain-language "find it by feel" guide for the locate step BEFORE the camera coach — so the
+    // user has the real spot under their finger, then the marker just confirms it. Deliberately
+    // JARGON-FREE (knuckles, not "metacarpophalangeal"; tendons you can see, not Latin names),
+    // sourced from the same WHO 2008 + iaomai.app locations as `location`, rewritten for a beginner.
+    // Each entry: how to find it, then the sensation that confirms it. Wellness self-care only.
+    static let findGuide: [String: (findEn: String, feelEn: String, findZh: String, feelZh: String)] = [
+        "TE3": ("Back of the hand up. Slide a fingertip down the gap between your ring and little-finger knuckles; just behind them you drop into a small dip between the two hand bones.",
+                "Feel the small tender dip between the bones?",
+                "手背朝上。沿无名指与小指掌指关节之间的缝向下滑，指节后方能摸到两根掌骨之间的小凹陷。",
+                "摸到两骨之间那个略酸的小凹陷了吗？"),
+        "SI3": ("Make a loose fist. On the little-finger edge of your hand, find where the main palm crease ends — the spot is just behind the knuckle, where palm skin meets back-of-hand skin.",
+                "Feel where the crease ends on the side of your hand?",
+                "轻轻握拳。在手的小指侧，找到掌横纹的尽头 — 穴位就在掌指关节后方、赤白肉际处。",
+                "摸到手侧掌纹尽头的位置了吗？"),
+        "PC8": ("Palm up. Curl your middle finger in until its tip touches your palm — the spot is right where the tip lands, in the centre of the palm.",
+                "Fingertip resting in the centre of your palm?",
+                "掌心朝上。把中指弯向掌心，指尖触到掌心处即是 — 就在手掌正中。",
+                "指尖正落在掌心中央了吗？"),
+        "HT7": ("Palm up. Run a finger along the wrist crease toward the little-finger side until you meet a small pea-shaped bone; the spot sits just before it, on the crease.",
+                "Feel the little round bone at the base of the palm?",
+                "掌心朝上。沿腕横纹向小指侧摸，会碰到一颗豌豆大的小圆骨 — 穴位就在它前方的横纹上。",
+                "摸到掌根那颗小圆骨了吗？"),
+        "PC6": ("Palm up. Lay three fingers across the forearm just above the wrist crease; the spot is under the far edge of your third finger, between the two tendons that rise when you cup your hand.",
+                "Feel the two tendons under your fingertip?",
+                "掌心朝上。三横指并拢放在腕横纹上方，第三指外侧缘下、两条肌腱之间即是（手掌微握时肌腱会浮起）。",
+                "指尖下摸到那两条肌腱了吗？"),
+        "SJ5": ("Back of the forearm up. Measure three fingers above the wrist crease, midway between the two forearm bones — directly opposite Neiguan on the palm side.",
+                "Midway between the two forearm bones, three fingers up?",
+                "前臂背面朝上。腕背横纹上三横指，两骨之间正中 — 与掌面的内关正相对。",
+                "在腕上三横指、两骨正中了吗？"),
+        "TE4": ("Back of the wrist up. Follow the wrist crease from the base of your ring finger; the spot is a soft hollow on the crease, just to the little-finger side of the tendon.",
+                "Feel the soft hollow on the back of the wrist?",
+                "手腕背面朝上。从无名指根部沿腕背横纹摸，穴位是横纹上的一个软凹陷、在肌腱靠小指侧。",
+                "摸到腕背横纹上的软凹陷了吗？"),
+        "PC7": ("Palm up. The spot is in the middle of the wrist crease, in the dip between the two tendons that rise when you cup your hand.",
+                "In the centre dip of the wrist crease?",
+                "掌心朝上。穴位在腕掌横纹正中，两条肌腱之间的凹陷处（手掌微握时肌腱浮起）。",
+                "在腕横纹正中的凹陷里了吗？"),
     ]
 }
 

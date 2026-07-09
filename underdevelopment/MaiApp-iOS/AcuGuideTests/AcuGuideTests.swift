@@ -55,6 +55,19 @@ final class AcuGuideTests: XCTestCase {
         XCTAssertTrue(danger.suggestions.isEmpty, "a red-flag query must not offer practice buttons.")
     }
 
+    // Every camera-coached point must offer the find-it-by-feel locate step (it gates entry to the
+    // camera), and both languages must be non-empty.
+    func testCoachedPointsAllHaveAFindGuide() {
+        for p in Acupoint.all where p.mediapipeTarget != nil {
+            XCTAssertTrue(p.hasFindGuide, "\(p.id) is camera-coached but has no locate-step guide")
+            AppSettings.shared.lang = .en
+            XCTAssertFalse(p.findHow.isEmpty || p.findFeel.isEmpty, "\(p.id) EN find text empty")
+            AppSettings.shared.lang = .zh
+            XCTAssertFalse(p.findHow.isEmpty || p.findFeel.isEmpty, "\(p.id) ZH find text empty")
+            AppSettings.shared.lang = .en
+        }
+    }
+
     func testLI4IsExcluded() {
         XCTAssertFalse(Acupoint.all.contains { $0.id == "LI4" },
                        "LI4 is pregnancy-contraindicated and must never appear.")
@@ -98,6 +111,8 @@ final class AcuGuideTests: XCTestCase {
         }
         // Per-point AR cue table (the 7 non-TE3 coachable points get their cues from here).
         for (id, c) in Acupoint.coachCues { check("coachCues[\(id)]", [c.alignEn, c.holdEn, c.alignZh, c.holdZh]) }
+        // Plain-language locate-step guide (shown before the camera).
+        for (id, g) in Acupoint.findGuide { check("findGuide[\(id)]", [g.findEn, g.feelEn, g.findZh, g.feelZh]) }
         // Meridian descriptions (rewritten from the Atlas of Acupuncture Points pathways).
         for m in Meridian.all { check(m.id, [m.descEn, m.descZh]) }
         // Runtime-reachable copy beyond the datasets (the scan used to cover only the atlas
