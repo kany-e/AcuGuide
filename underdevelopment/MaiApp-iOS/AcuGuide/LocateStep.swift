@@ -71,10 +71,11 @@ struct LocateStep: View {
         }
     }
 
-    // One panel card: a small captioned header + its content (both guide cards share it).
+    // One panel card: a small captioned header + its content (both guide cards share it). Spacing 8
+    // matches the original "How to find it" card (the two cards are now consistent by design).
     @ViewBuilder private func guideCard<Content: View>(_ title: String, icon: String,
                                                        @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Label(title, systemImage: icon)
                 .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
             content()
