@@ -98,19 +98,19 @@
     </div>
     <div class="meta">
       <div class="fresh"><span class="dot"></span> Last refreshed <b id="refreshed">—</b></div>
-      <div>Branch <b>IOS-APP</b> · HEAD <b>c16876f</b> (R14.9) · origin/IOS-APP <b>38133c4</b> (push = clean fast-forward, +18)</div>
-      <div>Last commit <b>2026-07-07 23:53</b> · working tree <b>SceneKitAtlas edit + dashboard</b></div>
+      <div>Branch <b>IOS-APP</b> · HEAD <b>8c4fe40</b> (R14.10) · origin/IOS-APP <b>1d7b61f</b> (push = clean fast-forward, +2)</div>
+      <div>Last commit <b>2026-07-10</b> · working tree <b>dashboard refresh (this file)</b></div>
     </div>
   </header>
 
   <!-- metrics -->
   <div class="metrics">
     <div class="metric"><div class="n">5<small>/5</small></div><div class="l good">Phases shipped</div></div>
-    <div class="metric"><div class="n">72</div><div class="l">iOS-port commits</div></div>
-    <div class="metric"><div class="n">45<small>+5</small></div><div class="l">Swift modules · tests</div></div>
-    <div class="metric"><div class="n">~10.3k</div><div class="l">Lines of Swift</div></div>
-    <div class="metric"><div class="n" style="color:var(--jade)">67/67</div><div class="l good">Tests passing</div></div>
-    <div class="metric"><div class="n" style="color:var(--jade)">R2–R14.5</div><div class="l good">All rounds shipped</div></div>
+    <div class="metric"><div class="n">75</div><div class="l">iOS-port commits</div></div>
+    <div class="metric"><div class="n">47<small>+6</small></div><div class="l">Swift modules · tests</div></div>
+    <div class="metric"><div class="n">~11.2k</div><div class="l">Lines of Swift</div></div>
+    <div class="metric"><div class="n" style="color:var(--jade)">74/74</div><div class="l good">Tests passing</div></div>
+    <div class="metric"><div class="n" style="color:var(--jade)">R2–R14.10</div><div class="l good">All rounds shipped</div></div>
   </div>
 
   <div class="grid">
@@ -200,7 +200,7 @@
           <div class="bar"><i style="width:100%"></i></div>
         </div>
         <div class="phase">
-          <div class="top"><span class="name">Round-14.1–14.5 — Post-review hardening <span>· TE3 anchor re-fit from 9 owned labels (1/9 → 9/9 in-ring) · label-capture picker moved into nav bar · ONE 3D-placement registry + SI4 fix · registry guarantees pinned by test · 7-test deterministic stress suite</span></span><span class="tag done">done · 8e077cf · 66/66</span></div>
+          <div class="top"><span class="name">Round-14.1–14.10 — Post-review hardening <span>· TE3 anchor re-fit from 9 owned labels (1/9 → 9/9 in-ring) · ONE 3D-placement registry + SI4 fix · 7-test deterministic stress suite · guided locate moved ON camera: dashed “about here” ring, the user’s labeled press saves a per-user spot correction (canonical hand frame, clamped) · 3D markers CPU-raycast onto the mesh (hitTestWithSegment returned 0 hits offscreen — every marker was a plane-fallback floater; onSurface now test-asserted for all 22) · top-down presser steadied (inverted pass on weak reads, confidence-picked duplicates)</span></span><span class="tag done">done · 8c4fe40 · 74/74</span></div>
           <div class="bar"><i style="width:100%"></i></div>
         </div>
       </section>
@@ -223,6 +223,11 @@
     <div>
       <section class="card">
         <h2>Recent commits</h2>
+        <div class="commit"><span class="h">8c4fe40</span><span class="m">R14.10: on-camera guided locate saves a per-user spot correction · CPU-raycast markers · steadier top-down presser</span><span class="d">07-10</span></div>
+        <div class="commit"><span class="h">c16876f</span><span class="m">R14.9: normalize LocateStep guide-card spacing (review nit)</span><span class="d">07-09</span></div>
+        <div class="commit"><span class="h">c1d21b3</span><span class="m">R14.8: fix camera-behind-locate-step (review) + share the id-set store</span><span class="d">07-08</span></div>
+        <div class="commit"><span class="h">0ce7b1a</span><span class="m">R14.7: find-it-by-feel locate step before the camera + two Vision warnings fixed</span><span class="d">07-08</span></div>
+        <div class="commit"><span class="h">0ba22c9</span><span class="m">R14.6: fix two floating hand markers (LU9/LU10 rays missed the silhouette)</span><span class="d">07-08</span></div>
         <div class="commit"><span class="h">8e077cf</span><span class="m">R14.5: deterministic stress suite (7 torture tests) — all invariants hold</span><span class="d">07-07</span></div>
         <div class="commit"><span class="h">e854c98</span><span class="m">R14.4: registry guarantees pinned by test · all 15 diff-review findings cleaned</span><span class="d">07-07</span></div>
         <div class="commit"><span class="h">2a27103</span><span class="m">R14.3: ONE 3D-placement registry (deferred findings closed) + SI4 fix</span><span class="d">07-07</span></div>
@@ -243,10 +248,6 @@
         <div class="commit"><span class="h">0869e29</span><span class="m">R11: publishability layer (pre-submission blockers except icon)</span><span class="d">07-05</span></div>
         <div class="commit"><span class="h">26498e8</span><span class="m">R10.1: repeated press/release rounds · end-anytime session</span><span class="d">07-05</span></div>
         <div class="commit"><span class="h">a4226ee</span><span class="m">R10: on-device LLM chat (FoundationModels) in the safety shell</span><span class="d">07-05</span></div>
-        <div class="commit"><span class="h">7e94d75</span><span class="m">R9.3: close remaining ring-jump windows (lone-presser · near-tie)</span><span class="d">07-05</span></div>
-        <div class="commit"><span class="h">37be853</span><span class="m">R9.2: coach point picker · mid-press role lock</span><span class="d">07-05</span></div>
-        <div class="commit"><span class="h">2fb6116</span><span class="m">R9.1: six more hand atlas points · hand chart pose/calibration</span><span class="d">07-05</span></div>
-        <div class="commit"><span class="h">04691db</span><span class="m">R9: source upgrade · learned-localizer shadow · 3D detail overhaul · M3 label capture</span><span class="d">07-04</span></div>
       </section>
 
       <section class="card">
@@ -255,8 +256,8 @@
           <span class="chip">AcuGuideApp</span><span class="chip">RootView</span><span class="chip">Theme</span><span class="chip">Shanshui</span>
           <span class="chip">Typography</span><span class="chip">AppSettings</span><span class="chip">Settings</span>
           <span class="chip">Acupoints</span><span class="chip">Meridians</span><span class="chip">Body3DView</span><span class="chip">HandModel</span>
-          <span class="chip">HandModel3DView</span><span class="chip">PartModel3DView</span><span class="chip">SceneKitAtlas</span><span class="chip new">Placements3D</span>
-          <span class="chip">Coach</span><span class="chip">CameraCoach</span><span class="chip">CameraGate</span><span class="chip">CameraLocator</span>
+          <span class="chip">HandModel3DView</span><span class="chip">PartModel3DView</span><span class="chip">SceneKitAtlas</span><span class="chip">Placements3D</span>
+          <span class="chip">Coach</span><span class="chip">CameraCoach</span><span class="chip">CameraGate</span><span class="chip">CameraLocator</span><span class="chip">LocateStep</span><span class="chip new">PointCalibration</span>
           <span class="chip">OneEuroFilter</span><span class="chip">HandVision</span><span class="chip">ARCoachView</span>
           <span class="chip">FaceAtlasView</span><span class="chip">FaceLandmarks</span><span class="chip">TorsoAtlasView</span><span class="chip">TorsoLandmarks</span>
           <span class="chip">AllPointsView</span>
@@ -290,7 +291,7 @@
       <span><span class="sw" style="background:var(--blue)"></span> tests</span>
       <span><span class="sw" style="background:var(--jade)"></span> new this round</span>
     </div>
-    <div style="margin-top:10px">Generated from live git state on branch <b>IOS-APP</b> · AcuGuide repo · HEAD <b>971a091</b> (R14.5 + dash) · metrics reconciled to R14.5 (69 iOS commits · 45+5 Swift files · ~10.3k LOC) · tests <b>66/66</b> from last verified R14.5 run (not re-run this refresh — no Xcode in refresh env) · in-progress: SceneKitAtlas surface-hit guard (uncommitted) · wellness self-care, not medical advice.</div>
+    <div style="margin-top:10px">Generated from live git state on branch <b>IOS-APP</b> · AcuGuide repo · HEAD <b>8c4fe40</b> (R14.10) · metrics reconciled to R14.10 (75 iOS commits · 47+6 Swift files · ~11.2k LOC app+tests) · tests <b>74/74</b> verified this refresh (xcodebuild test, iPhone 17 sim, 2026-07-10) · device build (no signing) succeeded · wellness self-care, not medical advice.</div>
   </footer>
 
 </div>
