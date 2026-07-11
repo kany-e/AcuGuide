@@ -117,7 +117,7 @@ struct PartModel3DView: UIViewRepresentable {
             if let m = AtlasMarkers.screenMarker(cameraZ: 2.4, mesh: mesh, u: uv.x, v: uv.y, farSide: config.back.contains(pt.id),
                                                  id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
                                                  core: 0.03, halo: 0.055) {
-                scene.rootNode.addChildNode(m)
+                scene.rootNode.addChildNode(m.node)
             }
         }
     }

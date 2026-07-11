@@ -56,6 +56,11 @@ struct Hand {
     // only serve as the presser — their geometry is too unreliable to anchor the target ring.
     var weak: Bool = false
 
+    // Whole-hand Vision confidence, kept so the two detection passes (primary + inverted-frame)
+    // can resolve a duplicate by KEEPING THE BETTER READ of the same physical hand. Fixtures/tests
+    // build hands without it → fully reliable.
+    var detectionConfidence: Float = 1
+
     func p(_ j: HandJoint) -> CGPoint? { points[j] }
 
     // Press-tip estimate + its measurement confidence. The RAW fingertip wins whenever Vision

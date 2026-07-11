@@ -66,10 +66,13 @@ final class DetailSnapshotTests: XCTestCase {
                                                     color: UIColor(MeridianColors.color(pt.meridian)),
                                                     core: 0.022, halo: 0.04) else {
                 XCTFail("hand/\(id) produced no marker"); continue }
-            let p = SIMD3<Float>(Float(m.position.x), Float(m.position.y), Float(m.position.z))
+            // onSurface is the FLOATER assertion: a plane-fallback marker projects fine from the
+            // canonical camera but hangs in space from any other angle (user-reported, twice).
+            XCTAssertTrue(m.onSurface, "hand/\(id) uv \(uv) missed the mesh — floating marker")
+            let p = SIMD3<Float>(Float(m.node.position.x), Float(m.node.position.y), Float(m.node.position.z))
             XCTAssertTrue(all(p .>= mn - pad) && all(p .<= mx + pad),
                           "hand/\(id) marker \(p) fell outside the hand box \(mn)…\(mx)")
-            scene.rootNode.addChildNode(m)
+            scene.rootNode.addChildNode(m.node)
             placed += 1
         }
         XCTAssertGreaterThanOrEqual(placed, 10, "the enlarged hand set should place ≥10 points on the mesh")
@@ -144,10 +147,11 @@ final class DetailSnapshotTests: XCTestCase {
                                                         color: UIColor(MeridianColors.color(pt.meridian)),
                                                         core: 0.03, halo: 0.055) else {
                     XCTFail("\(id)/\(pt.id) produced no marker"); continue }
-                let p = SIMD3<Float>(Float(m.position.x), Float(m.position.y), Float(m.position.z))
+                XCTAssertTrue(m.onSurface, "\(id)/\(pt.id) uv \(uv) missed the mesh — floating marker")
+                let p = SIMD3<Float>(Float(m.node.position.x), Float(m.node.position.y), Float(m.node.position.z))
                 XCTAssertTrue(all(p .>= mn - pad) && all(p .<= mx + pad),
                               "\(id)/\(pt.id) marker \(p) fell outside the model box \(mn)…\(mx)")
-                scene.rootNode.addChildNode(m)
+                scene.rootNode.addChildNode(m.node)
             }
 
             let img = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil).also {

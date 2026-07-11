@@ -20,7 +20,6 @@ struct ARCoachView: View {
     @State private var practiceRecordId: String? = nil   // history record for this session (saved once)
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
-    @State private var located = false             // find-it-by-feel step done → into the camera
 
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
          onNext: (label: String, action: () -> Void)? = nil,
@@ -33,8 +32,10 @@ struct ARCoachView: View {
         // no redundant default StateObject). roundsTarget: 1 for the first-run quick try; a
         // routine step's rounds otherwise. acknowledgedInitially: steps ≥2 of a ROUTINE run —
         // the safety gate was confirmed at step 1 of the same continuous session (never skipped
-        // for a fresh session).
-        let eng = CoachEngine(roundsTarget: roundsTarget)
+        // for a fresh session). startLocating: points with a find-by-feel guide open in the
+        // ON-CAMERA locate step (dashed guide ring + instructions; the user's confirmed press
+        // becomes their personal spot correction) before any coaching round runs.
+        let eng = CoachEngine(roundsTarget: roundsTarget, startLocating: acupoint.hasFindGuide)
         _engine = StateObject(wrappedValue: eng)
         _camera = StateObject(wrappedValue: CameraCoach(engine: eng, acupoint: acupoint))
         _acknowledged = State(initialValue: acknowledgedInitially)
@@ -46,20 +47,15 @@ struct ARCoachView: View {
             if !acknowledged {
                 SafetyGate { acknowledged = true }
             } else if engine.phase == .complete || endedEarly || feeling != nil {
-                // Recap check comes BEFORE the locate step so a finished/ended session can never be
-                // masked by the locate branch (it can't be reached with the camera-start gate below,
-                // but ordering it first is the defensive belt).
+                // Recap check comes BEFORE the camera so a finished/ended session can never be
+                // masked by it.
                 recap.onAppear(perform: savePractice)
-            } else if !located && acupoint.hasFindGuide {
-                // Find the spot by FEEL first, then the camera marker just confirms it — a more
-                // accurate press than chasing the dot cold (user-requested).
-                LocateStep(point: acupoint,
-                           onFound: { LocatedStore.shared.markLocated(acupoint.id); located = true },
-                           onSkip: { located = true })
             } else {
                 // Permission gate AFTER the safety gate: the system prompt arrives in context, a
                 // denial gets an open-Settings hand-off instead of a black screen, and the capture
-                // session only ever starts once authorized.
+                // session only ever starts once authorized. The find-it-by-feel LOCATE step now
+                // lives ON the camera (engine.mode == .locate): dashed guide ring + instructions,
+                // the user's press gets labeled, and their confirmed spot corrects the ring.
                 CameraGate(onAuthorized: { camera.start() }, onUseTimer: onUseTimer) { coachLayer }
             }
         }
@@ -70,22 +66,14 @@ struct ARCoachView: View {
         // background); returning restarts it (start is idempotent + authorization-gated). The
         // machine's pause-grace and dt clamp make the gap read as a pause, never a credit jump.
         .onChange(of: scenePhase) { sp in
-            // Only manage the camera once we're actually on the coach screen — NOT during the
-            // safety gate or the find-it LocateStep. Without inCameraPhase, an app-switch bounce
-            // while reading the (camera-less) locate step would start the capture session behind a
-            // text screen: green privacy indicator on, phantom voice/haptics, and silently-banked
-            // hold time surfacing later as a phantom recap (review-caught).
-            guard acknowledged, inCameraPhase, engine.phase != .complete, !endedEarly else { return }
+            // Only manage the camera past the safety gate (the locate step is on-camera now, so
+            // every post-gate screen legitimately runs the capture session).
+            guard acknowledged, engine.phase != .complete, !endedEarly else { return }
             // An explicit user pause survives an app-switch: don't auto-restart the camera under it.
             if sp == .background { camera.stop() } else if sp == .active && !userPaused { camera.start() }
         }
         .onDisappear { camera.stop(); voice.reset() }
     }
-
-    // We're on the live coach screen (camera should run) — i.e. past the safety gate AND past the
-    // find-it locate step (or the point has no locate step). The CameraGate branch is the only place
-    // that mounts the preview + first starts the camera; this keeps the scenePhase restart in step.
-    private var inCameraPhase: Bool { located || !acupoint.hasFindGuide }
 
     private func handlePhaseChange(to phase: CoachPhase) {
         voice.update(phase: phase, requiresDorsal: acupoint.requiresDorsal)
@@ -150,13 +138,35 @@ struct ARCoachView: View {
                         if let c = engine.ringCenter {
                             let m = mapFill(c, geo.size)
                             let r = engine.ringRadius * m.dispW
-                            Circle().stroke(engine.color, lineWidth: 3)
-                                .frame(width: r * 2, height: r * 2).position(m.pt)
-                            Circle().fill(engine.color).frame(width: 8, height: 8).position(m.pt)
+                            if engine.mode == .locate {
+                                // Locate step: the ring is an APPROXIMATE guide ("about here"),
+                                // drawn dashed so it reads as a search area, not a target lock.
+                                Circle().stroke(Ink.gold, style: StrokeStyle(lineWidth: 3, dash: [7, 6]))
+                                    .frame(width: r * 2, height: r * 2).position(m.pt)
+                                Text(AppLocale.pick("≈ 大约在这里", "≈ about here"))
+                                    .font(.caption2.weight(.semibold)).foregroundStyle(.black)
+                                    .padding(.horizontal, 8).padding(.vertical, 3)
+                                    .background(Capsule().fill(Ink.gold.opacity(0.92)))
+                                    .position(x: m.pt.x, y: m.pt.y - r - 18)
+                            } else {
+                                Circle().stroke(engine.color, lineWidth: 3)
+                                    .frame(width: r * 2, height: r * 2).position(m.pt)
+                                Circle().fill(engine.color).frame(width: 8, height: 8).position(m.pt)
+                            }
                         }
                         if let t = engine.pressTip {
                             Circle().stroke(.white, lineWidth: 2).frame(width: 16, height: 16)
                                 .position(mapFill(t, geo.size).pt)
+                        }
+                        // The settled press, labeled — the spot the app offers to remember.
+                        if engine.mode == .locate, let cand = engine.locateCandidate {
+                            let p = mapFill(cand, geo.size).pt
+                            Circle().fill(Ink.gold).frame(width: 10, height: 10).position(p)
+                            Text(AppLocale.pick("你按的位置", "your press"))
+                                .font(.caption2.weight(.semibold)).foregroundStyle(.white)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Capsule().fill(.black.opacity(0.6)))
+                                .position(x: p.x, y: p.y + 22)
                         }
                     }
                     .accessibilityHidden(true)
@@ -167,7 +177,11 @@ struct ARCoachView: View {
             VStack {
                 debugBar
                 Spacer()
-                feedbackCard
+                if engine.mode == .locate {
+                    LocateCard(point: acupoint, engine: engine)
+                } else {
+                    feedbackCard
+                }
             }
 
             if userPaused { pausedOverlay }

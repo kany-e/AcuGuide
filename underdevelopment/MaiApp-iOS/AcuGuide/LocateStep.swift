@@ -2,84 +2,88 @@ import SwiftUI
 
 // Remembers which points the user has located by feel before — so the locate step can greet a
 // repeat visit warmly ("you've found this before") rather than re-teaching from scratch. Shares the
-// id-set-in-UserDefaults base with Favorites. This is the honest version of "save the spot for
-// later": we record that you confirmed it, not a fake per-user coordinate.
+// id-set-in-UserDefaults base with Favorites. (The per-user COORDINATE lives separately, in
+// PointCalibration — this store only records that the user confirmed the spot.)
 final class LocatedStore: IDSetStore {
     static let shared = LocatedStore()
     init(defaults: UserDefaults = .standard) { super.init(key: "locatedPoints", defaults: defaults) }
     func markLocated(_ id: String) { insert(id) }
 }
 
-// The find-it-by-feel step, shown BETWEEN the safety gate and the live camera for every coached
-// point that has a plain-language guide. The flow the user asked for: describe how to find the
-// spot in plain words → the user presses around and feels for it → "yes, I found it" → into the
-// camera, where the marker now just confirms a spot already under their finger (a more accurate
-// press than chasing the dot cold). "Guide me on camera instead" skips straight in.
-struct LocateStep: View {
+// The find-it-by-feel step, now ON CAMERA (was a text-only screen — user-corrected: the point of
+// the guidance is to fine-tune the computed spot for THIS user's hand, which needs the camera).
+// The flow: the dashed ring marks "about here" and this card walks the user through finding the
+// exact spot by feel; they press around with the other fingertip; the camera labels where they
+// actually press; "This is my spot" saves that press as their personal correction
+// (PointCalibration) and every future ring sits there. "Skip" starts coaching on the standard
+// (or previously saved) spot.
+struct LocateCard: View {
     let point: Acupoint
-    var onFound: () -> Void
-    var onSkip: () -> Void
+    @ObservedObject var engine: CoachEngine   // mode flips to .coach on confirm/skip — parent swaps cards
+    @ObservedObject private var calibration = PointCalibration.shared
     @ObservedObject private var settings = AppSettings.shared
     private var seenBefore: Bool { LocatedStore.shared.contains(point.id) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(AppLocale.pick("先找到位置", "Find the spot first"))
-                        .font(Typo.serif(24, weight: .semibold)).foregroundStyle(Ink.gold)
-                    HStack(spacing: 8) {
-                        Circle().fill(MeridianColors.color(point.meridian)).frame(width: 10, height: 10)
-                        Text("\(point.id) · \(point.zh)").font(Typo.serif(18, weight: .semibold)).foregroundStyle(Ink.text)
-                        Text(point.en).font(Typo.code(14)).foregroundStyle(Ink.textDim)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle().fill(MeridianColors.color(point.meridian)).frame(width: 8, height: 8)
+                Text(AppLocale.pick("先找到位置", "Find the spot first"))
+                    .font(.caption.weight(.semibold)).foregroundStyle(Ink.gold)
+                Text("\(point.id) · \(point.zh)").font(.caption).foregroundStyle(Ink.textDim)
+                Spacer()
+            }
+
+            // The plain-language guide + the confirming sensation, compact over the camera.
+            Text(point.findHow).font(.footnote).foregroundStyle(Ink.text)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(point.findFeel).font(.caption).foregroundStyle(Ink.gold)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Live status from the engine's locate tracker (what the camera sees right now).
+            Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
+                .lineLimit(3).minimumScaleFactor(0.7)
+            if let hint = engine.hintText {
+                Text(hint).font(.caption2).foregroundStyle(Ink.warn)
+                    .lineLimit(2).minimumScaleFactor(0.8)
+            }
+            if seenBefore && engine.locateState == .noPress {
+                Text(AppLocale.pick("你之前找到过这个穴位 — 快速回忆一下。",
+                                    "You've found this one before — a quick refresher."))
+                    .font(.caption2).foregroundStyle(Ink.jade)
+            }
+
+            HStack(spacing: 10) {
+                Button(AppLocale.pick("就是这里", "This is my spot")) {
+                    if engine.confirmLocate(point: point) {
+                        LocatedStore.shared.markLocated(point.id)
                     }
                 }
+                .buttonStyle(GoldButtonStyle())
+                .disabled(engine.locateState != .ready)
+                .opacity(engine.locateState == .ready ? 1 : 0.5)
 
-                if seenBefore {
-                    Text(AppLocale.pick("你之前找到过这个穴位 — 快速回忆一下位置。",
-                                        "You've found this one before — a quick refresher on where it is."))
-                        .font(.footnote).foregroundStyle(Ink.jade)
+                Button(AppLocale.pick("先跳过", "Skip")) {
+                    engine.endLocate()
                 }
-
-                // How to find it — the plain-language guide.
-                guideCard(AppLocale.pick("这样找", "How to find it"), icon: "hand.point.up.left") {
-                    Text(point.findHow).font(.body).foregroundStyle(Ink.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                // The sensation that confirms it — the "do you feel the indent?" prompt.
-                guideCard(AppLocale.pick("感觉一下", "Feel for it"), icon: "sparkle.magnifyingglass") {
-                    Text(point.findFeel).font(.subheadline).foregroundStyle(Ink.gold)
-                    Text(AppLocale.pick("轻轻按一按，找到略有胀感的那一点 — 那就是它。",
-                                        "Press gently around it and settle on the point that feels slightly tender — that's the one."))
-                        .font(.caption).foregroundStyle(Ink.textDim)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Button(AppLocale.pick("找到了 · 打开相机", "Found it · open the camera")) { onFound() }
-                    .buttonStyle(GoldButtonStyle()).frame(maxWidth: .infinity)
-                Button(AppLocale.pick("直接用相机引导", "Just guide me on camera")) { onSkip() }
-                    .font(.subheadline).tint(Ink.gold).frame(maxWidth: .infinity)
-
-                Text(AppLocale.pick("接下来相机会在同一位置标出圆圈，帮你确认并稳定按压。",
-                                    "Next, the camera marks a ring on that same spot to confirm it and steady your press."))
-                    .font(.caption2).foregroundStyle(Ink.textDim)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                WellnessFooter()
+                .font(.subheadline).tint(Ink.gold)
+                .accessibilityHint(AppLocale.pick("直接开始按压引导", "Start coaching without saving a spot"))
             }
-            .padding(28)
-        }
-    }
 
-    // One panel card: a small captioned header + its content (both guide cards share it). Spacing 8
-    // matches the original "How to find it" card (the two cards are now consistent by design).
-    @ViewBuilder private func guideCard<Content: View>(_ title: String, icon: String,
-                                                       @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: icon)
-                .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
-            content()
+            // The honest line about what's saved: a stored personal spot is used and can be reset.
+            if calibration.hasCalibration(point.id) {
+                HStack(spacing: 8) {
+                    Text(AppLocale.pick("圆圈已按你上次确认的位置微调。",
+                                        "The ring is fine-tuned to the spot you confirmed before."))
+                        .font(.caption2).foregroundStyle(Ink.textDim)
+                    Button(AppLocale.pick("恢复标准位置", "Reset to standard")) {
+                        calibration.clear(point.id)
+                    }
+                    .font(.caption2.weight(.semibold)).tint(Ink.gold)
+                }
+            }
         }
-        .padding(14).frame(maxWidth: .infinity, alignment: .leading).panel()
+        .padding(14).panel().padding()
+        .accessibilityElement(children: .contain)
     }
 }

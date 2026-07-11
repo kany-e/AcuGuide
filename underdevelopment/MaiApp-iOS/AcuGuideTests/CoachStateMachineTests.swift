@@ -36,7 +36,7 @@ final class CoachEngineTipGraceTests: XCTestCase {
         presserPts[target.pressFinger] = tip                     // pressing exactly on target
         let presser = Hand(points: presserPts, chirality: .left)
 
-        let engine = CoachEngine()
+        let engine = CoachEngine(calibration: .ephemeral())
         var t = 0.0
         for _ in 0..<10 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
         XCTAssertEqual(engine.phase, .holding, "steady on-target press must reach HOLDING")
@@ -93,7 +93,7 @@ final class CoachEngineRoleLockTests: XCTestCase {
         let presser = Hand(points: presserPts, chirality: .left)
         let tP = presser.weightedTarget(target.anchors)!
 
-        let engine = CoachEngine()
+        let engine = CoachEngine(calibration: .ephemeral())
         var t = 0.0
         // Phase A — unambiguous: receiver's fingertip far from tP → preference agrees. Reach HOLDING.
         for _ in 0..<10 { engine.update(hands: [receiver, presser], point: sj5, now: t); t += dt }
@@ -138,7 +138,7 @@ final class CoachEngineRoleLockTests: XCTestCase {
         presserPts[target.pressFinger] = tR
         let presser = Hand(points: presserPts, chirality: .left)
 
-        let engine = CoachEngine()
+        let engine = CoachEngine(calibration: .ephemeral())
         var t = 0.0
         for _ in 0..<10 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
         XCTAssertEqual(engine.phase, .holding)
@@ -178,7 +178,7 @@ final class CoachEngineRoleLockTests: XCTestCase {
         let weakPresser = Hand(points: presserPts, chirality: .left, weak: true)
 
         // Strong receiver + WEAK presser → the weak hand drives contact and the session holds.
-        let engine = CoachEngine()
+        let engine = CoachEngine(calibration: .ephemeral())
         var t = 0.0
         for _ in 0..<10 { engine.update(hands: [receiver, weakPresser], point: te3, now: t); t += dt }
         XCTAssertEqual(engine.phase, .holding, "a weak presser must still be able to press")
@@ -196,7 +196,7 @@ final class CoachEngineRoleLockTests: XCTestCase {
 
         let te3 = Acupoint.byId["TE3"]!
         let weakOnly = Hand(points: base, chirality: .right, weak: true)
-        let engine = CoachEngine()
+        let engine = CoachEngine(calibration: .ephemeral())
         var t = 0.0
         for _ in 0..<80 { // ≈2.7s, well past lonePresserGraceS
             engine.update(hands: [weakOnly], point: te3, now: t); t += dt
@@ -223,7 +223,7 @@ final class CoachEngineRoleLockTests: XCTestCase {
         presserPts[target.pressFinger] = tR
         let presser = Hand(points: presserPts, chirality: .left)
 
-        let engine = CoachEngine()
+        let engine = CoachEngine(calibration: .ephemeral())
         var t = 0.0
         for _ in 0..<10 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
         XCTAssertEqual(engine.phase, .holding)
@@ -269,7 +269,7 @@ final class CoachEngineSessionTests: XCTestCase {
         presserPts[target.pressFinger] = tR
         let presser = Hand(points: presserPts, chirality: .left)
 
-        let engine = CoachEngine(roundsTarget: 2, roundHoldS: 0.4, restS: 0.3)
+        let engine = CoachEngine(roundsTarget: 2, roundHoldS: 0.4, restS: 0.3, calibration: .ephemeral())
         var t = 0.0
         var sawResting = false, restFrames = 0, maxProgressDuringRest = 0.0
         var framesToComplete = 0
@@ -311,7 +311,7 @@ final class CoachEngineSessionTests: XCTestCase {
         presserPts[target.pressFinger] = tR
         let presser = Hand(points: presserPts, chirality: .left)
 
-        let engine = CoachEngine(roundsTarget: 4, roundHoldS: 0.4, restS: 0.2)
+        let engine = CoachEngine(roundsTarget: 4, roundHoldS: 0.4, restS: 0.2, calibration: .ephemeral())
         var t = 0.0
         // Drive until round 1 is banked and round 2 is PARTWAY through (condition-driven, so the
         // test can't drift past round 2's completion), then "quit" and check the honest partials.

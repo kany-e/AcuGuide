@@ -227,20 +227,28 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         try? handler.perform([request])
         var hands = (request.results ?? []).compactMap { buildHand($0) }
 
-        // Inverted-hand second chance (see invertedRequest): only when the primary pass came up
-        // short, so the extra inference cost is paid exactly when a hand is missing. Duplicates
-        // (a hand Vision found BOTH ways) are dropped by wrist proximity, primary pass wins.
-        if hands.count < 2 {
+        // Inverted-hand second chance (see invertedRequest): when the primary pass came up short
+        // OR any hand it found is WEAK — the top-down/tips-away massaging hand often flickers
+        // through the weak tier in the primary pass while the rotated pass reads it cleanly, so
+        // the weak read deserves the second opinion too (user-reported: top-down presser very
+        // shaky). Duplicates (a hand Vision found BOTH ways, matched by wrist proximity) keep the
+        // BETTER read: primary wins unless the inverted read is clearly more confident — the bias
+        // stops the source (and its slightly different landmark geometry) from alternating
+        // frame-to-frame, which was itself a jitter source.
+        if hands.count < 2 || hands.contains(where: { $0.weak }) {
             let flipped = VNImageRequestHandler(cvPixelBuffer: pixel,
                                                 orientation: Self.rotated180(orientation), options: [:])
             try? flipped.perform([invertedRequest])
             for obs in invertedRequest.results ?? [] {
-                guard hands.count < 2, let h = buildHand(obs, rotated180: true) else { continue }
-                let duplicate = hands.contains { existing in
+                guard let h = buildHand(obs, rotated180: true) else { continue }
+                if let i = hands.firstIndex(where: { existing in
                     guard let a = existing.p(.wrist), let b = h.p(.wrist) else { return false }
                     return dist(a, b) < 0.15
+                }) {
+                    if h.detectionConfidence > hands[i].detectionConfidence + 0.1 { hands[i] = h }
+                } else if hands.count < 2 {
+                    hands.append(h)
                 }
-                if !duplicate { hands.append(h) }
             }
         }
 
@@ -314,7 +322,8 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // flips with our manual mirror, so back-camera (un-mirrored) frames negate the cross product.
         return Hand(points: s.points, chirality: obs.chirality, confidence: s.confidence,
                     mirroredCoords: queueMirrored,
-                    weak: obs.confidence < Float(CoachConst.minConfidence))
+                    weak: obs.confidence < Float(CoachConst.minConfidence),
+                    detectionConfidence: obs.confidence)
     }
 }
 

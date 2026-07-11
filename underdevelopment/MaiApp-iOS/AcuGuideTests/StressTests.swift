@@ -68,7 +68,7 @@ final class StressTests: XCTestCase {
     func testCoachEngineSurvivesAdversarialFrames() throws {
         guard let te3 = Acupoint.byId["TE3"] else { return XCTFail("TE3 missing") }
         var rng = Rng(state: 0xACEDBEEF)
-        let engine = CoachEngine(roundsTarget: 3, roundHoldS: 0.6, restS: 0.3)
+        let engine = CoachEngine(roundsTarget: 3, roundHoldS: 0.6, restS: 0.3, calibration: .ephemeral())
         var now = 1000.0
         var lastHeld = 0.0
         var wallCreditCap = 0.0     // upper bound on legitimately creditable seconds
@@ -142,7 +142,7 @@ final class StressTests: XCTestCase {
     // completes a whole session (the fuzz harness isn't asserting on a broken engine).
     func testCoachEngineCleanRunStillCompletes() throws {
         guard let te3 = Acupoint.byId["TE3"] else { return XCTFail("TE3 missing") }
-        let engine = CoachEngine(roundsTarget: 2, roundHoldS: 0.4, restS: 0.2)
+        let engine = CoachEngine(roundsTarget: 2, roundHoldS: 0.4, restS: 0.2, calibration: .ephemeral())
         var now = 50.0
         let receiver = syntheticHand(cx: 0.45, cy: 0.75)
         guard let target = receiver.weightedTarget(te3.mediapipeTarget!.anchors) else {

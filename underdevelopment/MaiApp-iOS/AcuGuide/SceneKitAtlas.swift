@@ -106,15 +106,22 @@ enum AtlasMarkers {
     // a target on the model's mid-depth plane; we cast a ray from the camera THROUGH it and take the
     // near hit (or the far hit for `farSide` palm/sole points), so the marker lands on the VISIBLE
     // surface at that screen position regardless of the model's arbitrary local axes.
-    // Places a marker at the (u,v) screen fraction by raycasting the camera ray onto the mesh.
-    // NOTE the fallback below: if the ray MISSES the silhouette it lands on the bbox near/far
-    // plane at the same screen (u,v) — which looks right head-on but FLOATS off the hand when the
-    // model is rotated (user-reported). SceneKit's segment hit-test only resolves against a live
-    // rendered view, so this can't be unit-asserted; the offscreen DetailSnapshotTests renders a
-    // 3/4-angle PNG (detail_hand_side.png) whose whole job is to make a floater visible — a dot in
-    // empty space there is a uv that misses, and its registry entry needs pulling onto the mesh.
+    //
+    // Ray-miss policy: a uv just off the silhouette used to fall back to the bbox near/far plane —
+    // which looks right head-on but FLOATS beside the model once rotated (user-reported twice: LU9/
+    // LU10, then more). Now a miss SNAPS to the nearest surface hit via a small spiral of nearby
+    // uv offsets (closest ring first, so the visual shift stays minimal), and only if the whole
+    // spiral misses does the plane fallback fire — reported via `onSurface: false`, which the
+    // DetailSnapshotTests assert against, so a floater is a TEST FAILURE now, not an eyeball job.
+    //
+    // The ray is intersected against the mesh's OWN triangles (CPU Möller–Trumbore over the
+    // geometry sources) — NOT SCNNode.hitTestWithSegment, which silently resolves ZERO hits until
+    // the geometry has been through a live renderer (that made every offscreen-test marker a
+    // plane fallback, and made in-app placement depend on render timing). Pure geometry: same
+    // answer in the app, in tests, every time. Low-poly meshes → the brute-force cost is trivial.
     static func screenMarker(cameraZ: Float, mesh: SCNNode, u: Float, v: Float, farSide: Bool,
-                             id: String, color: UIColor, core: CGFloat, halo: CGFloat) -> SCNNode? {
+                             id: String, color: UIColor, core: CGFloat, halo: CGFloat)
+        -> (node: SCNNode, onSurface: Bool)? {
         let (lo, hi) = mesh.boundingBox
         var mn = SIMD3<Float>(repeating: .greatestFiniteMagnitude); var mx = -mn
         for a in [lo.x, hi.x] { for b in [lo.y, hi.y] { for c in [lo.z, hi.z] {
@@ -123,40 +130,125 @@ enum AtlasMarkers {
         } } }
         let center = (mn + mx) / 2, ext = mx - mn
         guard ext.x > 1e-4, ext.y > 1e-4 else { return nil }
-        let target = SIMD3<Float>(center.x + u * ext.x, center.y + v * ext.y, center.z)
         let cam = SIMD3<Float>(0, 0, cameraZ)
-        let dir = simd_normalize(target - cam)
-        let reach = simd_length(target - cam) + ext.z + 1.0
-        // hitTestWithSegment endpoints are in the node's LOCAL space → convert the world ray in.
-        let fromL = mesh.convertPosition(SCNVector3(cam), from: nil)
-        let toL   = mesh.convertPosition(SCNVector3(cam + dir * reach), from: nil)
-        let hits = mesh.hitTestWithSegment(from: fromL, to: toL, options: [
-            SCNHitTestOption.backFaceCulling.rawValue: false,
-            SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.all.rawValue])
-        let wp: SIMD3<Float>
-        var nrm: SIMD3<Float>
-        if let hit = (farSide ? hits.last : hits.first) {
-            let h = hit.worldCoordinates; wp = SIMD3(h.x, h.y, h.z)
-            let wn = hit.worldNormal;      nrm = SIMD3(wn.x, wn.y, wn.z)   // surface normal → bulge axis
+        let tris = worldTriangles(mesh)
+
+        // One camera-ray cast through the (u+du, v+dv) screen fraction → (hit point, hit normal).
+        func cast(_ du: Float, _ dv: Float) -> (wp: SIMD3<Float>, nrm: SIMD3<Float>)? {
+            let target = SIMD3<Float>(center.x + (u + du) * ext.x, center.y + (v + dv) * ext.y, center.z)
+            let dir = simd_normalize(target - cam)
+            let reach = simd_length(target - cam) + ext.z + 1.0
+            let hits = rayHits(tris, origin: cam, dir: dir, maxT: reach)
+            guard let hit = (farSide ? hits.last : hits.first) else { return nil }
+            return (cam + dir * hit.t, hit.n)
+        }
+
+        let baseDir = simd_normalize(SIMD3<Float>(center.x + u * ext.x, center.y + v * ext.y, center.z) - cam)
+        var wp: SIMD3<Float>; var nrm: SIMD3<Float>; var onSurface = true
+        if let hit = cast(0, 0) {
+            (wp, nrm) = hit
+        } else if let snapped = spiralSnap(cast) {
+            (wp, nrm) = snapped                       // nearest on-surface neighbour of the uv
         } else {
-            // No surface hit (geometry not yet render-ready, or the ray grazed a gap) → place on the
-            // model's near/far AABB plane along the SAME camera ray, so the dot still lands at the (u,v)
-            // screen position (markers draw on top). Keeps placement robust to render timing + pose.
+            // Whole spiral missed (geometry not yet render-ready, or the uv is far off the model):
+            // land on the near/far AABB plane along the base camera ray so the dot still shows at
+            // the (u,v) screen position. Callers/tests see onSurface == false.
             let planeZ = farSide ? mn.z : mx.z
-            let t = abs(dir.z) > 1e-5 ? (planeZ - cam.z) / dir.z : reach
-            wp = cam + dir * t
-            nrm = -dir                                                     // no surface → face the camera
+            let t = abs(baseDir.z) > 1e-5 ? (planeZ - cam.z) / baseDir.z : 1
+            wp = cam + baseDir * t
+            nrm = -baseDir                            // no surface → face the camera
+            onSurface = false
         }
         // Dome AWAY from the model centre so the bulge always rises off the skin (guards a facet
         // normal that faces inward or a degenerate zero normal from a grazing hit).
-        if simd_length(nrm) < 1e-4 { nrm = -dir } else { nrm = simd_normalize(nrm) }
+        if simd_length(nrm) < 1e-4 { nrm = -baseDir } else { nrm = simd_normalize(nrm) }
         if simd_dot(nrm, wp - center) < 0 { nrm = -nrm }
         // depthTested: detail-view markers are OCCLUDED by the mesh — a far-side point (sole,
         // palm, cubital crease) stays hidden until the model is rotated to face it, exactly like
         // a real feature of the surface (previously they glowed through the body).
-        return domeMarker(id: id, color: color, radius: core, halo: halo,
-                          at: SCNVector3(wp.x, wp.y, wp.z), normal: SCNVector3(nrm.x, nrm.y, nrm.z),
-                          depthTested: true)
+        let node = domeMarker(id: id, color: color, radius: core, halo: halo,
+                              at: SCNVector3(wp.x, wp.y, wp.z), normal: SCNVector3(nrm.x, nrm.y, nrm.z),
+                              depthTested: true)
+        return (node, onSurface)
+    }
+
+    // Nearest-first spiral of uv offsets (bbox-fraction units): 8 directions per ring, radius
+    // growing to ~a tenth of the model. First hit wins, so a marker just off the silhouette moves
+    // the least distance needed to sit ON the mesh.
+    private static func spiralSnap(_ cast: (Float, Float) -> (wp: SIMD3<Float>, nrm: SIMD3<Float>)?)
+        -> (wp: SIMD3<Float>, nrm: SIMD3<Float>)? {
+        for r in [Float(0.02), 0.045, 0.07, 0.10] {
+            for k in 0..<8 {
+                let a = Float(k) * .pi / 4
+                if let hit = cast(r * cos(a), r * sin(a)) { return hit }
+            }
+        }
+        return nil
+    }
+
+    // The mesh hierarchy's triangles in the root ("world") coordinate space — the same space the
+    // AABB above and the camera ray live in. Reads the CPU-side geometry sources directly, so it
+    // works identically for GLB-loaded meshes and SCN primitives, rendered or not.
+    private static func worldTriangles(_ node: SCNNode) -> [SIMD3<Float>] {   // flat v0,v1,v2 triples
+        var tris: [SIMD3<Float>] = []
+        node.enumerateHierarchy { n, _ in
+            guard let geo = n.geometry, let src = geo.sources(for: .vertex).first,
+                  src.componentsPerVector >= 3, src.bytesPerComponent == 4 else { return }
+            var verts = [SIMD3<Float>](); verts.reserveCapacity(src.vectorCount)
+            src.data.withUnsafeBytes { raw in
+                for i in 0..<src.vectorCount {
+                    let base = src.dataOffset + i * src.dataStride
+                    guard base + 3 * src.bytesPerComponent <= raw.count else { break }
+                    verts.append(SIMD3(raw.loadUnaligned(fromByteOffset: base, as: Float.self),
+                                       raw.loadUnaligned(fromByteOffset: base + 4, as: Float.self),
+                                       raw.loadUnaligned(fromByteOffset: base + 8, as: Float.self)))
+                }
+            }
+            let world = verts.map { p -> SIMD3<Float> in
+                let w = n.convertPosition(SCNVector3(p.x, p.y, p.z), to: nil)
+                return SIMD3(Float(w.x), Float(w.y), Float(w.z))
+            }
+            for el in geo.elements where el.primitiveType == .triangles {
+                let bpi = el.bytesPerIndex
+                el.data.withUnsafeBytes { raw in
+                    func idx(_ k: Int) -> Int {
+                        bpi == 2 ? Int(raw.loadUnaligned(fromByteOffset: k * 2, as: UInt16.self))
+                                 : Int(raw.loadUnaligned(fromByteOffset: k * 4, as: UInt32.self))
+                    }
+                    for t in 0..<el.primitiveCount {
+                        let a = idx(3 * t), b = idx(3 * t + 1), c = idx(3 * t + 2)
+                        guard a < world.count, b < world.count, c < world.count else { continue }
+                        tris.append(world[a]); tris.append(world[b]); tris.append(world[c])
+                    }
+                }
+            }
+        }
+        return tris
+    }
+
+    // Möller–Trumbore over the triangle soup: every intersection along the ray, sorted near→far
+    // (first = visible surface, last = the far side for palm/sole points).
+    private static func rayHits(_ tris: [SIMD3<Float>], origin: SIMD3<Float>, dir: SIMD3<Float>,
+                                maxT: Float) -> [(t: Float, n: SIMD3<Float>)] {
+        var hits: [(t: Float, n: SIMD3<Float>)] = []
+        var i = 0
+        while i + 2 < tris.count {
+            let v0 = tris[i], v1 = tris[i + 1], v2 = tris[i + 2]; i += 3
+            let e1 = v1 - v0, e2 = v2 - v0
+            let p = simd_cross(dir, e2)
+            let det = simd_dot(e1, p)
+            if abs(det) < 1e-8 { continue }              // parallel / degenerate
+            let inv = 1 / det
+            let tv = origin - v0
+            let u = simd_dot(tv, p) * inv
+            if u < 0 || u > 1 { continue }
+            let q = simd_cross(tv, e1)
+            let v = simd_dot(dir, q) * inv
+            if v < 0 || u + v > 1 { continue }
+            let t = simd_dot(e2, q) * inv
+            if t > 1e-5, t < maxT { hits.append((t, simd_normalize(simd_cross(e1, e2)))) }
+        }
+        return hits.sorted { $0.t < $1.t }
     }
 
     // Explicit camera at distance `z` for a unit-scaled part mesh, wired as the view's POV.

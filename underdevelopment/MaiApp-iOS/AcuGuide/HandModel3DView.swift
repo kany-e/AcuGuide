@@ -74,7 +74,7 @@ struct HandModel3DView: UIViewRepresentable {
                                                  farSide: d.back.contains(id),
                                                  id: id, color: UIColor(MeridianColors.color(pt.meridian)),
                                                  core: 0.022, halo: 0.04) {
-                scene.rootNode.addChildNode(m)
+                scene.rootNode.addChildNode(m.node)
             }
         }
     }

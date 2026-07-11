@@ -266,26 +266,24 @@ final class AcuGuideTests: XCTestCase {
     // regardless of pose. Pure geometry now, so it's unit-testable: a unit box at the origin, camera at
     // (0,0,2.4). Center → front face (z≈+0.5); farSide → back face (z≈−0.5); u>0 → right of centre.
     func testScreenMarkerLandsOnMesh() {
-        // NOTE: SceneKit's hitTestWithSegment only resolves against a LIVE rendered SCNView, so in
-        // this offscreen harness screenMarker always takes its bbox-plane fallback (verified: a
-        // unit box returns 0 segment hits here). The fallback still projects to the correct screen
-        // (u,v), so these axis-plane assertions hold; on-device the raycast lands the dot on the
-        // real surface. Floaters (rays that miss the silhouette) are caught VISUALLY via
-        // DetailSnapshotTests' detail_hand_side.png, not here.
+        // screenMarker raycasts against the mesh's OWN triangles (CPU Möller–Trumbore) — it no
+        // longer depends on SceneKit render state, so this offscreen harness exercises the REAL
+        // surface path (onSurface == true), not a fallback.
         let box = SCNNode(geometry: SCNBox(width: 1, height: 1, length: 1, chamferRadius: 0))
         let scene = SCNScene(); scene.rootNode.addChildNode(box)
         guard let front = AtlasMarkers.screenMarker(cameraZ: 2.4, mesh: box, u: 0, v: 0, farSide: false,
                                                     id: "F", color: .red, core: 0.02, halo: 0.03) else {
             XCTFail("center marker should land on the box"); return }
-        XCTAssertEqual(Float(front.position.z), 0.5, accuracy: 0.06, "centre → front plane")
-        XCTAssertEqual(Float(front.position.x), 0, accuracy: 0.06)
-        XCTAssertEqual(Float(front.position.y), 0, accuracy: 0.06)
+        XCTAssertTrue(front.onSurface, "the CPU raycast must hit the box's real surface")
+        XCTAssertEqual(Float(front.node.position.z), 0.5, accuracy: 0.06, "centre → front plane")
+        XCTAssertEqual(Float(front.node.position.x), 0, accuracy: 0.06)
+        XCTAssertEqual(Float(front.node.position.y), 0, accuracy: 0.06)
         let back = AtlasMarkers.screenMarker(cameraZ: 2.4, mesh: box, u: 0, v: 0, farSide: true,
                                              id: "B", color: .red, core: 0.02, halo: 0.03)
-        XCTAssertEqual(Float(back!.position.z), -0.5, accuracy: 0.06, "farSide → back plane")
+        XCTAssertEqual(Float(back!.node.position.z), -0.5, accuracy: 0.06, "farSide → back plane")
         let right = AtlasMarkers.screenMarker(cameraZ: 2.4, mesh: box, u: 0.3, v: 0, farSide: false,
                                               id: "R", color: .red, core: 0.02, halo: 0.03)
-        XCTAssertGreaterThan(Float(right!.position.x), 0.1, "u=+0.3 lands right of centre")
+        XCTAssertGreaterThan(Float(right!.node.position.x), 0.1, "u=+0.3 lands right of centre")
     }
 
     // "number" contains "numb" — whole-word matching must NOT trip the red-flag screen.
