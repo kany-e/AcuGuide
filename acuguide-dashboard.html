@@ -98,7 +98,7 @@
     </div>
     <div class="meta">
       <div class="fresh"><span class="dot"></span> Last refreshed <b id="refreshed">—</b></div>
-      <div>Branch <b>IOS-APP</b> · HEAD <b>8c4fe40</b> (R14.10) · origin/IOS-APP <b>1d7b61f</b> (push = clean fast-forward, +2)</div>
+      <div>Branch <b>IOS-APP</b> · HEAD <b>db69a28</b> (R14.11) · origin/IOS-APP <b>1d7b61f</b> (push = clean fast-forward, +4)</div>
       <div>Last commit <b>2026-07-10</b> · working tree <b>dashboard refresh (this file)</b></div>
     </div>
   </header>
@@ -106,11 +106,11 @@
   <!-- metrics -->
   <div class="metrics">
     <div class="metric"><div class="n">5<small>/5</small></div><div class="l good">Phases shipped</div></div>
-    <div class="metric"><div class="n">75</div><div class="l">iOS-port commits</div></div>
+    <div class="metric"><div class="n">76</div><div class="l">iOS-port commits</div></div>
     <div class="metric"><div class="n">47<small>+6</small></div><div class="l">Swift modules · tests</div></div>
-    <div class="metric"><div class="n">~11.2k</div><div class="l">Lines of Swift</div></div>
-    <div class="metric"><div class="n" style="color:var(--jade)">74/74</div><div class="l good">Tests passing</div></div>
-    <div class="metric"><div class="n" style="color:var(--jade)">R2–R14.10</div><div class="l good">All rounds shipped</div></div>
+    <div class="metric"><div class="n">~11.5k</div><div class="l">Lines of Swift</div></div>
+    <div class="metric"><div class="n" style="color:var(--jade)">77/77</div><div class="l good">Tests passing</div></div>
+    <div class="metric"><div class="n" style="color:var(--jade)">R2–R14.11</div><div class="l good">All rounds shipped</div></div>
   </div>
 
   <div class="grid">
@@ -200,7 +200,7 @@
           <div class="bar"><i style="width:100%"></i></div>
         </div>
         <div class="phase">
-          <div class="top"><span class="name">Round-14.1–14.10 — Post-review hardening <span>· TE3 anchor re-fit from 9 owned labels (1/9 → 9/9 in-ring) · ONE 3D-placement registry + SI4 fix · 7-test deterministic stress suite · guided locate moved ON camera: dashed “about here” ring, the user’s labeled press saves a per-user spot correction (canonical hand frame, clamped) · 3D markers CPU-raycast onto the mesh (hitTestWithSegment returned 0 hits offscreen — every marker was a plane-fallback floater; onSurface now test-asserted for all 22) · top-down presser steadied (inverted pass on weak reads, confidence-picked duplicates)</span></span><span class="tag done">done · 8c4fe40 · 74/74</span></div>
+          <div class="top"><span class="name">Round-14.1–14.11 — Post-review hardening <span>· TE3 anchor re-fit from 9 owned labels (1/9 → 9/9 in-ring) · ONE 3D-placement registry + SI4 fix · 7-test deterministic stress suite · guided locate moved ON camera: dashed “about here” ring, the user’s labeled press saves a per-user spot correction (canonical hand frame, clamped) · 3D markers CPU-raycast onto the mesh (hitTestWithSegment returned 0 hits offscreen — every marker was a plane-fallback floater; onSurface now test-asserted for all 22) · top-down presser steadied (inverted pass on weak reads, confidence-picked duplicates) · R14.11: all 15 xhigh-review findings fixed — confirm LATCH (solo confirm was physically unreachable), ISOTROPIC calibration frame (physical rotation skewed offsets up to 3.16×), chirality-safe capture, receiver-safe two-pass dedup (chirality + nearest wrist), locate voice/haptics/VoiceOver + Pause/End, snapped==false pins registry uvs (caught+fixed SI3/SI4)</span></span><span class="tag done">done · db69a28 · 77/77</span></div>
           <div class="bar"><i style="width:100%"></i></div>
         </div>
       </section>
@@ -223,6 +223,7 @@
     <div>
       <section class="card">
         <h2>Recent commits</h2>
+        <div class="commit"><span class="h">db69a28</span><span class="m">R14.11: all 15 xhigh-review findings fixed — confirm latch · isotropic calibration · receiver-safe dedup · locate a11y</span><span class="d">07-11</span></div>
         <div class="commit"><span class="h">8c4fe40</span><span class="m">R14.10: on-camera guided locate saves a per-user spot correction · CPU-raycast markers · steadier top-down presser</span><span class="d">07-10</span></div>
         <div class="commit"><span class="h">c16876f</span><span class="m">R14.9: normalize LocateStep guide-card spacing (review nit)</span><span class="d">07-09</span></div>
         <div class="commit"><span class="h">c1d21b3</span><span class="m">R14.8: fix camera-behind-locate-step (review) + share the id-set store</span><span class="d">07-08</span></div>
@@ -269,7 +270,7 @@
         </div>
         <div style="height:12px"></div>
         <div class="chips">
-          <span class="chip t">AcuGuideTests</span><span class="chip t">CoachStateMachineTests</span><span class="chip t">CoachEngineFixtureTests</span><span class="chip t">DetailSnapshotTests</span><span class="chip t">StressTests</span>
+          <span class="chip t">AcuGuideTests</span><span class="chip t">CalibrationTests</span><span class="chip t">CoachStateMachineTests</span><span class="chip t">CoachEngineFixtureTests</span><span class="chip t">DetailSnapshotTests</span><span class="chip t">StressTests</span>
         </div>
       </section>
 
@@ -291,7 +292,7 @@
       <span><span class="sw" style="background:var(--blue)"></span> tests</span>
       <span><span class="sw" style="background:var(--jade)"></span> new this round</span>
     </div>
-    <div style="margin-top:10px">Generated from live git state on branch <b>IOS-APP</b> · AcuGuide repo · HEAD <b>8c4fe40</b> (R14.10) · metrics reconciled to R14.10 (75 iOS commits · 47+6 Swift files · ~11.2k LOC app+tests) · tests <b>74/74</b> verified this refresh (xcodebuild test, iPhone 17 sim, 2026-07-10) · device build (no signing) succeeded · wellness self-care, not medical advice.</div>
+    <div style="margin-top:10px">Generated from live git state on branch <b>IOS-APP</b> · AcuGuide repo · HEAD <b>a4e54cf</b> · code <b>8c4fe40</b> (R14.10) · metrics reconciled to R14.10 (74 iOS commits · 47+6 Swift files · ~11.2k LOC app+tests) · tests <b>74/74</b> from last verified run (xcodebuild test, iPhone 17 sim, 2026-07-10) · device build (no signing) succeeded · wellness self-care, not medical advice.</div>
   </footer>
 
 </div>
