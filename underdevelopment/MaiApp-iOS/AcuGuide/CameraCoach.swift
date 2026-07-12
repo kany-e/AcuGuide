@@ -43,7 +43,12 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             mainSceneGen += 1
             let gen = mainSceneGen
             queue.async { [weak self] in self?.queueMirrored = m; self?.queueSceneGen = gen }
-            engine.smootherReset()
+            // Same parity discontinuity as a camera flip: every landmark x becomes 1−x, so the
+            // engine must drop EVERYTHING keyed to the old parity — including the guided-locate
+            // window/candidate/anchors (a mid-locate toggle mixed parities into one centroid and
+            // could persist a wrong-direction calibration; review-caught). smootherReset alone
+            // was not enough.
+            engine.cameraFlipped()
         }
     }
     var mirrored: Bool { usingFront != mirrorFlip }   // XOR — main thread / preview
@@ -60,6 +65,10 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     private var queueSceneGen = 0                     // capture queue only
 
     private let queue = DispatchQueue(label: "camera.coach")
+    // Inverted-pass backoff bookkeeping (capture queue only): after 12 consecutive weak-triggered
+    // passes that produced no upgrade, drop to every 3rd frame until one does.
+    private var invertedTick = 0
+    private var invertedNoUpgradeStreak = 0
     private let request: VNDetectHumanHandPoseRequest = {
         let r = VNDetectHumanHandPoseRequest()
         r.maximumHandCount = 2
@@ -231,25 +240,51 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // OR any hand it found is WEAK — the top-down/tips-away massaging hand often flickers
         // through the weak tier in the primary pass while the rotated pass reads it cleanly, so
         // the weak read deserves the second opinion too (user-reported: top-down presser very
-        // shaky). Duplicates (a hand Vision found BOTH ways, matched by wrist proximity) keep the
-        // BETTER read: primary wins unless the inverted read is clearly more confident — the bias
-        // stops the source (and its slightly different landmark geometry) from alternating
-        // frame-to-frame, which was itself a jitter source.
-        if hands.count < 2 || hands.contains(where: { $0.weak }) {
+        // shaky). Duplicates (a hand Vision found BOTH ways) keep the BETTER read: primary wins
+        // unless the inverted read is clearly more confident — the bias stops the source (and its
+        // slightly different landmark geometry) from alternating frame-to-frame, itself a jitter
+        // source. The weak-triggered run BACKS OFF after a streak of no-upgrade passes (a second
+        // full Vision inference per frame is real cost during whole press sessions) and resumes
+        // full rate the moment a pass earns its keep.
+        invertedTick &+= 1
+        let missingHand = hands.count < 2
+        let weakThrottled = invertedNoUpgradeStreak >= 12 && invertedTick % 3 != 0
+        if missingHand || (hands.contains(where: { $0.weak }) && !weakThrottled) {
             let flipped = VNImageRequestHandler(cvPixelBuffer: pixel,
                                                 orientation: Self.rotated180(orientation), options: [:])
             try? flipped.perform([invertedRequest])
+            var upgraded = false
             for obs in invertedRequest.results ?? [] {
                 guard let h = buildHand(obs, rotated180: true) else { continue }
-                if let i = hands.firstIndex(where: { existing in
-                    guard let a = existing.p(.wrist), let b = h.p(.wrist) else { return false }
-                    return dist(a, b) < 0.15
-                }) {
-                    if h.detectionConfidence > hands[i].detectionConfidence + 0.1 { hands[i] = h }
+                // Duplicate = SAME physical hand seen by both passes. A 180° rotation preserves
+                // chirality, so the true duplicate must match handedness — and among matches take
+                // the NEAREST wrist, not the first within range: mid-press the two hands' wrists
+                // can BOTH sit within the radius, and first-match let a confident inverted read
+                // of the massaging hand REPLACE the receiver's entry (review-caught: the same
+                // physical hand twice in the array, no receiver, ring crowned onto the presser).
+                var best: (i: Int, d: CGFloat)? = nil
+                if let b = h.p(.wrist) {
+                    for (i, existing) in hands.enumerated() {
+                        guard existing.chirality == h.chirality
+                                || existing.chirality == .unknown || h.chirality == .unknown,
+                              let a = existing.p(.wrist) else { continue }
+                        let d = dist(a, b)
+                        if d < 0.15, d < (best?.d ?? .greatestFiniteMagnitude) { best = (i, d) }
+                    }
+                }
+                if let match = best {
+                    if h.detectionConfidence > hands[match.i].detectionConfidence + 0.1 {
+                        hands[match.i] = h
+                        upgraded = true
+                    }
                 } else if hands.count < 2 {
                     hands.append(h)
+                    upgraded = true
                 }
             }
+            // Streak accounting only for the weak-triggered case — a missing hand always retries.
+            if !missingHand { invertedNoUpgradeStreak = upgraded ? 0 : invertedNoUpgradeStreak + 1 }
+            else { invertedNoUpgradeStreak = 0 }
         }
 
         // Strong (receiver-eligible) hands first — the engine reads at most two, and a weak

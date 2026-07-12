@@ -121,7 +121,7 @@ enum AtlasMarkers {
     // answer in the app, in tests, every time. Low-poly meshes → the brute-force cost is trivial.
     static func screenMarker(cameraZ: Float, mesh: SCNNode, u: Float, v: Float, farSide: Bool,
                              id: String, color: UIColor, core: CGFloat, halo: CGFloat)
-        -> (node: SCNNode, onSurface: Bool)? {
+        -> (node: SCNNode, onSurface: Bool, snapped: Bool)? {
         let (lo, hi) = mesh.boundingBox
         var mn = SIMD3<Float>(repeating: .greatestFiniteMagnitude); var mx = -mn
         for a in [lo.x, hi.x] { for b in [lo.y, hi.y] { for c in [lo.z, hi.z] {
@@ -144,11 +144,13 @@ enum AtlasMarkers {
         }
 
         let baseDir = simd_normalize(SIMD3<Float>(center.x + u * ext.x, center.y + v * ext.y, center.z) - cam)
-        var wp: SIMD3<Float>; var nrm: SIMD3<Float>; var onSurface = true
+        var wp: SIMD3<Float>; var nrm: SIMD3<Float>
+        var onSurface = true, snapped = false
         if let hit = cast(0, 0) {
             (wp, nrm) = hit
-        } else if let snapped = spiralSnap(cast) {
-            (wp, nrm) = snapped                       // nearest on-surface neighbour of the uv
+        } else if let near = spiralSnap(extRatio: ext.x / ext.y, cast) {
+            (wp, nrm) = near                          // nearest on-surface neighbour of the uv
+            snapped = true                            // `snapped` — tests pin registry uvs to DIRECT hits
         } else {
             // Whole spiral missed (geometry not yet render-ready, or the uv is far off the model):
             // land on the near/far AABB plane along the base camera ray so the dot still shows at
@@ -169,18 +171,23 @@ enum AtlasMarkers {
         let node = domeMarker(id: id, color: color, radius: core, halo: halo,
                               at: SCNVector3(wp.x, wp.y, wp.z), normal: SCNVector3(nrm.x, nrm.y, nrm.z),
                               depthTested: true)
-        return (node, onSurface)
+        return (node, onSurface, snapped)
     }
 
-    // Nearest-first spiral of uv offsets (bbox-fraction units): 8 directions per ring, radius
-    // growing to ~a tenth of the model. First hit wins, so a marker just off the silhouette moves
-    // the least distance needed to sit ON the mesh.
-    private static func spiralSnap(_ cast: (Float, Float) -> (wp: SIMD3<Float>, nrm: SIMD3<Float>)?)
+    // Nearest-first spiral of uv offsets: 8 directions per ring, radius growing to ~a tenth of
+    // the model WIDTH. The dv leg is scaled by extRatio (ext.x/ext.y) so the rings are circles in
+    // WORLD units, not per-axis bbox fractions — on an elongated mesh an anisotropic ring would
+    // snap to a vertically distant surface while a closer lateral hit waited in a later ring.
+    // First hit wins, so a marker just off the silhouette moves the least distance needed to sit
+    // ON the mesh. This is an in-app rendering nicety: the snapshot tests pin every REGISTRY uv
+    // to a direct hit (`snapped == false`), so a drifted entry still fails loudly.
+    private static func spiralSnap(extRatio: Float,
+                                   _ cast: (Float, Float) -> (wp: SIMD3<Float>, nrm: SIMD3<Float>)?)
         -> (wp: SIMD3<Float>, nrm: SIMD3<Float>)? {
         for r in [Float(0.02), 0.045, 0.07, 0.10] {
             for k in 0..<8 {
                 let a = Float(k) * .pi / 4
-                if let hit = cast(r * cos(a), r * sin(a)) { return hit }
+                if let hit = cast(r * cos(a), r * sin(a) * extRatio) { return hit }
             }
         }
         return nil
@@ -209,8 +216,21 @@ enum AtlasMarkers {
                 return SIMD3(Float(w.x), Float(w.y), Float(w.z))
             }
             for el in geo.elements where el.primitiveType == .triangles {
+                // Only 16/32-bit indices are read — GLTFKit2 never emits 8-bit ones (it widens
+                // them to UInt16), but misreading a 1-byte buffer at 4-byte stride would be a
+                // silent heap overread in release. Skip-and-assert instead of guessing, and
+                // bounds-check the whole index range up front (the old per-index guard only
+                // checked the DECODED value, not the read offset).
                 let bpi = el.bytesPerIndex
+                guard bpi == 2 || bpi == 4 else {
+                    assertionFailure("worldTriangles: unsupported bytesPerIndex \(bpi)")
+                    continue
+                }
                 el.data.withUnsafeBytes { raw in
+                    guard el.primitiveCount * 3 * bpi <= raw.count else {
+                        assertionFailure("worldTriangles: index buffer shorter than primitiveCount")
+                        return
+                    }
                     func idx(_ k: Int) -> Int {
                         bpi == 2 ? Int(raw.loadUnaligned(fromByteOffset: k * 2, as: UInt16.self))
                                  : Int(raw.loadUnaligned(fromByteOffset: k * 4, as: UInt32.self))

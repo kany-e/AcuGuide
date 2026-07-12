@@ -5,34 +5,53 @@ import Vision
 // Per-user spot correction, learned from the on-camera guided locate step. Anatomy varies between
 // people, so the anchor-weighted target can sit a little off for a given user; when they find the
 // spot BY FEEL and confirm the press, the delta between their press and the computed target is
-// stored here and applied to every future ring. The offset lives in the CANONICAL HAND FRAME
-// (CanonicalFrame — origin middleMCP, scale |middleMCP−wrist|, rotation wrist→middleMCP = +Y,
-// chirality folded), so one stored correction re-applies correctly at any hand position, rotation,
-// distance, or side. It is a SLIGHT correction by design: the magnitude is clamped so a stray
-// capture can never drag the ring onto different anatomy (safety rule — the guide stays a guide).
+// stored here and applied to every future ring. The offset lives in a canonical hand frame
+// (origin middleMCP, scale |middleMCP−wrist|, rotation wrist→middleMCP = +Y, chirality folded),
+// so one stored correction re-applies correctly at any hand position, rotation, distance, or
+// side. It is a SLIGHT correction by design: the magnitude is clamped so a stray capture can
+// never drag the ring onto different anatomy (safety rule — the guide stays a guide).
+//
+// COORDINATES ARE ISOTROPIC (width units): landmarks arrive normalized PER AXIS (x/W, y/H), and a
+// physical hand rotation is NOT a similarity transform in that anisotropic space — a frame built
+// on raw coords re-applied an offset captured upright at up to (H/W)² ≈ 3.2× the physical
+// distance once the hand lay sideways (review-caught, the same trap isoDist fixed in the engine).
+// So every point is converted to width units (y ÷ aspect) before the CanonicalFrame is built and
+// converted back after. This also puts the stored norm in the SAME units as the engine's capture
+// gate (isoDist/isoHandSize). ShadowLocalizer keeps its own RAW anisotropic frame — that one must
+// stay bit-compatible with train.py.
 final class PointCalibration: ObservableObject {
     static let shared = PointCalibration()
 
     struct Offset: Codable, Equatable {
-        var dx: Double   // canonical hand-frame units (1.0 = wrist→middleMCP length)
+        var dx: Double   // canonical hand-frame units (1.0 = wrist→middleMCP length, isotropic)
         var dy: Double
         var norm: Double { (dx * dx + dy * dy).squareRoot() }
     }
 
-    // The clamp: how far a user's confirmed press may pull the ring, in hand-size units. The
-    // coached tolerances are 0.16–0.24, so 0.30 allows a real anatomical fine-tune (~a finger
-    // width) while a press on the wrong landmark stays capped near the standard spot.
+    // The clamp: how far a user's confirmed press may pull the ring, in iso hand-size units — the
+    // same units (and the same 0.30) as the locate step's capture gate, so a gate-accepted press
+    // never silently clamps. The coached tolerances are 0.16–0.24, so 0.30 allows a real
+    // anatomical fine-tune (~a finger width) while a press on the wrong landmark stays capped.
     static let maxOffsetXHandSize = 0.30
 
     @Published private(set) var table: [String: Offset]
     private let defaults: UserDefaults
-    private static let key = "pointCalibration.v1"
+    // v2: offsets are stored in ISOTROPIC canonical units (v1 was raw-anisotropic — different
+    // semantics, so old blobs are simply ignored rather than misread).
+    private static let key = "pointCalibration.v2"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: Self.key),
-           let t = try? JSONDecoder().decode([String: Offset].self, from: data) {
-            table = t
+        if let data = defaults.data(forKey: Self.key) {
+            if let t = try? JSONDecoder().decode([String: Offset].self, from: data) {
+                table = t
+            } else {
+                // Never destroy what we can't read: park the blob under a side key (the
+                // PracticeStore precedent) so a future build can recover it, and start empty —
+                // the next persist() would otherwise overwrite the user's confirmed spots.
+                defaults.set(data, forKey: Self.key + ".unreadable")
+                table = [:]
+            }
         } else {
             table = [:]
         }
@@ -65,31 +84,42 @@ final class PointCalibration: ObservableObject {
 
     // MARK: - Canonical-frame plumbing
 
-    // Parity-aware canonical frame. CanonicalFrame's fold flag was tuned in the MIRRORED
-    // (selfie-preview) convention — under the back camera's un-mirrored coordinates the same
-    // physical hand has flipped x-parity, so the fold must flip with it or a stored dx lands on
-    // the wrong (radial/ulnar) side of the point. `(right == mirrored)` maps both parities onto
-    // the mirrored-convention fold. (ShadowLocalizer keeps its own raw call — its head was
-    // TRAINED in the mirrored convention and must stay bit-compatible with train.py.)
-    static func canonicalFrame(_ hand: Hand) -> CanonicalFrame? {
+    // Raw per-axis-normalized point ⇄ isotropic width units (aspect = frame W/H, <1 in portrait).
+    private static func iso(_ p: CGPoint, _ aspect: CGFloat) -> CGPoint {
+        CGPoint(x: p.x, y: p.y / aspect)
+    }
+    private static func raw(_ p: CGPoint, _ aspect: CGFloat) -> CGPoint {
+        CGPoint(x: p.x, y: p.y * aspect)
+    }
+
+    // Parity-aware canonical frame over ISO points. The fold convention was tuned in the MIRRORED
+    // (selfie-preview) parity — under the back camera's un-mirrored coordinates the same physical
+    // hand has flipped x-parity, so the fold must flip with it or a stored dx lands on the wrong
+    // (radial/ulnar) side. `(right == mirrored)` maps both parities onto the mirrored-convention
+    // fold. Chirality .unknown returns NIL: the fold direction would be a guess, and a wrong
+    // guess mirrors the correction across the hand — a calibration must never be captured or
+    // applied on a frame whose handedness Vision couldn't read.
+    static func canonicalFrame(_ hand: Hand, aspect: CGFloat) -> CanonicalFrame? {
+        guard hand.chirality != .unknown, aspect > 0 else { return nil }
         let foldAsRight = (hand.chirality == .right) == hand.mirroredCoords
-        return CanonicalFrame(hand.points, isRight: foldAsRight)
+        return CanonicalFrame(hand.points.mapValues { iso($0, aspect) }, isRight: foldAsRight)
     }
 
     // The correction a confirmed press implies: canonical(press) − canonical(affine target).
-    // nil when the hand can't build a frame (wrist/middleMCP missing).
-    static func offset(press: CGPoint, affine: CGPoint, hand: Hand) -> Offset? {
-        guard let cf = canonicalFrame(hand) else { return nil }
-        let p = cf.to(press), a = cf.to(affine)
+    // nil when the hand can't build a frame (wrist/middleMCP missing, or unknown chirality).
+    static func offset(press: CGPoint, affine: CGPoint, hand: Hand, aspect: CGFloat) -> Offset? {
+        guard let cf = canonicalFrame(hand, aspect: aspect) else { return nil }
+        let p = cf.to(iso(press, aspect)), a = cf.to(iso(affine, aspect))
         return Offset(dx: p.0 - a.0, dy: p.1 - a.1)
     }
 
     // Apply the stored correction (if any) to this frame's affine target, through the hand's
     // current canonical frame — the offset rides the hand's pose. Falls back to the affine
-    // target untouched when there is no stored offset or no buildable frame.
-    func apply(_ affine: CGPoint, hand: Hand, pointId: String) -> CGPoint {
-        guard let off = table[pointId], let cf = Self.canonicalFrame(hand) else { return affine }
-        let a = cf.to(affine)
-        return cf.from(a.0 + off.dx, a.1 + off.dy)
+    // target untouched when there is no stored offset or no buildable frame (including unknown
+    // chirality — better no correction for a frame than a mirror-flipped one).
+    func apply(_ affine: CGPoint, hand: Hand, pointId: String, aspect: CGFloat) -> CGPoint {
+        guard let off = table[pointId], let cf = Self.canonicalFrame(hand, aspect: aspect) else { return affine }
+        let a = cf.to(Self.iso(affine, aspect))
+        return Self.raw(cf.from(a.0 + off.dx, a.1 + off.dy), aspect)
     }
 }

@@ -15,6 +15,7 @@ final class CoachVoice: ObservableObject {
 
     private let synth = AVSpeechSynthesizer()
     private var lastSpokenPhase: CoachPhase? = nil
+    private var lastSpokenLocate: LocateState? = nil
 
     init() {
         // Use the app's audio session and the .ambient category so the spoken cue RESPECTS the
@@ -25,8 +26,35 @@ final class CoachVoice: ObservableObject {
 
     func reset() {
         lastSpokenPhase = nil
+        lastSpokenLocate = nil
         synth.stopSpeaking(at: .immediate)
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    // Guided-locate cues — the locate step never changes CoachPhase, so without these lines the
+    // whole find-the-spot flow was SILENT for eyes-free users (review-caught). Same
+    // transition-debounced contract as update(phase:).
+    func updateLocate(state: LocateState, requiresDorsal: Bool) {
+        guard state != lastSpokenLocate else { return }
+        lastSpokenLocate = state
+        guard !muted, let line = locatePhrase(for: state, requiresDorsal: requiresDorsal) else { return }
+        // .ready is the behavior-changing line (the confirm just unlocked) — never drop it.
+        if synth.isSpeaking && state != .ready { return }
+        speak(line)
+    }
+
+    private func locatePhrase(for state: LocateState, requiresDorsal: Bool) -> String? {
+        switch state {
+        case .noHand:    return AppLocale.pick("把手放到镜头前吧。", "Bring your hand into view.")
+        case .wrongFace: return requiresDorsal
+            ? AppLocale.pick("翻一下手，手背对着镜头。", "Turn your hand over — back to the camera.")
+            : AppLocale.pick("翻一下手，手心对着镜头。", "Turn your hand over — palm to the camera.")
+        case .noPress:   return AppLocale.pick("用另一只手的指尖，在虚线圈附近按一按找找。",
+                                               "Feel around the dashed ring with your other fingertip.")
+        case .offGuide:  return AppLocale.pick("有点远了，回到虚线圈附近。", "A little far — closer to the dashed ring.")
+        case .settling:  return AppLocale.pick("按住不动一小会儿。", "Hold the press still a moment.")
+        case .ready:     return AppLocale.pick("找到了就点「就是这里」。", "If that's the spot, tap \"This is my spot\".")
+        }
     }
 
     // Call on every engine update; it self-debounces to phase changes.

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // The AR coaching window: forced safety gate -> live camera + acupoint overlay -> recap.
 // Demo point = TE3 (the validated one). Safety gate is the immutable rule (no skip).
@@ -62,6 +63,9 @@ struct ARCoachView: View {
         // Drive voice + haptics off phase TRANSITIONS only (debounced by the engine), and stop the
         // camera as soon as the routine completes so nothing keeps running behind the recap.
         .onChange(of: engine.phase) { handlePhaseChange(to: $0) }
+        // The locate step never changes CoachPhase, so it needs its own transition hook — without
+        // it the whole find-the-spot flow was silent to voice, haptics, and VoiceOver.
+        .onChange(of: engine.locateState) { handleLocateChange(to: $0) }
         // Interruption robustness: a call / app-switch stops the camera (no capture in the
         // background); returning restarts it (start is idempotent + authorization-gated). The
         // machine's pause-grace and dt clamp make the gap read as a pause, never a credit jump.
@@ -73,6 +77,17 @@ struct ARCoachView: View {
             if sp == .background { camera.stop() } else if sp == .active && !userPaused { camera.start() }
         }
         .onDisappear { camera.stop(); voice.reset() }
+    }
+
+    private func handleLocateChange(to state: LocateState) {
+        guard engine.mode == .locate else { return }
+        voice.updateLocate(state: state, requiresDorsal: acupoint.requiresDorsal)
+        if state == .ready {
+            haptics.enterTick()   // the confirm just unlocked — a felt cue, like entering the ring
+            UIAccessibility.post(notification: .announcement,
+                                 argument: AppLocale.pick("找到了 — 可以点「就是这里」。",
+                                                          "Spot settled — you can tap \"This is my spot\"."))
+        }
     }
 
     private func handlePhaseChange(to phase: CoachPhase) {
@@ -178,7 +193,9 @@ struct ARCoachView: View {
                 debugBar
                 Spacer()
                 if engine.mode == .locate {
-                    LocateCard(point: acupoint, engine: engine)
+                    LocateCard(point: acupoint, engine: engine, hint: hintLine,
+                               onPause: { pauseSession() },
+                               onEnd: { endSession() })   // nothing banked during locate → no confirm needed
                 } else {
                     feedbackCard
                 }
@@ -313,10 +330,18 @@ struct ARCoachView: View {
     }
 
     // WHY-line under the cue: the engine's occlusion hint wins (specific), else the dim-scene hint —
-    // only while the coach is genuinely failing to see (never over a good hold).
+    // only while the coach is genuinely failing to see (never over a good hold / settled press).
+    // Shared by feedbackCard AND LocateCard; the "failing to see" predicate is mode-aware because
+    // CoachPhase is frozen during locate (locateState is the live signal there).
     private var hintLine: String? {
         if let h = engine.hintText { return h }
-        let searching = engine.phase == .noHand || engine.phase == .searching || engine.phase == .wrongFace
+        let searching: Bool
+        if engine.mode == .locate {
+            searching = engine.locateState == .noHand || engine.locateState == .noPress
+                || engine.locateState == .wrongFace
+        } else {
+            searching = engine.phase == .noHand || engine.phase == .searching || engine.phase == .wrongFace
+        }
         if camera.lowLight && searching {
             return AppLocale.pick("光线偏暗 — 试试更亮的地方。", "Low light — try a brighter spot.")
         }

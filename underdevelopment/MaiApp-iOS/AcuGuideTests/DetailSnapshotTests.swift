@@ -68,7 +68,10 @@ final class DetailSnapshotTests: XCTestCase {
                 XCTFail("hand/\(id) produced no marker"); continue }
             // onSurface is the FLOATER assertion: a plane-fallback marker projects fine from the
             // canonical camera but hangs in space from any other angle (user-reported, twice).
+            // `snapped` pins the registry uv to a DIRECT hit — the spiral snap is an in-app
+            // nicety, and letting it pass here would hide a drifted entry on wrong anatomy.
             XCTAssertTrue(m.onSurface, "hand/\(id) uv \(uv) missed the mesh — floating marker")
+            XCTAssertFalse(m.snapped, "hand/\(id) uv \(uv) needed a spiral snap — retune the registry entry")
             let p = SIMD3<Float>(Float(m.node.position.x), Float(m.node.position.y), Float(m.node.position.z))
             XCTAssertTrue(all(p .>= mn - pad) && all(p .<= mx + pad),
                           "hand/\(id) marker \(p) fell outside the hand box \(mn)…\(mx)")
@@ -148,6 +151,7 @@ final class DetailSnapshotTests: XCTestCase {
                                                         core: 0.03, halo: 0.055) else {
                     XCTFail("\(id)/\(pt.id) produced no marker"); continue }
                 XCTAssertTrue(m.onSurface, "\(id)/\(pt.id) uv \(uv) missed the mesh — floating marker")
+                XCTAssertFalse(m.snapped, "\(id)/\(pt.id) uv \(uv) needed a spiral snap — retune the registry entry")
                 let p = SIMD3<Float>(Float(m.node.position.x), Float(m.node.position.y), Float(m.node.position.z))
                 XCTAssertTrue(all(p .>= mn - pad) && all(p .<= mx + pad),
                               "\(id)/\(pt.id) marker \(p) fell outside the model box \(mn)…\(mx)")
@@ -169,3 +173,4 @@ private extension NSObject {
     // Tiny configure-in-place helper so the renderer can be set up inline.
     func also(_ body: (Self) -> Void) -> Self { body(self); return self }
 }
+

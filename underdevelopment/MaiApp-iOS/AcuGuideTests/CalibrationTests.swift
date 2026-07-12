@@ -3,21 +3,37 @@ import CoreGraphics
 @testable import AcuGuide
 
 // A calibration store on a throwaway defaults suite — hermetic: engine tests must neither read a
-// real calibration saved on this device/simulator nor write junk into the app's defaults.
+// real calibration saved on this device/simulator nor write junk into the app's defaults. Suites
+// are tracked and purged in tearDown (purgeEphemeral) so runs don't litter orphan plists.
 extension PointCalibration {
+    private static var ephemeralSuites: [String] = []
     static func ephemeral() -> PointCalibration {
         let name = "test.calibration.\(UUID().uuidString)"
         let d = UserDefaults(suiteName: name)!
         d.removePersistentDomain(forName: name)
+        ephemeralSuites.append(name)
         return PointCalibration(defaults: d)
+    }
+    static func purgeEphemeral() {
+        for n in ephemeralSuites { UserDefaults(suiteName: n)?.removePersistentDomain(forName: n) }
+        ephemeralSuites.removeAll()
     }
 }
 
 // The per-user spot correction (guided locate): store semantics, and the load-bearing invariance —
 // an offset captured in one hand pose must land on the anatomically-equivalent point in ANY other
-// pose (translated / rotated / scaled / mirrored / other hand), because it lives in the canonical
-// hand frame, not in screen space.
+// pose (translated / PHYSICALLY rotated / scaled / mirrored / other hand). The canonical frame is
+// built in ISOTROPIC width units, because landmarks are normalized per-axis and a physical
+// rotation is NOT a similarity transform in that anisotropic space (a raw-coordinate frame
+// re-applied an upright-captured offset at up to (H/W)² ≈ 3.2× once the hand lay sideways).
 final class PointCalibrationTests: XCTestCase {
+
+    private let aspect: CGFloat = 9.0 / 16.0   // portrait frame W/H, the engine's default
+
+    override func tearDown() {
+        PointCalibration.purgeEphemeral()
+        super.tearDown()
+    }
 
     private let base: [HandJoint: CGPoint] = [
         .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
@@ -29,6 +45,7 @@ final class PointCalibrationTests: XCTestCase {
         let name = "test.calibration.persist.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
         defaults.removePersistentDomain(forName: name)
+        defer { defaults.removePersistentDomain(forName: name) }
 
         let cal = PointCalibration(defaults: defaults)
         XCTAssertNil(cal.offset(for: "TE3"))
@@ -50,37 +67,58 @@ final class PointCalibrationTests: XCTestCase {
         reloaded.clear("TE3")
         XCTAssertNil(reloaded.offset(for: "TE3"))
         XCTAssertNil(PointCalibration(defaults: defaults).offset(for: "TE3"))
-
-        defaults.removePersistentDomain(forName: name)
     }
 
-    // Similarity-transform invariance: capture on one pose, apply on a moved/rotated/scaled pose →
-    // the corrected target is exactly the transformed press point.
-    func testOffsetRidesHandPose() {
+    // Never destroy what we can't read: an undecodable blob under the storage key must be PARKED,
+    // not silently replaced — a schema change or corrupt write would otherwise wipe every spot
+    // the user confirmed by feel, unrecoverably (review-caught).
+    func testUnreadableBlobIsParkedNotDestroyed() {
+        let name = "test.calibration.unreadable.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let garbage = Data("not json".utf8)
+        defaults.set(garbage, forKey: "pointCalibration.v2")
+        let cal = PointCalibration(defaults: defaults)
+        XCTAssertNil(cal.offset(for: "TE3"), "unreadable store must start empty")
+        XCTAssertEqual(defaults.data(forKey: "pointCalibration.v2.unreadable"), garbage,
+                       "the blob must be parked for a future build to recover")
+        cal.set(PointCalibration.Offset(dx: 0.1, dy: 0), for: "TE3")   // fresh writes work
+        XCTAssertNotNil(PointCalibration(defaults: defaults).offset(for: "TE3"))
+    }
+
+    // A PHYSICAL similarity transform of the hand (rotate/scale/translate in real space, i.e. in
+    // isotropic units — then mapped back through the anisotropic per-axis normalization): the
+    // corrected target must be exactly the transformed press point. This is the transform a real
+    // hand performs; a raw-coordinate canonical frame fails it (the anisotropy trap).
+    func testOffsetRidesPhysicalHandPose() {
         let te3 = Acupoint.byId["TE3"]!.mediapipeTarget!
         let hand = Hand(points: base, chirality: .right)
         let affine = hand.weightedTarget(te3.anchors)!
         let press = CGPoint(x: affine.x + 0.04, y: affine.y - 0.03)   // "the spot that felt right"
 
-        let off = PointCalibration.offset(press: press, affine: affine, hand: hand)!
+        let off = PointCalibration.offset(press: press, affine: affine, hand: hand, aspect: aspect)!
         let cal = PointCalibration.ephemeral()
         cal.set(off, for: "TE3")
 
-        // A similarity transform (rotate 0.6 rad, scale 1.4, translate) — a hand moved in frame.
-        let th = 0.6, s = 1.4, tx = 0.12, ty = -0.08
+        // Physical similarity: rotate 90°, scale 1.3, translate — composed in ISO space.
+        let th = Double.pi / 2, s = 1.3, tx = 0.10, ty = -0.06
         func T(_ p: CGPoint) -> CGPoint {
-            CGPoint(x: s * (cos(th) * Double(p.x) - sin(th) * Double(p.y)) + tx,
-                    y: s * (sin(th) * Double(p.x) + cos(th) * Double(p.y)) + ty)
+            let ix = Double(p.x), iy = Double(p.y) / Double(aspect)
+            let rx = s * (cos(th) * ix - sin(th) * iy) + tx
+            let ry = s * (sin(th) * ix + cos(th) * iy) + ty
+            return CGPoint(x: rx, y: ry * Double(aspect))
         }
         let moved = Hand(points: base.mapValues(T), chirality: .right)
         let movedAffine = moved.weightedTarget(te3.anchors)!
-        let corrected = cal.apply(movedAffine, hand: moved, pointId: "TE3")
+        let corrected = cal.apply(movedAffine, hand: moved, pointId: "TE3", aspect: aspect)
         let expected = T(press)
         XCTAssertEqual(Double(corrected.x), Double(expected.x), accuracy: 1e-6)
         XCTAssertEqual(Double(corrected.y), Double(expected.y), accuracy: 1e-6)
 
         // A point with no stored offset passes through untouched.
-        XCTAssertEqual(cal.apply(movedAffine, hand: moved, pointId: "SI3"), movedAffine)
+        XCTAssertEqual(cal.apply(movedAffine, hand: moved, pointId: "SI3", aspect: aspect), movedAffine)
     }
 
     // Chirality invariance: the offset captured on the RIGHT hand must land on the anatomically
@@ -92,13 +130,13 @@ final class PointCalibrationTests: XCTestCase {
         let press = CGPoint(x: affine.x + 0.04, y: affine.y - 0.03)
 
         let cal = PointCalibration.ephemeral()
-        cal.set(PointCalibration.offset(press: press, affine: affine, hand: right)!, for: "TE3")
+        cal.set(PointCalibration.offset(press: press, affine: affine, hand: right, aspect: aspect)!, for: "TE3")
 
         // The left hand as the exact mirror image (same parity convention, mirroredCoords: true).
         func mirror(_ p: CGPoint) -> CGPoint { CGPoint(x: 1 - p.x, y: p.y) }
         let left = Hand(points: base.mapValues(mirror), chirality: .left)
         let leftAffine = left.weightedTarget(te3.anchors)!
-        let corrected = cal.apply(leftAffine, hand: left, pointId: "TE3")
+        let corrected = cal.apply(leftAffine, hand: left, pointId: "TE3", aspect: aspect)
         XCTAssertEqual(Double(corrected.x), Double(mirror(press).x), accuracy: 1e-6)
         XCTAssertEqual(Double(corrected.y), Double(mirror(press).y), accuracy: 1e-6)
     }
@@ -114,15 +152,32 @@ final class PointCalibrationTests: XCTestCase {
         let press = CGPoint(x: affine.x + 0.04, y: affine.y - 0.03)
 
         let cal = PointCalibration.ephemeral()
-        cal.set(PointCalibration.offset(press: press, affine: affine, hand: mirroredHand)!, for: "TE3")
+        cal.set(PointCalibration.offset(press: press, affine: affine, hand: mirroredHand, aspect: aspect)!,
+                for: "TE3")
 
         // The same physical scene through the back camera: x un-mirrors, chirality stays .right.
         func unmirror(_ p: CGPoint) -> CGPoint { CGPoint(x: 1 - p.x, y: p.y) }
         let backHand = Hand(points: base.mapValues(unmirror), chirality: .right, mirroredCoords: false)
         let backAffine = backHand.weightedTarget(te3.anchors)!
-        let corrected = cal.apply(backAffine, hand: backHand, pointId: "TE3")
+        let corrected = cal.apply(backAffine, hand: backHand, pointId: "TE3", aspect: aspect)
         XCTAssertEqual(Double(corrected.x), Double(unmirror(press).x), accuracy: 1e-6)
         XCTAssertEqual(Double(corrected.y), Double(unmirror(press).y), accuracy: 1e-6)
+    }
+
+    // .unknown chirality must never capture or apply a correction — the fold direction would be a
+    // guess, and a wrong guess mirrors the offset across the hand axis (review-caught).
+    func testUnknownChiralityNeverCalibrates() {
+        let te3 = Acupoint.byId["TE3"]!.mediapipeTarget!
+        let hand = Hand(points: base, chirality: .unknown)
+        let affine = hand.weightedTarget(te3.anchors)!
+        let press = CGPoint(x: affine.x + 0.04, y: affine.y)
+        XCTAssertNil(PointCalibration.offset(press: press, affine: affine, hand: hand, aspect: aspect),
+                     "capture must refuse an unknown-handedness frame")
+
+        let cal = PointCalibration.ephemeral()
+        cal.set(PointCalibration.Offset(dx: 0.2, dy: 0), for: "TE3")
+        XCTAssertEqual(cal.apply(affine, hand: hand, pointId: "TE3", aspect: aspect), affine,
+                       "apply must fall back to the affine target on an unknown-handedness frame")
     }
 }
 
@@ -135,6 +190,11 @@ final class CoachEngineLocateTests: XCTestCase {
         .ringMCP: CGPoint(x: 0.56, y: 0.54), .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
         .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30), .pinkyTip: CGPoint(x: 0.66, y: 0.36),
         .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+
+    override func tearDown() {
+        PointCalibration.purgeEphemeral()
+        super.tearDown()
+    }
 
     private func presserHand(pressing p: CGPoint, finger: HandJoint) -> Hand {
         var pts: [HandJoint: CGPoint] = [.wrist: CGPoint(x: p.x + 0.20, y: p.y + 0.28),
@@ -187,6 +247,52 @@ final class CoachEngineLocateTests: XCTestCase {
                        "after confirm the coach ring must sit on the confirmed spot")
         XCTAssertEqual(engine.phase, .holding, "pressing the confirmed spot must engage the coach")
         XCTAssertGreaterThan(engine.progress, 0)
+    }
+
+    // THE single-user physical flow (review-caught as impossible before the latch): the pressing
+    // finger must LIFT to tap the confirm button. .ready must survive the lift for the latch
+    // window — with the CAPTURE-TIME candidate/anchors frozen — and decay after it.
+    func testConfirmLatchSurvivesPressLift() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let affine = receiver.weightedTarget(target.anchors)!
+        let press = CGPoint(x: affine.x + 0.03, y: affine.y + 0.01)
+        let presser = presserHand(pressing: press, finger: target.pressFinger)
+
+        let cal = PointCalibration.ephemeral()
+        let engine = CoachEngine(startLocating: true, calibration: cal)
+        var t = 0.0
+        for _ in 0..<30 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.locateState, .ready)
+        let cand = engine.locateCandidate!
+
+        // The pressing hand lifts away (only the receiver stays): 2 seconds — well past the old
+        // tipGraceS decay, well inside the confirm latch.
+        for _ in 0..<60 { engine.update(hands: [receiver], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.locateState, .ready, "the confirm offer must survive the lift-to-tap")
+        XCTAssertEqual(engine.locateCandidate, cand, "the labeled press stays frozen at capture")
+
+        // The tap lands: the stored correction reflects the CAPTURE-time press.
+        XCTAssertTrue(engine.confirmLocate(point: te3), "confirm must succeed within the latch")
+        let off = cal.offset(for: "TE3")
+        XCTAssertNotNil(off)
+        XCTAssertGreaterThan(off!.norm, 0.01, "a real correction was stored")
+
+        // And a fresh session's latch EXPIRES when never confirmed: past locateConfirmLatchS with
+        // no press, the offer decays instead of staying confirmable forever.
+        let engine2 = CoachEngine(startLocating: true, calibration: .ephemeral())
+        var t2 = 0.0
+        for _ in 0..<30 { engine2.update(hands: [receiver, presser], point: te3, now: t2); t2 += dt }
+        XCTAssertEqual(engine2.locateState, .ready)
+        let expiry = Int((CoachConst.locateConfirmLatchS + 0.5) / dt)
+        for _ in 0..<expiry { engine2.update(hands: [receiver], point: te3, now: t2); t2 += dt }
+        XCTAssertNotEqual(engine2.locateState, .ready, "an unconfirmed offer must expire")
+        XCTAssertFalse(engine2.confirmLocate(point: te3))
     }
 
     func testLocateSkipKeepsStandardSpot() {

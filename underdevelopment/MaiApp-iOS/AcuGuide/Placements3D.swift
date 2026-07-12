@@ -28,11 +28,15 @@ enum AcupointPlacements {
         // ── Hand (detail = the fingered hand sheet, dorsal pose) ─────────────────────────────
         "TE3": Placement3D(body: [-0.370, -0.043, 0.883], detailUV: [ 0.245, -0.052]),  // 4th/5th MC groove behind the knuckles
         "TE2": Placement3D(                               detailUV: [ 0.284,  0.055]),  // 4th/5th web margin
-        "SI3": Placement3D(body: [-0.398, -0.055, 0.848], detailUV: [ 0.288, -0.066]),  // ulnar border, behind 5th MCP
+        // SI3/SI4 pulled onto the mesh (were 0.288/-0.066 and 0.160/-0.280): both sat just off
+        // the ulnar silhouette, so their rays missed and the markers survived only via the spiral
+        // snap — the snapped==false test assertion now pins every registry uv to a DIRECT hit
+        // (probed: the ulnar edge runs u≈0.28 at the 5th MCP and u≈0.15 at the wrist band).
+        "SI3": Placement3D(body: [-0.398, -0.055, 0.848], detailUV: [ 0.278, -0.066]),  // ulnar border, behind 5th MCP
         // SI4 sits in the depression between the 5th-metacarpal BASE and the triquetral, at the
         // edge of the wrist crease (WHO; iaomai) — the retired map had it floating mid-hand
         // (user-reported; was [0.200, -0.202]).
-        "SI4": Placement3D(                               detailUV: [ 0.160, -0.280]),
+        "SI4": Placement3D(                               detailUV: [ 0.150, -0.270]),
         "HT7": Placement3D(body: [-0.352, -0.075, 0.922], detailUV: [ 0.069, -0.341], detailFarSide: true),  // ulnar palmar wrist, pisiform
         "PC8": Placement3D(body: [-0.365, -0.088, 0.885], detailUV: [ 0.081, -0.163], detailFarSide: true),  // palm centre, 2nd/3rd MC
         "HT8": Placement3D(                               detailUV: [ 0.194, -0.092], detailFarSide: true),  // where the pinky tip lands in a fist
