@@ -88,6 +88,36 @@ final class PointCalibrationTests: XCTestCase {
         XCTAssertNotNil(PointCalibration(defaults: defaults).offset(for: "TE3"))
     }
 
+    // The safety clamp must hold on the LOAD path too: a decodable blob with an oversized offset
+    // (restored backup, synced defaults, looser-clamp build) must not apply un-clamped.
+    func testLoadReclampsOversizedOffsets() {
+        let name = "test.calibration.load.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let blob = try! JSONEncoder().encode(["TE3": PointCalibration.Offset(dx: 3.0, dy: 4.0)])
+        defaults.set(blob, forKey: "pointCalibration.v2")
+        let cal = PointCalibration(defaults: defaults)
+        XCTAssertEqual(cal.offset(for: "TE3")!.norm, PointCalibration.maxOffsetXHandSize, accuracy: 1e-9,
+                       "a loaded oversized offset must be re-clamped")
+    }
+
+    // R14.10 briefly wrote raw-anisotropic offsets under the v1 key — different semantics. The v2
+    // load must IGNORE v1 (not migrate, not misread) and leave the old data untouched.
+    func testV1KeyIsIgnoredNotMigrated() {
+        let name = "test.calibration.v1.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let v1 = try! JSONEncoder().encode(["TE3": PointCalibration.Offset(dx: 0.2, dy: 0)])
+        defaults.set(v1, forKey: "pointCalibration.v1")
+        let cal = PointCalibration(defaults: defaults)
+        XCTAssertNil(cal.offset(for: "TE3"), "v1 data must not be read as v2")
+        XCTAssertEqual(defaults.data(forKey: "pointCalibration.v1"), v1, "v1 data must be left untouched")
+    }
+
     // A PHYSICAL similarity transform of the hand (rotate/scale/translate in real space, i.e. in
     // isotropic units — then mapped back through the anisotropic per-axis normalization): the
     // corrected target must be exactly the transformed press point. This is the transform a real
@@ -236,7 +266,7 @@ final class CoachEngineLocateTests: XCTestCase {
         XCTAssertEqual(engine.progress, 0, "still locating — no hold credit")
 
         // Confirm: correction stored, mode flips to coaching.
-        XCTAssertTrue(engine.confirmLocate(point: te3))
+        XCTAssertTrue(engine.confirmLocate(point: te3, now: t))
         XCTAssertEqual(engine.mode, .coach)
         XCTAssertNotNil(cal.offset(for: "TE3"), "confirm must store the per-user correction")
 
@@ -275,10 +305,12 @@ final class CoachEngineLocateTests: XCTestCase {
         // tipGraceS decay, well inside the confirm latch.
         for _ in 0..<60 { engine.update(hands: [receiver], point: te3, now: t); t += dt }
         XCTAssertEqual(engine.locateState, .ready, "the confirm offer must survive the lift-to-tap")
-        XCTAssertEqual(engine.locateCandidate, cand, "the labeled press stays frozen at capture")
+        XCTAssertNotNil(engine.locateCandidate)
+        XCTAssertEqual(Double(hypot(engine.locateCandidate!.x - cand.x, engine.locateCandidate!.y - cand.y)),
+                       0, accuracy: 1e-6, "with a static receiver the labeled press stays put")
 
         // The tap lands: the stored correction reflects the CAPTURE-time press.
-        XCTAssertTrue(engine.confirmLocate(point: te3), "confirm must succeed within the latch")
+        XCTAssertTrue(engine.confirmLocate(point: te3, now: t), "confirm must succeed within the latch")
         let off = cal.offset(for: "TE3")
         XCTAssertNotNil(off)
         XCTAssertGreaterThan(off!.norm, 0.01, "a real correction was stored")
@@ -292,7 +324,7 @@ final class CoachEngineLocateTests: XCTestCase {
         let expiry = Int((CoachConst.locateConfirmLatchS + 0.5) / dt)
         for _ in 0..<expiry { engine2.update(hands: [receiver], point: te3, now: t2); t2 += dt }
         XCTAssertNotEqual(engine2.locateState, .ready, "an unconfirmed offer must expire")
-        XCTAssertFalse(engine2.confirmLocate(point: te3))
+        XCTAssertFalse(engine2.confirmLocate(point: te3, now: t2))
     }
 
     func testLocateSkipKeepsStandardSpot() {
@@ -340,7 +372,197 @@ final class CoachEngineLocateTests: XCTestCase {
         var t = 0.0
         for _ in 0..<40 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
         XCTAssertEqual(engine.locateState, .offGuide)
-        XCTAssertFalse(engine.confirmLocate(point: te3), "confirm must refuse a far press")
+        XCTAssertFalse(engine.confirmLocate(point: te3, now: t), "confirm must refuse a far press")
         XCTAssertEqual(engine.mode, .locate)
+    }
+
+    // Re-locate with an EXISTING correction (the review-caught datum-split class): the dashed
+    // guide must sit on the STANDARD spot (one datum with gate + clamp), the old correction shows
+    // as the savedSpot dot, and a fresh confirm REPLACES the offset un-clamped.
+    func testRecalibrateGuidesFromStandardSpotAndReplaces() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let affine = receiver.weightedTarget(target.anchors)!
+
+        let cal = PointCalibration.ephemeral()
+        cal.set(PointCalibration.Offset(dx: 0.22, dy: 0), for: "TE3")   // near-clamp prior offset
+        let engine = CoachEngine(startLocating: true, calibration: cal)
+
+        var t = 0.0
+        for _ in 0..<10 { engine.update(hands: [receiver], point: te3, now: t); t += dt }
+        // Guide ring = pure affine, NOT the corrected spot; the correction shows as savedSpot.
+        let ring = engine.ringCenter!
+        XCTAssertEqual(Double(hypot(ring.x - affine.x, ring.y - affine.y)), 0, accuracy: 0.01,
+                       "the locate guide must sit on the STANDARD spot")
+        let dot = engine.overlay.savedSpot
+        XCTAssertNotNil(dot, "the stored correction must stay visible as the saved-spot dot")
+        XCTAssertGreaterThan(Double(hypot(dot!.x - affine.x, dot!.y - affine.y)), 0.02,
+                             "savedSpot sits at the corrected position, away from the guide")
+
+        // Press slightly off the standard spot and confirm: the stored offset is REPLACED by the
+        // new small one — no accumulation, no silent clamp.
+        let press = CGPoint(x: affine.x + 0.025, y: affine.y)
+        let presser = presserHand(pressing: press, finger: target.pressFinger)
+        for _ in 0..<30 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.locateState, .ready)
+        XCTAssertTrue(engine.confirmLocate(point: te3, now: t))
+        let off = cal.offset(for: "TE3")!
+        XCTAssertLessThan(off.norm, 0.15, "the old near-clamp offset must be REPLACED, not kept/accumulated")
+        XCTAssertGreaterThan(off.norm, 0.01, "a real (small) correction was stored")
+    }
+
+    // Latch BREAK paths — the safety half of the latch design (only expiry was tested).
+    func testLatchBreaksWhenReceiverLeavesOrFlips() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let affine = receiver.weightedTarget(target.anchors)!
+        let press = CGPoint(x: affine.x + 0.03, y: affine.y + 0.01)
+        let presser = presserHand(pressing: press, finger: target.pressFinger)
+
+        // (1) Receiver leaves the frame: offer + candidate void immediately; a return needs a
+        // FULL fresh settle window, not a resumed one.
+        let engine = CoachEngine(startLocating: true, calibration: .ephemeral())
+        var t = 0.0
+        for _ in 0..<30 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.locateState, .ready)
+        for _ in 0..<3 { engine.update(hands: [], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.locateState, .noHand)
+        XCTAssertNil(engine.locateCandidate, "hand gone voids the labeled press")
+        XCTAssertFalse(engine.confirmLocate(point: te3, now: t), "confirm must refuse after the hand left")
+        for _ in 0..<10 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertNotEqual(engine.locateState, .ready,
+                          "a returning hand must re-settle a full window before confirm re-unlocks")
+
+        // (2) Face flips mid-offer: same voiding via the wrong-face break.
+        let engine2 = CoachEngine(startLocating: true, calibration: .ephemeral())
+        var t2 = 0.0
+        for _ in 0..<30 { engine2.update(hands: [receiver, presser], point: te3, now: t2); t2 += dt }
+        XCTAssertEqual(engine2.locateState, .ready)
+        HandCalibration.dorsalWhenSignedPositive = false   // same hand now reads WRONG face
+        for _ in 0..<3 { engine2.update(hands: [receiver, presser], point: te3, now: t2); t2 += dt }
+        XCTAssertEqual(engine2.locateState, .wrongFace)
+        XCTAssertFalse(engine2.confirmLocate(point: te3, now: t2), "confirm must refuse on a flipped face")
+        HandCalibration.dorsalWhenSignedPositive = true
+    }
+
+    // A camera flip mid-locate is a coordinate-parity discontinuity: window/candidate/anchors are
+    // void; a confirm must refuse; re-settling in the NEW parity works and stores a sane offset.
+    func testCameraFlipMidLocateVoidsCaptureAndRecovers() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let affine = receiver.weightedTarget(target.anchors)!
+        let press = CGPoint(x: affine.x + 0.03, y: affine.y + 0.01)
+        let presser = presserHand(pressing: press, finger: target.pressFinger)
+
+        let cal = PointCalibration.ephemeral()
+        let engine = CoachEngine(startLocating: true, calibration: cal)
+        var t = 0.0
+        for _ in 0..<30 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.locateState, .ready)
+
+        engine.cameraFlipped()
+        XCTAssertEqual(engine.locateState, .noPress, "flip voids the offer")
+        XCTAssertNil(engine.locateCandidate)
+        XCTAssertFalse(engine.confirmLocate(point: te3, now: t), "confirm must refuse across a parity flip")
+
+        // Re-settle in the new (un-mirrored) parity: mirrored fixtures, mirroredCoords false.
+        // (Same physical scene → same dorsal verdict: mirroredCoords folds the parity in, so the
+        // calibration flag stays put.)
+        func um(_ p: CGPoint) -> CGPoint { CGPoint(x: 1 - p.x, y: p.y) }
+        let receiverB = Hand(points: base.mapValues(um), chirality: .right, mirroredCoords: false)
+        let affineB = receiverB.weightedTarget(target.anchors)!
+        let pressB = CGPoint(x: affineB.x - 0.03, y: affineB.y + 0.01)
+        var presserPtsB: [HandJoint: CGPoint] = [.wrist: CGPoint(x: pressB.x - 0.20, y: pressB.y + 0.28),
+                                                 .middleMCP: CGPoint(x: pressB.x - 0.16, y: pressB.y + 0.20)]
+        presserPtsB[target.pressFinger] = pressB
+        let presserB = Hand(points: presserPtsB, chirality: .left, mirroredCoords: false)
+        for _ in 0..<30 { engine.update(hands: [receiverB, presserB], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.locateState, .ready, "locate must recover in the new parity")
+        XCTAssertTrue(engine.confirmLocate(point: te3, now: t))
+        XCTAssertNotNil(cal.offset(for: "TE3"))
+        XCTAssertLessThanOrEqual(cal.offset(for: "TE3")!.norm, PointCalibration.maxOffsetXHandSize + 1e-9)
+    }
+
+    // A pause stops frames and the latch is frame-clocked: suspendLocate must void the offer so a
+    // stale .ready is never confirmable behind the pause overlay / after resume.
+    func testSuspendLocateVoidsPendingConfirm() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let affine = receiver.weightedTarget(target.anchors)!
+        let presser = presserHand(pressing: CGPoint(x: affine.x + 0.03, y: affine.y),
+                                  finger: target.pressFinger)
+
+        let engine = CoachEngine(startLocating: true, calibration: .ephemeral())
+        var t = 0.0
+        for _ in 0..<30 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.locateState, .ready)
+        engine.suspendLocate()
+        XCTAssertEqual(engine.locateState, .noPress)
+        XCTAssertNil(engine.locateCandidate)
+        XCTAssertFalse(engine.confirmLocate(point: te3, now: t), "a suspended offer must not confirm")
+    }
+
+    // Gate-unit / clamp-unit equivalence as a PROPERTY: any gate-accepted press stores its own
+    // iso distance (never clamp-truncated); past the gate it never stores at all.
+    func testGateAcceptedPressStoresUnclamped() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let receiver = Hand(points: base, chirality: .right)
+        let affine = receiver.weightedTarget(target.anchors)!
+        let aspect = 9.0 / 16.0
+        // iso hand size of the fixture receiver (wrist→middleMCP, y in width units)
+        let hsIso = hypot(0.0, 0.28 / aspect)
+
+        for r in [0.06, 0.16, 0.28] {
+            for deg in [0.0, 130.0, 250.0] {
+                let a = deg * .pi / 180
+                let press = CGPoint(x: affine.x + r * hsIso * cos(a),
+                                    y: affine.y + r * hsIso * sin(a) * aspect)
+                let presser = presserHand(pressing: press, finger: target.pressFinger)
+                let cal = PointCalibration.ephemeral()
+                let engine = CoachEngine(startLocating: true, calibration: cal)
+                var t = 0.0
+                for _ in 0..<30 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
+                XCTAssertEqual(engine.locateState, .ready, "r=\(r) deg=\(deg) should settle")
+                XCTAssertTrue(engine.confirmLocate(point: te3, now: t))
+                let stored = cal.offset(for: "TE3")!
+                XCTAssertEqual(stored.norm, r, accuracy: 0.02,
+                               "stored norm must equal the press's iso distance (r=\(r) deg=\(deg))")
+            }
+        }
+        // Boundary: past the gate → offGuide, nothing stored.
+        let far = CGPoint(x: affine.x + 0.35 * hsIso, y: affine.y)
+        let farPresser = presserHand(pressing: far, finger: target.pressFinger)
+        let cal = PointCalibration.ephemeral()
+        let engine = CoachEngine(startLocating: true, calibration: cal)
+        var t = 0.0
+        for _ in 0..<40 { engine.update(hands: [receiver, farPresser], point: te3, now: t); t += dt }
+        XCTAssertEqual(engine.locateState, .offGuide)
+        XCTAssertFalse(engine.confirmLocate(point: te3, now: t))
+        XCTAssertNil(cal.offset(for: "TE3"))
     }
 }

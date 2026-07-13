@@ -33,24 +33,49 @@ final class CoachVoice: ObservableObject {
 
     // Guided-locate cues — the locate step never changes CoachPhase, so without these lines the
     // whole find-the-spot flow was SILENT for eyes-free users (review-caught). Same
-    // transition-debounced contract as update(phase:).
-    func updateLocate(state: LocateState, requiresDorsal: Bool) {
+    // transition-debounced contract as update(phase:). `selfCoaching` = front camera (your own
+    // hand) vs back camera (someone else's — the "your hand" lines switch person).
+    func updateLocate(state: LocateState, requiresDorsal: Bool, selfCoaching: Bool = true) {
         guard state != lastSpokenLocate else { return }
         lastSpokenLocate = state
-        guard !muted, let line = locatePhrase(for: state, requiresDorsal: requiresDorsal) else { return }
+        guard !muted,
+              let line = locatePhrase(for: state, requiresDorsal: requiresDorsal,
+                                      selfCoaching: selfCoaching) else { return }
         // .ready is the behavior-changing line (the confirm just unlocked) — never drop it.
         if synth.isSpeaking && state != .ready { return }
         speak(line)
     }
 
-    private func locatePhrase(for state: LocateState, requiresDorsal: Bool) -> String? {
+    // Locate → coach handover (confirm or skip): cut any stale locate line mid-utterance — the
+    // .ready instruction otherwise kept playing AFTER the user confirmed — and clear both
+    // debounce anchors so the first cue of the next mode actually speaks (the isSpeaking guard
+    // was silently swallowing it; review-caught).
+    func handover() {
+        lastSpokenPhase = nil
+        lastSpokenLocate = nil
+        synth.stopSpeaking(at: .immediate)
+    }
+
+    // The one moment that must never pass silently: the user's spot was SAVED. Confirm and Skip
+    // otherwise land on identical screens (review-caught).
+    func locateSaved() {
+        handover()
+        guard !muted else { return }
+        speak(AppLocale.pick("已记住你的位置 — 圆圈就在那里。", "Saved — the ring now sits on your spot."))
+    }
+
+    private func locatePhrase(for state: LocateState, requiresDorsal: Bool,
+                              selfCoaching: Bool) -> String? {
         switch state {
-        case .noHand:    return AppLocale.pick("把手放到镜头前吧。", "Bring your hand into view.")
-        case .wrongFace: return requiresDorsal
-            ? AppLocale.pick("翻一下手，手背对着镜头。", "Turn your hand over — back to the camera.")
-            : AppLocale.pick("翻一下手，手心对着镜头。", "Turn your hand over — palm to the camera.")
-        case .noPress:   return AppLocale.pick("用另一只手的指尖，在虚线圈附近按一按找找。",
-                                               "Feel around the dashed ring with your other fingertip.")
+        // The shared get-in-view / flip-the-hand instructions delegate to the coach phrases —
+        // one source of truth (they were verbatim copies that would drift; review-caught).
+        case .noHand:    return phrase(for: .noHand, requiresDorsal: requiresDorsal, selfCoaching: selfCoaching)
+        case .wrongFace: return phrase(for: .wrongFace, requiresDorsal: requiresDorsal, selfCoaching: selfCoaching)
+        case .noPress:   return selfCoaching
+            ? AppLocale.pick("用另一只手的指尖，在虚线圈附近按一按找找。",
+                             "Feel around the dashed ring with your other fingertip.")
+            : AppLocale.pick("用你的指尖，在对方手上的虚线圈附近按一按找找。",
+                             "Feel around the dashed ring on their hand with your fingertip.")
         case .offGuide:  return AppLocale.pick("有点远了，回到虚线圈附近。", "A little far — closer to the dashed ring.")
         case .settling:  return AppLocale.pick("按住不动一小会儿。", "Hold the press still a moment.")
         case .ready:     return AppLocale.pick("找到了就点「就是这里」。", "If that's the spot, tap \"This is my spot\".")
@@ -58,10 +83,11 @@ final class CoachVoice: ObservableObject {
     }
 
     // Call on every engine update; it self-debounces to phase changes.
-    func update(phase: CoachPhase, requiresDorsal: Bool) {
+    func update(phase: CoachPhase, requiresDorsal: Bool, selfCoaching: Bool = true) {
         guard phase != lastSpokenPhase else { return }
         lastSpokenPhase = phase
-        guard !muted, let line = phrase(for: phase, requiresDorsal: requiresDorsal) else { return }
+        guard !muted, let line = phrase(for: phase, requiresDorsal: requiresDorsal,
+                                        selfCoaching: selfCoaching) else { return }
         // Don't clip an in-progress cue for a transient phase oscillation (e.g. a NO_HAND ↔
         // WRONG_FACE flicker at the frame edge chopping each utterance mid-word). Let the current
         // one finish — EXCEPT for the two behavior-changing instructions, which must never be
@@ -71,10 +97,19 @@ final class CoachVoice: ObservableObject {
         speak(line)
     }
 
-    private func phrase(for phase: CoachPhase, requiresDorsal: Bool) -> String? {
+    private func phrase(for phase: CoachPhase, requiresDorsal: Bool,
+                        selfCoaching: Bool = true) -> String? {
         switch phase {
-        case .noHand:           return AppLocale.pick("把手放到镜头前吧。", "Bring your hand into view.")
-        case .wrongFace:        return requiresDorsal
+        case .noHand:           return selfCoaching
+            ? AppLocale.pick("把手放到镜头前吧。", "Bring your hand into view.")
+            : AppLocale.pick("把对方的手放进画面吧。", "Bring their hand into view.")
+        case .wrongFace:
+            if !selfCoaching {
+                return requiresDorsal
+                    ? AppLocale.pick("把对方的手翻过来，手背对着镜头。", "Turn their hand over — back to the camera.")
+                    : AppLocale.pick("把对方的手翻过来，手心对着镜头。", "Turn their hand over — palm to the camera.")
+            }
+            return requiresDorsal
             ? AppLocale.pick("翻一下手，手背对着镜头。", "Turn your hand over — back to the camera.")
             : AppLocale.pick("翻一下手，手心对着镜头。", "Turn your hand over — palm to the camera.")
         case .searching:        return AppLocale.pick("顺着圆圈慢慢找。", "Ease over toward the ring.")

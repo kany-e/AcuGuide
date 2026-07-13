@@ -65,10 +65,20 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     private var queueSceneGen = 0                     // capture queue only
 
     private let queue = DispatchQueue(label: "camera.coach")
-    // Inverted-pass backoff bookkeeping (capture queue only): after 12 consecutive weak-triggered
-    // passes that produced no upgrade, drop to every 3rd frame until one does.
+    // Inverted-pass backoff bookkeeping (capture queue only): after invertedBackoffStreak
+    // consecutive passes that produced no upgrade — WHATEVER triggered them, missing hand or weak
+    // read — drop to every invertedBackoffStride-th frame until one yields. (An always-retry
+    // missing-hand exemption meant the doubled inference ran at full 30 Hz through exactly the
+    // idle no-hands stretches, and any one-hand flicker also zeroed the weak streak; review-caught.)
     private var invertedTick = 0
     private var invertedNoUpgradeStreak = 0
+    // While the engine is in the rest gap it discards every hand (the countdown is timer-driven),
+    // so Vision is pure waste there (~25% of a 4-round session). Toggled from the main thread via
+    // setDetectionPaused; frames still flow to engine.update (with no hands) so the rest clock ticks.
+    private var detectionPausedQ = false
+    func setDetectionPaused(_ paused: Bool) {
+        queue.async { [weak self] in self?.detectionPausedQ = paused }
+    }
     private let request: VNDetectHumanHandPoseRequest = {
         let r = VNDetectHumanHandPoseRequest()
         r.maximumHandCount = 2
@@ -182,6 +192,7 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         let m = mirrored
         mainSceneGen += 1
         let gen = mainSceneGen
+        engine.selfCoaching = usingFront   // back camera = coaching someone ELSE's hand (cues switch person)
         engine.cameraFlipped()
         queue.async { [weak self] in
             guard let self else { return }
@@ -195,7 +206,9 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             if !self.installInput(position: pos) {
                 self.session.commitConfiguration()
                 DispatchQueue.main.async {
-                    self.usingFront.toggle(); self.engine.cameraFlipped()
+                    self.usingFront.toggle()
+                    self.engine.selfCoaching = self.usingFront
+                    self.engine.cameraFlipped()
                     self.mainSceneGen += 1
                     let genBack = self.mainSceneGen
                     let mBack = self.mirrored
@@ -231,6 +244,19 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             lastAspect = aspect
             DispatchQueue.main.async { self.frameAspect = aspect }
         }
+        // Rest gap: the engine ignores hands entirely (timer-driven countdown), so skip BOTH
+        // Vision passes — but keep feeding empty frames so the rest clock ticks.
+        if detectionPausedQ {
+            let now = CACurrentMediaTime()
+            let gen = queueSceneGen
+            DispatchQueue.main.async {
+                guard gen == self.mainSceneGen else { return }
+                self.engine.frameAspect = aspect
+                self.engine.update(hands: [], point: self.acupoint, now: now)
+            }
+            return
+        }
+
         let orientation = visionOrientation()
         let handler = VNImageRequestHandler(cvPixelBuffer: pixel, orientation: orientation, options: [:])
         try? handler.perform([request])
@@ -240,51 +266,24 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // OR any hand it found is WEAK — the top-down/tips-away massaging hand often flickers
         // through the weak tier in the primary pass while the rotated pass reads it cleanly, so
         // the weak read deserves the second opinion too (user-reported: top-down presser very
-        // shaky). Duplicates (a hand Vision found BOTH ways) keep the BETTER read: primary wins
-        // unless the inverted read is clearly more confident — the bias stops the source (and its
-        // slightly different landmark geometry) from alternating frame-to-frame, itself a jitter
-        // source. The weak-triggered run BACKS OFF after a streak of no-upgrade passes (a second
-        // full Vision inference per frame is real cost during whole press sessions) and resumes
-        // full rate the moment a pass earns its keep.
+        // shaky). The merge rules live in mergeInvertedRead (pure, unit-tested); the pass BACKS
+        // OFF after a streak of no-yield runs and resumes full rate the moment one earns its keep
+        // (an inverted-only hand entering the frame is picked up ≤2 frames late — well inside the
+        // engine's debounces).
         invertedTick &+= 1
-        let missingHand = hands.count < 2
-        let weakThrottled = invertedNoUpgradeStreak >= 12 && invertedTick % 3 != 0
-        if missingHand || (hands.contains(where: { $0.weak }) && !weakThrottled) {
+        if Self.shouldRunInvertedPass(missingHand: hands.count < 2,
+                                      hasWeak: hands.contains(where: { $0.weak }),
+                                      noUpgradeStreak: invertedNoUpgradeStreak,
+                                      tick: invertedTick) {
             let flipped = VNImageRequestHandler(cvPixelBuffer: pixel,
                                                 orientation: Self.rotated180(orientation), options: [:])
             try? flipped.perform([invertedRequest])
             var upgraded = false
             for obs in invertedRequest.results ?? [] {
                 guard let h = buildHand(obs, rotated180: true) else { continue }
-                // Duplicate = SAME physical hand seen by both passes. A 180° rotation preserves
-                // chirality, so the true duplicate must match handedness — and among matches take
-                // the NEAREST wrist, not the first within range: mid-press the two hands' wrists
-                // can BOTH sit within the radius, and first-match let a confident inverted read
-                // of the massaging hand REPLACE the receiver's entry (review-caught: the same
-                // physical hand twice in the array, no receiver, ring crowned onto the presser).
-                var best: (i: Int, d: CGFloat)? = nil
-                if let b = h.p(.wrist) {
-                    for (i, existing) in hands.enumerated() {
-                        guard existing.chirality == h.chirality
-                                || existing.chirality == .unknown || h.chirality == .unknown,
-                              let a = existing.p(.wrist) else { continue }
-                        let d = dist(a, b)
-                        if d < 0.15, d < (best?.d ?? .greatestFiniteMagnitude) { best = (i, d) }
-                    }
-                }
-                if let match = best {
-                    if h.detectionConfidence > hands[match.i].detectionConfidence + 0.1 {
-                        hands[match.i] = h
-                        upgraded = true
-                    }
-                } else if hands.count < 2 {
-                    hands.append(h)
-                    upgraded = true
-                }
+                if Self.mergeInvertedRead(h, into: &hands) { upgraded = true }
             }
-            // Streak accounting only for the weak-triggered case — a missing hand always retries.
-            if !missingHand { invertedNoUpgradeStreak = upgraded ? 0 : invertedNoUpgradeStreak + 1 }
-            else { invertedNoUpgradeStreak = 0 }
+            invertedNoUpgradeStreak = upgraded ? 0 : invertedNoUpgradeStreak + 1
         }
 
         // Strong (receiver-eligible) hands first — the engine reads at most two, and a weak
@@ -332,6 +331,54 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         }
     }
 
+    // Whether the inverted-frame pass runs this frame — pure so the backoff policy is unit-tested.
+    // Any trigger (missing hand or weak read) throttles after a no-yield streak; a yielding pass
+    // resets the streak (in captureOutput), restoring full rate.
+    static func shouldRunInvertedPass(missingHand: Bool, hasWeak: Bool,
+                                      noUpgradeStreak: Int, tick: Int) -> Bool {
+        guard missingHand || hasWeak else { return false }
+        let throttled = noUpgradeStreak >= CoachConst.invertedBackoffStreak
+            && tick % CoachConst.invertedBackoffStride != 0
+        return !throttled
+    }
+
+    // Fold ONE inverted-pass read into the primary list; returns true if it changed anything.
+    // Pure and unit-tested — this merge is where the review-caught "receiver replaced by the
+    // presser's inverted read" lived. Rules:
+    //  • Duplicate = SAME physical hand seen by both passes. A 180° rotation preserves chirality,
+    //    so a true duplicate matches handedness (or either read is .unknown) within dupWristRadius
+    //    — and among matches take the NEAREST wrist, not the first within range (mid-press both
+    //    wrists can sit inside the radius).
+    //  • Cross-pass chirality DISAGREEMENT can still be the same physical hand (the foreshortened
+    //    poses this pass exists for are the ones Vision mislabels) — but then the wrists of a true
+    //    duplicate are near-coincident, so conflicting labels only merge within the much tighter
+    //    dupConflictRadius; farther apart they are treated as distinct hands.
+    //  • A matched duplicate keeps the BETTER read: primary wins unless the inverted read is
+    //    clearly more confident (dupConfidenceBias) — the bias stops the source (and its slightly
+    //    different landmark geometry) from alternating frame-to-frame, itself a jitter source.
+    static func mergeInvertedRead(_ h: Hand, into hands: inout [Hand]) -> Bool {
+        var best: (i: Int, d: CGFloat)? = nil
+        if let b = h.p(.wrist) {
+            for (i, existing) in hands.enumerated() {
+                guard let a = existing.p(.wrist) else { continue }
+                let d = dist(a, b)
+                let compatible = existing.chirality == h.chirality
+                    || existing.chirality == .unknown || h.chirality == .unknown
+                let radius = compatible ? CoachConst.dupWristRadius : CoachConst.dupConflictRadius
+                if d < radius, d < (best?.d ?? .greatestFiniteMagnitude) { best = (i, d) }
+            }
+        }
+        if let match = best {
+            if h.detectionConfidence > hands[match.i].detectionConfidence + CoachConst.dupConfidenceBias {
+                hands[match.i] = h
+                return true
+            }
+            return false
+        }
+        if hands.count < 2 { hands.append(h); return true }
+        return false
+    }
+
     // 180°-rotated counterpart of a Vision orientation (two mirrors = rotation; parity preserved).
     private static func rotated180(_ o: CGImagePropertyOrientation) -> CGImagePropertyOrientation {
         switch o {
@@ -348,7 +395,7 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         // tips-away massaging hand routinely scores here and used to be discarded outright, which
         // read as "the massaging hand cannot be detected at all" (user-reported). The engine never
         // lets a weak hand anchor the ring, and the palm-glaze gate still vets its tip.
-        guard obs.confidence >= 0.3 else { return nil }
+        guard obs.confidence >= CoachConst.weakHandConfidence else { return nil }
         // Shared converter (HandVision) → identical points to the M3 label harness (zero skew).
         // flipX = queueMirrored (capture-queue-confined; matches the mirrored preview);
         // rotated180 folds the inverted-pass coordinates back into the upright frame.

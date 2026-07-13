@@ -1,5 +1,6 @@
 import SwiftUI
-import Vision   // VNChirality — the locate window tracks the receiver's handedness per sample
+import Vision      // VNChirality — the locate window tracks the receiver's handedness per sample
+import QuartzCore  // CACurrentMediaTime — confirmLocate's default latch clock (same clock as the camera frames)
 
 enum CoachPhase { case noHand, wrongFace, searching, onTargetUnstable, holding, resting, paused, complete }
 
@@ -50,7 +51,20 @@ enum CoachConst {
     static let locateCaptureRadiusXHandSize = 0.30   // a press this near the standard spot can be confirmed
     static let locateWindowS   = 0.8    // trailing window of measured presses
     static let locateSteadyS   = 0.6    // the window must span this long before confirm unlocks
-    static let locateStdXHandSize = 0.05   // mean deviation below this = a settled press
+    // MEAN absolute deviation from the window centroid below this = a settled press. (Named
+    // "MeanDev", not "Std": the sibling stabilityStdThreshold IS a true std in the round machine —
+    // the two gates use different statistics and must not be tuned as a pair.)
+    static let locateMeanDevXHandSize = 0.05
+    // How long a tight-but-chirality-blocked press may sit in .settling before the cue turns
+    // honest ("couldn't read the hand") instead of promising a settle that can never come.
+    static let locateChirBlockedHintS = 2.5
+    // ── Two-pass Vision dedup / backoff (CameraCoach) ───────────────────────────────────────────
+    static let invertedBackoffStreak = 12    // no-yield passes before the inverted pass throttles
+    static let invertedBackoffStride = 3     // …to every Nth frame (until a pass yields again)
+    static let dupWristRadius: CGFloat = 0.15      // same-chirality reads this close = same hand
+    static let dupConflictRadius: CGFloat = 0.05   // conflicting-label reads must be near-coincident
+    static let dupConfidenceBias: Float = 0.1      // primary wins unless inverted beats it by this
+    static let weakHandConfidence: Float = 0.3     // whole-hand floor for the weak (presser-only) tier
     // Once a press has settled (.ready), the offer stays open this long after the pressing
     // finger lifts — the user needs that hand to TAP the confirm button, and without a latch the
     // state decayed within tipGraceS and the button disabled before any physical tap could land
@@ -65,6 +79,20 @@ enum CoachMode { case locate, coach }
 
 // What the locate step sees this frame — drives the locate card's cue + confirm button.
 enum LocateState { case noHand, wrongFace, noPress, offGuide, settling, ready }
+
+// The HIGH-RATE overlay stream (ring, press dot, labeled press, saved-spot dot, hold progress),
+// separated from CoachEngine so its per-frame writes invalidate ONLY the compact overlay/progress
+// subviews. On the engine these writes fired objectWillChange 30×/s and re-evaluated the ENTIRE
+// full-screen coach body every camera frame — defeating the engine's own carefully guarded
+// transition writes (review-caught). Values are engine-written on the main thread.
+final class CoachOverlay: ObservableObject {
+    @Published var ringCenter: CGPoint? = nil      // normalized, top-left origin (smoothed)
+    @Published var ringRadius: CGFloat = 0          // fraction of the frame WIDTH (isotropic units)
+    @Published var pressTip: CGPoint? = nil
+    @Published var locateCandidate: CGPoint? = nil  // the labeled press ("your press")
+    @Published var savedSpot: CGPoint? = nil        // re-locate: where the stored correction sits
+    @Published var progress: Double = 0             // 0...1 hold completion of the CURRENT round
+}
 
 // Per-frame temporal input — the native equivalent of engine.js FrameState.contact, so
 // the same state machine can be driven by the live camera or by the replay fixtures.
@@ -200,34 +228,50 @@ final class CoachStateMachine {
 // ---------------------------------------------------------------------------
 final class CoachEngine: ObservableObject {
     @Published var phase: CoachPhase = .noHand
-    @Published var ringCenter: CGPoint? = nil      // normalized, top-left origin (smoothed)
-    @Published var ringRadius: CGFloat = 0          // fraction of the frame WIDTH (isotropic units)
-    @Published var pressTip: CGPoint? = nil
-    @Published var progress: Double = 0             // 0...1 hold completion of the CURRENT round
     @Published var cue: String = "Bring your hand into the frame."
+
+    // The 30 Hz stream lives on its own object (see CoachOverlay); the engine keeps read-only
+    // forwarders so tests and non-view callers keep one API.
+    let overlay = CoachOverlay()
+    var ringCenter: CGPoint? { overlay.ringCenter }
+    var ringRadius: CGFloat { overlay.ringRadius }
+    var pressTip: CGPoint? { overlay.pressTip }
+    var locateCandidate: CGPoint? { overlay.locateCandidate }
+    var progress: Double { overlay.progress }
 
     // Guided-locate layer (see CoachMode/LocateState). While locating, the round machine is never
     // stepped — no hold time, no rounds — the engine just tracks whether a confident press has
     // settled near the guide ring so the user can confirm "this is the spot".
     @Published private(set) var mode: CoachMode
     @Published private(set) var locateState: LocateState = .noPress
-    @Published private(set) var locateCandidate: CGPoint? = nil   // settled press (window centroid)
     private let initialMode: CoachMode
     // Recent measured (smoothed) tips + the receiver's chirality that frame — a settled press
     // must also have STABLE, KNOWN handedness (a chirality misread mirrors the stored fold).
     private var locateWindow: [(t: Double, p: CGPoint, chir: VNChirality)] = []
-    // This frame's receiver + PURE affine target (set every resolvable locate frame)…
-    private var frameLocateHand: Hand? = nil
-    private var frameLocateAffine: CGPoint? = nil
-    private var frameLocateHandScale: CGFloat? = nil
-    // …and the CAPTURE-TIME snapshot confirmLocate actually uses — committed only on frames that
+    // The receiver + PURE affine target + hand scale that travel together through the locate
+    // step: one struct so a partial snapshot is unrepresentable (was six parallel optionals).
+    private struct LocateAnchors { var hand: Hand; var affine: CGPoint; var handScale: CGFloat }
+    private var frameAnchors: LocateAnchors? = nil      // this frame's (every resolvable frame)
+    // The CAPTURE-TIME snapshot confirmLocate actually uses — committed only on frames that
     // append a press sample, so a confirm never pairs an old press with a hand that moved during
-    // the tip-grace/latch window (review-caught skew).
-    private var lastLocateHand: Hand? = nil
-    private var lastLocateAffine: CGPoint? = nil
-    private var lastLocateHandScale: CGFloat? = nil
+    // the tip-grace/latch window (review-caught skew). capturedPress is the frozen press for the
+    // CONFIRM MATH; its canonical twin re-projects the on-screen "your press" marker through the
+    // LIVE hand pose while the offer is latched (the frozen screen point visibly detached from a
+    // relaxing hand — review-caught).
+    private var capturedAnchors: LocateAnchors? = nil
+    private var capturedPress: CGPoint? = nil
+    private var capturedCanonical: (x: Double, y: Double)? = nil
     // When .ready was last backed by LIVE measurements — the confirm latch anchor.
     private var lastLiveReadyT = -Double.infinity
+    // The offer just lapsed (latch expiry, not confirm/hand-loss) — keys an honest "timed out,
+    // press again" cue instead of reverting to the beginner instruction.
+    private var latchLapsed = false
+    // Since when a tight, in-radius press has been blocked ONLY by unreadable handedness — after
+    // locateChirBlockedHintS the cue says so instead of promising "hold still" forever.
+    private var chirBlockedSince: Double? = nil
+    // Front camera = coaching your own hand; back camera = coaching SOMEONE ELSE'S (two-person
+    // mode) — the few cues that address "your hand" switch person on this flag.
+    var selfCoaching = true
     let calibration: PointCalibration              // injectable so tests run on a clean store;
                                                    // exposed so LocateCard reads the SAME store
 
@@ -316,8 +360,15 @@ final class CoachEngine: ObservableObject {
     func cameraFlipped() {
         smootherReset(); roleReset()
         lastFaceCorrect = false; lonePresserSince = nil
-        ringCenter = nil; pressTip = nil
+        overlay.ringCenter = nil; overlay.pressTip = nil
         resetLocateTracking()   // window/candidate/anchors are all in the old coordinate parity
+        // Frames are scene-generation-dropped until the flip's reconfigure commits, so nothing
+        // recomputes the cue for ~0.5s — refresh it NOW to match the state just published, or the
+        // card shows "tap this is my spot" beside a disabled button (review-caught).
+        if mode == .locate {
+            let line = locateCue(.noPress, point: nil, now: 0)
+            if cue != line { cue = line }
+        }
     }
 
     // Reset the target smoother (called on a confirmed role swap or a mirror flip — both are
@@ -335,11 +386,11 @@ final class CoachEngine: ObservableObject {
     }
 
     func reset() {
-        machine.reset(); smoother.reset(); pressSmoother.reset(); roleReset()
-        lastFaceCorrect = false; lastTipT = -.infinity; lonePresserSince = nil
+        machine.reset(); smootherReset(); roleReset()
+        lastFaceCorrect = false; lonePresserSince = nil
         roundsDone = 0; sessionComplete = false; restLeft = nil; heldAccum = 0
         roundTimes = []; clearHint()
-        phase = .noHand; ringCenter = nil; pressTip = nil; progress = 0
+        phase = .noHand; overlay.ringCenter = nil; overlay.pressTip = nil; overlay.progress = 0
         mode = initialMode
         resetLocateTracking()
         cue = AppLocale.pick("把手放到镜头前就好。", "Bring your hand into view whenever you're ready.")
@@ -347,11 +398,14 @@ final class CoachEngine: ObservableObject {
 
     private func resetLocateTracking() {
         locateWindow.removeAll()
-        if locateCandidate != nil { locateCandidate = nil }
+        if locateCandidate != nil { overlay.locateCandidate = nil }
+        if overlay.savedSpot != nil { overlay.savedSpot = nil }
         if locateState != .noPress { locateState = .noPress }
-        frameLocateHand = nil; frameLocateAffine = nil; frameLocateHandScale = nil
-        lastLocateHand = nil; lastLocateAffine = nil; lastLocateHandScale = nil
+        frameAnchors = nil
+        capturedAnchors = nil; capturedPress = nil; capturedCanonical = nil
         lastLiveReadyT = -.infinity
+        latchLapsed = false
+        chirBlockedSince = nil
     }
 
     // Occlusion-hint bookkeeping. The 1-second delay keeps it quiet through the transient dropouts
@@ -369,7 +423,7 @@ final class CoachEngine: ObservableObject {
     func update(hands: [Hand], point: Acupoint, now: TimeInterval) {
         guard let target = point.mediapipeTarget else {
             // Atlas-only point — never AR-coached. Defensive: should not be reachable.
-            phase = .searching; ringCenter = nil; pressTip = nil; return
+            phase = .searching; overlay.ringCenter = nil; overlay.pressTip = nil; return
         }
 
         // Release gap between rounds — timer-driven, NOT machine-driven: the user is told to let go,
@@ -382,22 +436,19 @@ final class CoachEngine: ObservableObject {
             if remaining > 0 {
                 restLeft = remaining
                 restRemaining = Int(remaining.rounded(.up))
-                pressTip = nil
+                overlay.pressTip = nil
                 clearHint()
                 apply(.resting, point: point, hasPresser: false)
                 return
             }
             restLeft = nil                                             // machine was reset when the gap began
-            smoother.reset(); pressSmoother.reset(); lastTipT = -.infinity
+            smootherReset()
         }
 
         // 1) No usable hand.
         guard !hands.isEmpty else {
-            smoother.reset(); pressSmoother.reset(); roleReset(); lastFaceCorrect = false
-            lastTipT = -.infinity; lonePresserSince = nil
-            ringCenter = nil; pressTip = nil
-            clearHint()   // the NO_HAND cue already says what to do
-            step(noHandInput(now), point: point, hasPresser: false)
+            lonePresserSince = nil
+            stepNoUsableHand(now, point: point)
             return
         }
 
@@ -430,11 +481,7 @@ final class CoachEngine: ObservableObject {
                     // Only weak hands remain past the grace: nothing here can hold the ring.
                     // Read as "no usable receiving hand" (keep `lonePresserSince` stale so this
                     // doesn't re-arm a fresh grace every frame while weak-only persists).
-                    smoother.reset(); pressSmoother.reset(); roleReset(); lastFaceCorrect = false
-                    lastTipT = -.infinity
-                    ringCenter = nil; pressTip = nil
-                    clearHint()   // the NO_HAND cue supersedes the stale occlusion hint
-                    step(noHandInput(now), point: point, hasPresser: false)
+                    stepNoUsableHand(now, point: point)
                     return
                 }
                 roleReset(); lonePresserSince = nil
@@ -448,19 +495,16 @@ final class CoachEngine: ObservableObject {
             // the dot within tipGraceS; expired → clear + reset the filter so a re-acquired tip
             // doesn't lerp across the screen with stale velocity.
             if let presser, let tip = presser.pressTip(target.pressFinger) {
-                pressTip = pressSmoother.filter(tip.point, now); lastTipT = now
+                overlay.pressTip = pressSmoother.filter(tip.point, now); lastTipT = now
             } else if pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {
                 // keep the last dot
             } else {
-                pressTip = nil; pressSmoother.reset()
+                overlay.pressTip = nil; pressSmoother.reset()
             }
             // The receiving hand has been occluded past the transient window — say so, plainly.
             occlusionHint(now, AppLocale.pick("让被按的那只手多露出来一些。",
                                               "Let the hand being pressed peek back into view."))
-            step(CoachFrameInput(
-                t: now, present: true, faceCorrect: true,
-                insideEnterRadius: false, insideExitRadius: true, offsetXHandSize: nil),
-                point: point, hasPresser: presser != nil)
+            step(occludedInput(now), point: point, hasPresser: presser != nil)
             return
         }
 
@@ -472,14 +516,11 @@ final class CoachEngine: ObservableObject {
         // smoother — geometry resumes continuously.
         guard let rawCenter = receiver.weightedTarget(target.anchors),
               let handScale = isoHandSize(receiver), handScale > 0 else {
-            pressTip = nil
+            overlay.pressTip = nil
             // Sustained anchor loss = the pressing hand is covering the receiver's landmarks.
             occlusionHint(now, AppLocale.pick("让手腕和指节露出来一点。",
                                               "Let the wrist and knuckles peek into view."))
-            step(CoachFrameInput(
-                t: now, present: true, faceCorrect: true,
-                insideEnterRadius: false, insideExitRadius: true, offsetXHandSize: nil),
-                point: point, hasPresser: false)
+            step(occludedInput(now), point: point, hasPresser: false)
             return
         }
         clearHint()   // geometry is resolving again
@@ -490,13 +531,24 @@ final class CoachEngine: ObservableObject {
         // Per-user spot correction (guided locate): the stored canonical-frame offset rides this
         // frame's hand pose. Shadow above stays on the PURE affine — it measures learned−affine.
         let corrected = calibration.apply(rawCenter, hand: receiver, pointId: point.id, aspect: frameAspect)
-        if mode == .locate {   // this frame's anchors; stepLocate COMMITS them on sample-append
-            frameLocateHand = receiver; frameLocateAffine = rawCenter; frameLocateHandScale = hs
+        // ONE datum per mode. LOCATE guides from the STANDARD spot: the dashed ring, the capture
+        // gate, and the storage clamp all share the pure affine target (drawing the corrected spot
+        // while gating on affine made the cue point somewhere the gate wasn't — review-caught);
+        // any existing correction shows as a small separate "saved spot" dot instead, so a
+        // re-locate is unbiased but the old answer stays visible. COACH coaches the corrected spot.
+        let guideTarget: CGPoint
+        if mode == .locate {
+            guideTarget = rawCenter
+            frameAnchors = LocateAnchors(hand: receiver, affine: rawCenter, handScale: hs)
+            overlay.savedSpot = calibration.hasCalibration(point.id) ? corrected : nil
+        } else {
+            guideTarget = corrected
+            if overlay.savedSpot != nil { overlay.savedSpot = nil }
         }
-        let center = smoother.filter(corrected, now)   // One-Euro BEFORE hit-test + draw
+        let center = smoother.filter(guideTarget, now)   // One-Euro BEFORE hit-test + draw
         let tol = target.toleranceXHandSize * hs
-        ringCenter = center
-        ringRadius = tol
+        overlay.ringCenter = center
+        overlay.ringRadius = tol
 
         // 4) Face gate. isDorsal is nil when a required MCP landmark is missing; in that case
         // reuse the last verdict we could compute so a transient drop doesn't flip to WRONG_FACE.
@@ -521,14 +573,13 @@ final class CoachEngine: ObservableObject {
         var tipConf: Float = 1
         if let presser, let measured = presser.pressTip(target.pressFinger) {
             let tip = pressSmoother.filter(measured.point, now)
-            pressTip = tip; hasPresser = true
+            overlay.pressTip = tip; hasPresser = true
             lastTipT = now
             tipConf = measured.confidence
-            // Contact distance: the coach measures against the DISPLAYED (corrected) ring the
-            // user aims at; the LOCATE gate measures against the PURE affine target — the same
-            // datum (and iso units) as the storage clamp, so an accepted press always stores
+            // Contact distance vs the displayed guide — which is now the SAME datum the storage
+            // clamp uses in locate mode (guideTarget above), so an accepted press always stores
             // without silent truncation (review-caught re-calibration mismatch).
-            let dd = isoDist(tip, mode == .locate ? rawCenter : center)
+            let dd = isoDist(tip, center)
             // Palm-glaze gate (user-reported: "whatever hand part glazes over the area, it tracks"):
             // when a palm covers the target, Vision still hallucinates a LOW-confidence tip under it,
             // which used to start engagement. A NEW engagement now needs a confident tip; an ongoing
@@ -544,7 +595,7 @@ final class CoachEngine: ObservableObject {
             hasPresser = true                       // brief dropout: keep the dot + cue steady
             inExit = true                           // stay in the exit band → debounce governs
         } else {
-            pressTip = nil; pressSmoother.reset()   // presser really gone — restart the filter clean
+            overlay.pressTip = nil; pressSmoother.reset()   // presser really gone — restart the filter clean
         }
 
         step(CoachFrameInput(
@@ -557,6 +608,22 @@ final class CoachEngine: ObservableObject {
     private func noHandInput(_ now: TimeInterval) -> CoachFrameInput {
         CoachFrameInput(t: now, present: false, faceCorrect: false,
                         insideEnterRadius: false, insideExitRadius: false, offsetXHandSize: nil)
+    }
+
+    // Present-but-unverifiable frame (occluded receiver / unresolvable anchors): inside the exit
+    // band so the dropout debounce governs, with no measurable offset.
+    private func occludedInput(_ now: TimeInterval) -> CoachFrameInput {
+        CoachFrameInput(t: now, present: true, faceCorrect: true,
+                        insideEnterRadius: false, insideExitRadius: true, offsetXHandSize: nil)
+    }
+
+    // The full no-usable-hand teardown + step, shared by the empty-frame and weak-only exits
+    // (was two near-verbatim inline blocks).
+    private func stepNoUsableHand(_ now: TimeInterval, point: Acupoint) {
+        smootherReset(); roleReset(); lastFaceCorrect = false
+        overlay.ringCenter = nil; overlay.pressTip = nil
+        clearHint()   // the NO_HAND cue already says what to do
+        step(noHandInput(now), point: point, hasPresser: false)
     }
 
     // THE mode dispatch seam — every update() exit routes through here: coach mode drives the
@@ -586,13 +653,13 @@ final class CoachEngine: ObservableObject {
                 restLeft = restS
                 restLastT = f.t
                 restRemaining = Int(restS.rounded(.up))
-                pressTip = nil
+                overlay.pressTip = nil
                 apply(.resting, point: point, hasPresser: false)
                 return
             }
         }
 
-        if result == .wrongFace { pressTip = nil }   // ring stays to guide the flip
+        if result == .wrongFace { overlay.pressTip = nil }   // ring stays to guide the flip
         apply(result, point: point, hasPresser: hasPresser)
     }
 
@@ -607,33 +674,48 @@ final class CoachEngine: ObservableObject {
     // hand leaving the frame or flipping face does. Nothing is credited here.
     private func stepLocate(_ f: CoachFrameInput, point: Acupoint, hasPresser: Bool) {
         let now = f.t
-        let latchLive = now - lastLiveReadyT <= CoachConst.locateConfirmLatchS
+        // ONE name for "the confirm offer is live and held open" (was the same negated predicate
+        // re-derived in three branches; review-caught). `state` below starts as the entering
+        // locateState, so this is valid across all arms.
+        let offerLatched = locateState == .ready && now - lastLiveReadyT <= CoachConst.locateConfirmLatchS
         var state = locateState
         if !f.present {
-            state = .noHand; locateWindow.removeAll(); lastLiveReadyT = -.infinity
+            state = .noHand
+            breakLocateSearch()
         } else if !f.faceCorrect {
-            state = .wrongFace; locateWindow.removeAll(); lastLiveReadyT = -.infinity
+            state = .wrongFace
+            breakLocateSearch()
         } else if let off = f.offsetXHandSize, let tip = pressTip,
                   f.tipConfidence >= CoachConst.minTipConfidence {
             if off > CoachConst.locateCaptureRadiusXHandSize {
                 // A tracked far press mid-latch is the pressing hand REACHING FOR THE BUTTON —
                 // keep the offer. Otherwise it's a genuine off-guide search.
-                if !(latchLive && state == .ready) { state = .offGuide; locateWindow.removeAll() }
+                if !offerLatched { state = .offGuide; locateWindow.removeAll() }
             } else {
-                locateWindow.append((now, tip, frameLocateHand?.chirality ?? .unknown))
+                latchLapsed = false
+                locateWindow.append((now, tip, frameAnchors?.hand.chirality ?? .unknown))
                 pruneLocateWindow(before: now - CoachConst.locateWindowS)
-                if locateSteady(now) {
+                switch settleVerdict(now) {
+                case .settled:
                     state = .ready
+                    chirBlockedSince = nil
                     // Candidate + anchors snapshot together, at MEASUREMENT time — a confirm
-                    // always pairs the press with the hand pose that produced it.
+                    // always pairs the press with the hand pose that produced it. The canonical
+                    // twin drives the display re-projection while the offer is latched.
                     let c = locateCentroid()
-                    if locateCandidate != c { locateCandidate = c }
-                    lastLocateHand = frameLocateHand
-                    lastLocateAffine = frameLocateAffine
-                    lastLocateHandScale = frameLocateHandScale
+                    capturedPress = c
+                    capturedAnchors = frameAnchors
+                    capturedCanonical = frameAnchors.flatMap {
+                        PointCalibration.canonical(c, hand: $0.hand, aspect: frameAspect)
+                    }
+                    if overlay.locateCandidate != c { overlay.locateCandidate = c }
                     lastLiveReadyT = now
-                } else if !(latchLive && state == .ready) {
-                    state = .settling
+                case .chiralityBlocked:
+                    chirBlockedSince = chirBlockedSince ?? now
+                    if !offerLatched { state = .settling }
+                case .unsettled:
+                    chirBlockedSince = nil
+                    if !offerLatched { state = .settling }
                 }
             }
         } else {
@@ -641,16 +723,36 @@ final class CoachEngine: ObservableObject {
             // the lift-to-tap; the tip grace (hasPresser) holds other states through a one-frame
             // dropout; a real absence restarts the search.
             pruneLocateWindow(before: now - CoachConst.locateWindowS)
-            if !(latchLive && state == .ready) {
+            if !offerLatched {
+                let expiring = state == .ready   // an un-confirmed offer is lapsing right now
                 if !hasPresser { state = .noPress; locateWindow.removeAll() }
                 else if locateWindow.isEmpty, state == .ready || state == .settling { state = .noPress }
+                if expiring, state != .ready { latchLapsed = true }
             }
         }
 
-        if state != .ready, locateCandidate != nil { locateCandidate = nil }
+        // While the offer is latched with no fresh press, the "your press" marker rides the LIVE
+        // hand pose (canonical re-projection) instead of freezing at stale screen coordinates —
+        // the confirm math still uses the frozen capturedPress/capturedAnchors pair.
+        if state == .ready, let q = capturedCanonical, let fa = frameAnchors,
+           let ridden = PointCalibration.reproject(q, hand: fa.hand, aspect: frameAspect),
+           overlay.locateCandidate != ridden {
+            overlay.locateCandidate = ridden
+        }
+
+        if state != .ready, locateCandidate != nil { overlay.locateCandidate = nil }
         if locateState != state { locateState = state }
-        let newCue = locateCue(state, point: point)
+        let newCue = locateCue(state, point: point, now: now)
         if cue != newCue { cue = newCue }
+    }
+
+    // The receiving hand vanished or flipped: the captured geometry is void — break the offer,
+    // the window, and the lapse flag together.
+    private func breakLocateSearch() {
+        locateWindow.removeAll()
+        lastLiveReadyT = -.infinity
+        latchLapsed = false
+        chirBlockedSince = nil
     }
 
     private func pruneLocateWindow(before cutoff: Double) {
@@ -665,27 +767,37 @@ final class CoachEngine: ObservableObject {
         return CGPoint(x: x / n, y: y / n)
     }
 
-    // Settled = the window spans locateSteadyS, the presses cluster tightly (mean isotropic
+    // Settled = the window spans locateSteadyS, the presses cluster tightly (MEAN isotropic
     // deviation from the centroid, in hand-size units, below the threshold), and the receiver's
     // handedness read KNOWN and CONSTANT across the window — a one-frame chirality misread at
-    // capture would mirror the stored correction across the hand axis.
-    private func locateSteady(_ now: Double) -> Bool {
+    // capture would mirror the stored correction across the hand axis. The chirality failure is
+    // reported apart from plain jitter so a persistent one gets an HONEST cue instead of an
+    // endless "hold still" (review-caught soft-lock).
+    private enum SettleVerdict { case settled, unsettled, chiralityBlocked }
+    private func settleVerdict(_ now: Double) -> SettleVerdict {
         guard let first = locateWindow.first, now - first.t >= CoachConst.locateSteadyS,
-              locateWindow.count >= 4, let hs = frameLocateHandScale, hs > 0 else { return false }
-        guard first.chir != .unknown, locateWindow.allSatisfy({ $0.chir == first.chir }) else { return false }
+              locateWindow.count >= 4, let hs = frameAnchors?.handScale, hs > 0 else { return .unsettled }
         let c = locateCentroid()
         let dev = locateWindow.reduce(0.0) { $0 + Double(isoDist($1.p, c)) } / Double(locateWindow.count)
-        return dev / Double(hs) < CoachConst.locateStdXHandSize
+        guard dev / Double(hs) < CoachConst.locateMeanDevXHandSize else { return .unsettled }
+        guard first.chir != .unknown, locateWindow.allSatisfy({ $0.chir == first.chir }) else {
+            return .chiralityBlocked
+        }
+        return .settled
     }
 
     // The user confirms "this is the spot": store press−target as their personal correction for
     // this point (canonical hand frame; clamped in PointCalibration so it stays a SLIGHT
     // correction), then hand over to the coach — the ring now sits where they pressed.
+    // `now` guards the latch by the same frame clock the tracker uses (default = the live camera
+    // clock): frames stop during a pause/background, so without this a frozen .ready stayed
+    // confirmable for unbounded wall time (review-caught).
     @discardableResult
-    func confirmLocate(point: Acupoint) -> Bool {
+    func confirmLocate(point: Acupoint, now: Double = CACurrentMediaTime()) -> Bool {
         guard mode == .locate, locateState == .ready,
-              let hand = lastLocateHand, let affine = lastLocateAffine, let press = locateCandidate,
-              let off = PointCalibration.offset(press: press, affine: affine, hand: hand,
+              now - lastLiveReadyT <= CoachConst.locateConfirmLatchS + 0.5,
+              let a = capturedAnchors, let press = capturedPress,
+              let off = PointCalibration.offset(press: press, affine: a.affine, hand: a.hand,
                                                 aspect: frameAspect) else { return false }
         calibration.set(off, for: point.id)
         endLocate()
@@ -698,23 +810,75 @@ final class CoachEngine: ObservableObject {
         guard mode == .locate else { return }
         mode = .coach
         machine.reset()
-        smoother.reset(); pressSmoother.reset(); lastTipT = -.infinity
+        smootherReset()
         resetLocateTracking()   // one canonical teardown — no stale anchors survive into coach mode
-        pressTip = nil
-        progress = 0
+        overlay.pressTip = nil
+        overlay.progress = 0
     }
 
-    private func locateCue(_ s: LocateState, point: Acupoint) -> String {
+    // Re-enter the guided locate step from coaching (the "re-find the spot" affordance — without
+    // it, a bad confirm was only fixable by ending the whole session; review-caught). Banked
+    // rounds are kept; the CURRENT round's un-banked hold is honestly dropped (explicit user
+    // choice). Phase resets to .noHand so phase-keyed observers (rest-gap Vision idling, voice)
+    // don't stay latched to a stale coach phase while locating.
+    func beginLocate() {
+        guard mode == .coach, !sessionComplete else { return }
+        mode = .locate
+        restLeft = nil
+        machine.reset()
+        smootherReset()
+        resetLocateTracking()
+        overlay.pressTip = nil
+        overlay.progress = 0
+        if phase != .noHand { phase = .noHand }
+    }
+
+    // A pause/app-switch stops camera frames, and the confirm latch is frame-clocked — void the
+    // offer so a stale press can't sit confirmable behind the pause overlay (review-caught).
+    func suspendLocate() {
+        guard mode == .locate else { return }
+        locateWindow.removeAll()
+        if locateCandidate != nil { overlay.locateCandidate = nil }
+        if locateState == .ready || locateState == .settling { locateState = .noPress }
+        lastLiveReadyT = -.infinity
+        latchLapsed = false
+        chirBlockedSince = nil
+    }
+
+    // `point` is nil only for the flip-time refresh (no acupoint in reach there — the generic
+    // flip line covers it); `now` drives the chirality-blocked honesty timer.
+    private func locateCue(_ s: LocateState, point: Acupoint?, now: Double) -> String {
         switch s {
-        case .noHand:    return AppLocale.pick("把手放到镜头前，先一起找到这个点。",
-                                               "Bring your hand into view — let's find the spot first.")
-        case .wrongFace: return faceCue(point)
-        case .noPress:   return AppLocale.pick("对照说明，用另一只手的指尖在虚线圈附近轻轻按找。",
-                                               "Follow the guide — feel around the dashed ring with your other fingertip.")
+        case .noHand:
+            return selfCoaching
+                ? AppLocale.pick("把手放到镜头前，先一起找到这个点。",
+                                 "Bring your hand into view — let's find the spot first.")
+                : AppLocale.pick("把对方要按的手放进画面，先一起找到这个点。",
+                                 "Bring their hand into view — let's find the spot first.")
+        case .wrongFace:
+            if let point { return faceCue(point) }
+            return AppLocale.pick("翻一下手，换一面对着镜头。", "Turn the hand over to face the camera.")
+        case .noPress:
+            if latchLapsed {
+                return AppLocale.pick("刚才的确认超时了 — 再按住那个点一下，然后点「就是这里」。",
+                                      "The offer timed out — press your spot again briefly, then tap \"This is my spot\".")
+            }
+            return selfCoaching
+                ? AppLocale.pick("对照说明，用另一只手的指尖在虚线圈附近轻轻按找。",
+                                 "Follow the guide — feel around the dashed ring with your other fingertip.")
+                : AppLocale.pick("对照说明，用你的指尖在对方手上的虚线圈附近轻轻按找。",
+                                 "Follow the guide — feel around the dashed ring on their hand with your fingertip.")
         case .offGuide:  return AppLocale.pick("有点远了 — 回到虚线圈附近再找找。",
                                                "A little far — feel around closer to the dashed ring.")
-        case .settling:  return AppLocale.pick("感觉对了就按住不动一小会儿。",
-                                               "Feels right? Hold the press still for a moment.")
+        case .settling:
+            // A tight press blocked ONLY by unreadable handedness must not promise "hold still"
+            // forever — after a couple seconds, say what's actually wrong and name the way out.
+            if let since = chirBlockedSince, now - since > CoachConst.locateChirBlockedHintS {
+                return AppLocale.pick("看不清这只手的方向 — 稍微调整角度，或点「先跳过」用标准位置。",
+                                      "Couldn't read the hand clearly — adjust the angle a little, or Skip to use the standard spot.")
+            }
+            return AppLocale.pick("感觉对了就按住不动一小会儿。",
+                                  "Feels right? Hold the press still for a moment.")
         case .ready:     return AppLocale.pick("就按在这里？点「就是这里」，我会记住你的位置。",
                                                "Pressing right there? Tap \"This is my spot\" and I'll remember it.")
         }
@@ -725,18 +889,23 @@ final class CoachEngine: ObservableObject {
     private func apply(_ phase: CoachPhase, point: Acupoint, hasPresser: Bool) {
         if self.phase != phase { self.phase = phase }
         let p = machine.progress
-        if progress != p { progress = p }
+        if progress != p { overlay.progress = p }
         let newCue = cueFor(phase, point: point, hasPresser: hasPresser)
         if cue != newCue { cue = newCue }
     }
 
     private func cueFor(_ phase: CoachPhase, point: Acupoint, hasPresser: Bool) -> String {
         switch phase {
-        case .noHand:           return AppLocale.pick("把手放到镜头前就好。", "Bring your hand into view whenever you're ready.")
+        case .noHand:           return selfCoaching
+            ? AppLocale.pick("把手放到镜头前就好。", "Bring your hand into view whenever you're ready.")
+            : AppLocale.pick("把对方要按的手放进画面就好。", "Bring their hand into view whenever you're ready.")
         case .wrongFace:        return faceCue(point)
         case .searching:        return hasPresser ? alignCue(point)
-                                    : AppLocale.pick("另一只手的指尖慢慢移过来，两只手都留在画面里。",
-                                                     "Ease your other fingertip over — keep both hands in view.")
+                                    : selfCoaching
+                                        ? AppLocale.pick("另一只手的指尖慢慢移过来，两只手都留在画面里。",
+                                                         "Ease your other fingertip over — keep both hands in view.")
+                                        : AppLocale.pick("你的指尖慢慢移过来，对方的手留在画面里。",
+                                                         "Ease your fingertip over — keep their hand in view.")
         case .onTargetUnstable: return AppLocale.pick("就是这里 — 轻轻稳住。", "That's the spot — settle in gently.")
         case .holding:          return holdCue(point)
         case .resting:          return AppLocale.pick(
@@ -755,9 +924,14 @@ final class CoachEngine: ObservableObject {
         if isForearm(p) {
             return p.requiresDorsal
                 ? AppLocale.pick("把前臂外侧（手背那一侧）转向相机。",
-                                 "Turn the outer side of your forearm — the back-of-hand side — toward the camera.")
+                                 "Turn the outer side of the forearm — the back-of-hand side — toward the camera.")
                 : AppLocale.pick("手掌向上，让前臂内侧朝向相机。",
-                                 "Turn your palm up so the inner side of your forearm faces the camera.")
+                                 "Turn the palm up so the inner side of the forearm faces the camera.")
+        }
+        if !selfCoaching {
+            return p.requiresDorsal
+                ? AppLocale.pick("把对方的手翻过来，手背对着镜头。", "Turn their hand over so the back faces the camera.")
+                : AppLocale.pick("把对方的手翻过来，手心对着镜头。", "Turn their hand over so the palm faces the camera.")
         }
         return p.requiresDorsal
             ? AppLocale.pick("翻一下手，让手背对着镜头。", "Turn your hand over so the back faces the camera.")
@@ -859,7 +1033,7 @@ final class CoachEngine: ObservableObject {
                 // Both roles flip to physically different hands — reset BOTH filters so neither the
                 // ring nor the press tip lerps across the discontinuity, and drop the tip grace
                 // (a stale tip must not bridge two different hands).
-                smoother.reset(); pressSmoother.reset(); lastTipT = -.infinity
+                smootherReset()
             }
             return commitRoles(aIsReceiver: aIsReceiver, a: a, b: b)
         }

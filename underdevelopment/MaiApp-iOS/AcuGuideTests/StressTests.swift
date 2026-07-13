@@ -352,4 +352,67 @@ final class StressTests: XCTestCase {
         XCTAssertEqual(Routine.minutes(forRounds: 0), 1)
         XCTAssertGreaterThan(Routine.minutes(forRounds: 1000), 0)
     }
+
+    // ── H. Guided-locate fuzzer ─────────────────────────────────────────────────────────────────
+    // 3,000 adversarial frames against the locate layer — the newest, most state-heavy engine
+    // code (window/latch/candidate/anchors + mode transitions). Random hands come and go, and the
+    // public mode API (confirm/skip/re-find/suspend/flip/reset) fires at random ticks. Invariants:
+    // no crash, locate never credits hold time, a visible candidate implies a live offer, and any
+    // stored correction respects the safety clamp.
+    func testLocateModeSurvivesAdversarialFrames() throws {
+        guard let te3 = Acupoint.byId["TE3"] else { return XCTFail("TE3 missing") }
+        let savedFlag = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = savedFlag }
+
+        var rng = Rng(state: 0x10CA7EF0)
+        let cal = PointCalibration.ephemeral()
+        let engine = CoachEngine(roundsTarget: 2, roundHoldS: 0.5, restS: 0.2,
+                                 startLocating: true, calibration: cal)
+        var now = 500.0
+
+        for frame in 0..<3000 {
+            switch rng.int(20) {
+            case 0: break                             // duplicate timestamp
+            case 1: now += rng.double(0.5, 3.0)       // long stall
+            default: now += 1.0 / 30.0
+            }
+
+            var hands: [Hand] = []
+            if rng.bool(0.8) {
+                hands.append(syntheticHand(cx: rng.double(0.3, 0.7), cy: rng.double(0.5, 0.9),
+                                           s: rng.double(0.6, 1.4),
+                                           drop: rng.bool(0.2) ? [.middleMCP] : []))
+            }
+            if rng.bool(0.5) {
+                hands.append(syntheticHand(cx: rng.double(0.2, 0.8), cy: rng.double(0.4, 0.9),
+                                           s: rng.double(0.5, 1.2), weak: rng.bool(0.4)))
+            }
+            engine.update(hands: hands, point: te3, now: now)
+
+            // Random public-API pokes — the transitions the UI can fire at any time.
+            if frame % 37 == 0 { _ = engine.confirmLocate(point: te3, now: now) }
+            if frame % 173 == 0 { engine.endLocate() }
+            if frame % 211 == 0 { engine.beginLocate() }
+            if frame % 97 == 0 { engine.suspendLocate() }
+            if frame % 419 == 0 { engine.cameraFlipped() }
+            if frame % 1201 == 0 { engine.reset() }
+
+            // Invariants.
+            if engine.mode == .locate {
+                XCTAssertEqual(engine.progress, 0, "locate must never credit hold time (frame \(frame))")
+                if engine.locateCandidate != nil {
+                    XCTAssertEqual(engine.locateState, .ready,
+                                   "a visible candidate implies a live offer (frame \(frame))")
+                }
+            }
+            if let c = engine.locateCandidate {
+                XCTAssertTrue(c.x.isFinite && c.y.isFinite, "candidate must stay finite (frame \(frame))")
+            }
+            if let off = cal.offset(for: "TE3") {
+                XCTAssertLessThanOrEqual(off.norm, PointCalibration.maxOffsetXHandSize + 1e-9,
+                                         "stored corrections must respect the clamp (frame \(frame))")
+            }
+        }
+    }
 }

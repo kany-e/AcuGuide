@@ -21,6 +21,7 @@ struct ARCoachView: View {
     @State private var practiceRecordId: String? = nil   // history record for this session (saved once)
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
+    @State private var savedChip: String? = nil    // transient over-camera confirmation chip
 
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
          onNext: (label: String, action: () -> Void)? = nil,
@@ -33,13 +34,19 @@ struct ARCoachView: View {
         // no redundant default StateObject). roundsTarget: 1 for the first-run quick try; a
         // routine step's rounds otherwise. acknowledgedInitially: steps ≥2 of a ROUTINE run —
         // the safety gate was confirmed at step 1 of the same continuous session (never skipped
-        // for a fresh session). startLocating: points with a find-by-feel guide open in the
-        // ON-CAMERA locate step (dashed guide ring + instructions; the user's confirmed press
-        // becomes their personal spot correction) before any coaching round runs.
-        let eng = CoachEngine(roundsTarget: roundsTarget, startLocating: acupoint.hasFindGuide)
+        // for a fresh session).
+        // startLocating: points with a find-by-feel guide open in the ON-CAMERA locate step —
+        // but ONLY until the user has saved a spot. A returning calibrated user goes straight to
+        // coaching (a transient "using your saved spot" chip + the re-find button in the top bar
+        // replace the full teach card — it gated EVERY session and routine step; review-caught).
+        let calibrated = PointCalibration.shared.hasCalibration(acupoint.id)
+        let eng = CoachEngine(roundsTarget: roundsTarget,
+                              startLocating: acupoint.hasFindGuide && !calibrated)
         _engine = StateObject(wrappedValue: eng)
         _camera = StateObject(wrappedValue: CameraCoach(engine: eng, acupoint: acupoint))
         _acknowledged = State(initialValue: acknowledgedInitially)
+        _savedChip = State(initialValue: calibrated && acupoint.hasFindGuide
+            ? AppLocale.pick("已使用你保存的位置", "Using your saved spot") : nil)
     }
 
     var body: some View {
@@ -74,14 +81,18 @@ struct ARCoachView: View {
             // every post-gate screen legitimately runs the capture session).
             guard acknowledged, engine.phase != .complete, !endedEarly else { return }
             // An explicit user pause survives an app-switch: don't auto-restart the camera under it.
-            if sp == .background { camera.stop() } else if sp == .active && !userPaused { camera.start() }
+            if sp == .background {
+                engine.suspendLocate()   // frames stop → the confirm latch must not outlive them
+                camera.stop()
+            } else if sp == .active && !userPaused { camera.start() }
         }
         .onDisappear { camera.stop(); voice.reset() }
     }
 
     private func handleLocateChange(to state: LocateState) {
         guard engine.mode == .locate else { return }
-        voice.updateLocate(state: state, requiresDorsal: acupoint.requiresDorsal)
+        voice.updateLocate(state: state, requiresDorsal: acupoint.requiresDorsal,
+                           selfCoaching: camera.usingFront)
         if state == .ready {
             haptics.enterTick()   // the confirm just unlocked — a felt cue, like entering the ring
             UIAccessibility.post(notification: .announcement,
@@ -90,8 +101,22 @@ struct ARCoachView: View {
         }
     }
 
+    // The saved-it moment must not be silent OR invisible — confirm and Skip otherwise land on
+    // pixel-identical screens (review-caught). Voice + haptic + VoiceOver + a transient chip.
+    private func handleLocateConfirmed() {
+        haptics.complete()
+        voice.locateSaved()
+        UIAccessibility.post(notification: .announcement,
+                             argument: AppLocale.pick("已记住你的位置。", "Saved — the ring now sits on your spot."))
+        savedChip = AppLocale.pick("已记住你的位置", "Saved — this is your spot now")
+    }
+
     private func handlePhaseChange(to phase: CoachPhase) {
-        voice.update(phase: phase, requiresDorsal: acupoint.requiresDorsal)
+        voice.update(phase: phase, requiresDorsal: acupoint.requiresDorsal,
+                     selfCoaching: camera.usingFront)
+        // The engine discards every hand during the rest gap — skip Vision entirely there
+        // (~25% of a 4-round session; the empty frames keep the rest clock ticking).
+        camera.setDetectionPaused(phase == .resting)
 
         // Haptics: a light tick the first time the finger enters the target zone (not on every
         // unstable wobble), a tick when a round completes (→ RESTING), and the success pattern at
@@ -127,75 +152,41 @@ struct ARCoachView: View {
         practiceRecordId = rec.id
     }
 
-    // Map a normalized landmark (top-left origin) through the preview's aspect-fill crop, so the
-    // overlay lands on the SAME pixels the user sees. Returns the screen point + the displayed
-    // frame width (to scale the ring radius, which is a fraction of frame width).
-    private func mapFill(_ n: CGPoint, _ size: CGSize) -> (pt: CGPoint, dispW: CGFloat) {
-        let fw = camera.frameAspect, fh: CGFloat = 1
-        let s = max(size.width / fw, size.height / fh)   // aspect-fill: cover, crop overflow
-        let dw = s * fw, dh = s * fh
-        let ox = (size.width - dw) / 2, oy = (size.height - dh) / 2
-        return (CGPoint(x: ox + n.x * dw, y: oy + n.y * dh), dw)
-    }
-
     private var coachLayer: some View {
         ZStack {
             // Preview + overlay share a FULL-SCREEN coordinate space (ignoresSafeArea), so the
             // ring/press-dot land on the same pixels the aspect-fill preview shows. The chrome is
             // kept OUTSIDE this and respects the safe area (status bar / home indicator).
-            GeometryReader { geo in
-                ZStack {
-                    CameraPreview(session: camera.session, mirrored: camera.mirrored,
-                                  configGeneration: camera.configGeneration)
-                        .accessibilityHidden(true)
-
-                    Group {
-                        if let c = engine.ringCenter {
-                            let m = mapFill(c, geo.size)
-                            let r = engine.ringRadius * m.dispW
-                            if engine.mode == .locate {
-                                // Locate step: the ring is an APPROXIMATE guide ("about here"),
-                                // drawn dashed so it reads as a search area, not a target lock.
-                                Circle().stroke(Ink.gold, style: StrokeStyle(lineWidth: 3, dash: [7, 6]))
-                                    .frame(width: r * 2, height: r * 2).position(m.pt)
-                                Text(AppLocale.pick("≈ 大约在这里", "≈ about here"))
-                                    .font(.caption2.weight(.semibold)).foregroundStyle(.black)
-                                    .padding(.horizontal, 8).padding(.vertical, 3)
-                                    .background(Capsule().fill(Ink.gold.opacity(0.92)))
-                                    .position(x: m.pt.x, y: m.pt.y - r - 18)
-                            } else {
-                                Circle().stroke(engine.color, lineWidth: 3)
-                                    .frame(width: r * 2, height: r * 2).position(m.pt)
-                                Circle().fill(engine.color).frame(width: 8, height: 8).position(m.pt)
-                            }
-                        }
-                        if let t = engine.pressTip {
-                            Circle().stroke(.white, lineWidth: 2).frame(width: 16, height: 16)
-                                .position(mapFill(t, geo.size).pt)
-                        }
-                        // The settled press, labeled — the spot the app offers to remember.
-                        if engine.mode == .locate, let cand = engine.locateCandidate {
-                            let p = mapFill(cand, geo.size).pt
-                            Circle().fill(Ink.gold).frame(width: 10, height: 10).position(p)
-                            Text(AppLocale.pick("你按的位置", "your press"))
-                                .font(.caption2.weight(.semibold)).foregroundStyle(.white)
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(Capsule().fill(.black.opacity(0.6)))
-                                .position(x: p.x, y: p.y + 22)
-                        }
-                    }
+            ZStack {
+                CameraPreview(session: camera.session, mirrored: camera.mirrored,
+                              configGeneration: camera.configGeneration)
                     .accessibilityHidden(true)
-                }
+                // The 30 Hz ring/dot stream renders in its OWN subview observing CoachOverlay, so
+                // per-frame invalidation stays inside it instead of re-evaluating this entire
+                // full-screen body every camera frame (review-caught).
+                CoachOverlayLayer(engine: engine, overlay: engine.overlay,
+                                  frameAspect: camera.frameAspect)
             }
             .ignoresSafeArea()
 
             VStack {
                 debugBar
+                if let chip = savedChip {
+                    Text(chip)
+                        .font(.caption.weight(.semibold)).foregroundStyle(.black)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Capsule().fill(Ink.gold.opacity(0.92)))
+                        .transition(.opacity)
+                        .task { try? await Task.sleep(nanoseconds: 2_800_000_000)
+                                withAnimation(.easeOut(duration: 0.4)) { savedChip = nil } }
+                }
                 Spacer()
                 if engine.mode == .locate {
                     LocateCard(point: acupoint, engine: engine, hint: hintLine,
                                onPause: { pauseSession() },
-                               onEnd: { endSession() })   // nothing banked during locate → no confirm needed
+                               onEnd: { endSession() },   // nothing banked during locate → no confirm needed
+                               onConfirmed: { handleLocateConfirmed() },
+                               onSkipped: { voice.handover() })   // let the first coach cue speak
                 } else {
                     feedbackCard
                 }
@@ -215,6 +206,7 @@ struct ARCoachView: View {
     // the engine's pause-grace and dt clamp read the gap exactly like an app-switch.
     private func pauseSession() {
         userPaused = true
+        engine.suspendLocate()   // the confirm latch is frame-clocked — void it while frames stop
         camera.stop()
         voice.reset()   // cut any mid-utterance cue
     }
@@ -245,6 +237,21 @@ struct ARCoachView: View {
     private var debugBar: some View {
         HStack(spacing: 10) {
             Spacer()
+            // Re-find the spot: back into the guided locate step from coaching — without this, a
+            // bad confirm (or a ring that feels off) was only fixable by ending the whole session.
+            if acupoint.hasFindGuide && engine.mode == .coach {
+                Button {
+                    engine.beginLocate()
+                    voice.handover()   // cut any coach cue; the locate cues take over
+                } label: {
+                    Image(systemName: "target")
+                        .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
+                        .padding(8).background(Circle().fill(.black.opacity(0.35)))
+                }
+                .accessibilityLabel(AppLocale.pick("重新找位", "Re-find the spot"))
+                .accessibilityHint(AppLocale.pick("重新进入找位步骤，更新你保存的位置",
+                                                  "Re-enter the locate step to update your saved spot"))
+            }
             // Front ⇄ back camera. Back camera = two-person mode: point the phone at the OTHER
             // person's hand while they receive the press.
             Button { camera.flipCamera() } label: {
@@ -283,12 +290,7 @@ struct ARCoachView: View {
 
     private var feedbackCard: some View {
         HStack(spacing: 14) {
-            ZStack {
-                Circle().stroke(Ink.line, lineWidth: 5).frame(width: 46, height: 46)
-                Circle().trim(from: 0, to: engine.progress)
-                    .stroke(engine.color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                    .rotationEffect(.degrees(-90)).frame(width: 46, height: 46)
-            }
+            HoldProgressRing(overlay: engine.overlay, color: engine.color)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(acupoint.id + " · " + acupoint.zh).font(.caption).foregroundStyle(Ink.gold)
@@ -358,6 +360,96 @@ struct ARCoachView: View {
                              if let id = practiceRecordId { PracticeStore.shared.setFeeling(id: id, feeling: key) }
                          },
                          onNext: onNext)
+    }
+}
+
+// The 30 Hz overlay: guide ring, press dot, labeled press, saved-spot dot. Observes CoachOverlay
+// (per-frame) + the engine (transition-rate mode/phase color), so camera-frame invalidation stays
+// INSIDE this subview instead of re-evaluating the whole ARCoachView body (review-caught).
+private struct CoachOverlayLayer: View {
+    @ObservedObject var engine: CoachEngine
+    @ObservedObject var overlay: CoachOverlay
+    let frameAspect: CGFloat
+
+    // Map a normalized landmark (top-left origin) through the preview's aspect-fill crop, so the
+    // overlay lands on the SAME pixels the user sees. Returns the screen point + the displayed
+    // frame width (to scale the ring radius, which is a fraction of frame width).
+    private func mapFill(_ n: CGPoint, _ size: CGSize) -> (pt: CGPoint, dispW: CGFloat) {
+        let fw = frameAspect, fh: CGFloat = 1
+        let s = max(size.width / fw, size.height / fh)   // aspect-fill: cover, crop overflow
+        let dw = s * fw, dh = s * fh
+        let ox = (size.width - dw) / 2, oy = (size.height - dh) / 2
+        return (CGPoint(x: ox + n.x * dw, y: oy + n.y * dh), dw)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            Group {
+                if let c = overlay.ringCenter {
+                    let m = mapFill(c, geo.size)
+                    let r = overlay.ringRadius * m.dispW
+                    if engine.mode == .locate {
+                        // Locate step: the dashed ring marks the STANDARD spot — the same datum
+                        // the capture gate and the storage clamp use, so the cue's "closer to the
+                        // dashed ring" is always followable (review-caught datum split).
+                        Circle().stroke(Ink.gold, style: StrokeStyle(lineWidth: 3, dash: [7, 6]))
+                            .frame(width: r * 2, height: r * 2).position(m.pt)
+                        Text(AppLocale.pick("≈ 大约在这里", "≈ about here"))
+                            .font(.caption2.weight(.semibold)).foregroundStyle(.black)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Capsule().fill(Ink.gold.opacity(0.92)))
+                            .position(x: m.pt.x, y: m.pt.y - r - 18)
+                    } else {
+                        Circle().stroke(engine.color, lineWidth: 3)
+                            .frame(width: r * 2, height: r * 2).position(m.pt)
+                        Circle().fill(engine.color).frame(width: 8, height: 8).position(m.pt)
+                    }
+                }
+                // Re-locate: the previously saved spot stays visible as a small reference dot
+                // while the dashed ring guides from the standard spot.
+                if engine.mode == .locate, let s = overlay.savedSpot {
+                    let p = mapFill(s, geo.size).pt
+                    Circle().fill(Ink.jade).frame(width: 8, height: 8).position(p)
+                        .overlay(Circle().stroke(.white, lineWidth: 1).frame(width: 8, height: 8).position(p))
+                    Text(AppLocale.pick("已保存", "saved"))
+                        .font(.caption2.weight(.semibold)).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(.black.opacity(0.55)))
+                        .position(x: p.x, y: p.y - 16)
+                }
+                if let t = overlay.pressTip {
+                    Circle().stroke(.white, lineWidth: 2).frame(width: 16, height: 16)
+                        .position(mapFill(t, geo.size).pt)
+                }
+                // The settled press, labeled — the spot the app offers to remember (rides the
+                // live hand pose while the confirm latch holds).
+                if engine.mode == .locate, let cand = overlay.locateCandidate {
+                    let p = mapFill(cand, geo.size).pt
+                    Circle().fill(Ink.gold).frame(width: 10, height: 10).position(p)
+                    Text(AppLocale.pick("你按的位置", "your press"))
+                        .font(.caption2.weight(.semibold)).foregroundStyle(.white)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(.black.opacity(0.6)))
+                        .position(x: p.x, y: p.y + 22)
+                }
+            }
+            .accessibilityHidden(true)
+        }
+    }
+}
+
+// The 46 pt hold-progress ring — its own subview so the per-frame progress writes invalidate
+// only this circle, not the whole feedback card / coach body.
+private struct HoldProgressRing: View {
+    @ObservedObject var overlay: CoachOverlay
+    let color: Color
+    var body: some View {
+        ZStack {
+            Circle().stroke(Ink.line, lineWidth: 5).frame(width: 46, height: 46)
+            Circle().trim(from: 0, to: overlay.progress)
+                .stroke(color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(-90)).frame(width: 46, height: 46)
+        }
     }
 }
 

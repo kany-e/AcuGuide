@@ -44,7 +44,11 @@ final class PointCalibration: ObservableObject {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.key) {
             if let t = try? JSONDecoder().decode([String: Offset].self, from: data) {
-                table = t
+                // Re-clamp on LOAD, not just on set(): a restored backup, synced defaults, or a
+                // blob written by a build with a looser clamp must never apply un-clamped — the
+                // safety rule is "a correction can never drag the ring onto different anatomy",
+                // and only set() enforced it before (review-caught).
+                table = t.mapValues(Self.clamped)
             } else {
                 // Never destroy what we can't read: park the blob under a side key (the
                 // PracticeStore precedent) so a future build can recover it, and start empty —
@@ -60,15 +64,17 @@ final class PointCalibration: ObservableObject {
     func offset(for id: String) -> Offset? { table[id] }
     func hasCalibration(_ id: String) -> Bool { table[id] != nil }
 
+    // The one clamp rule (shared by set() and the load path): magnitude capped, direction kept.
+    private static func clamped(_ o: Offset) -> Offset {
+        let n = o.norm
+        guard n > maxOffsetXHandSize, n > 0 else { return o }
+        let s = maxOffsetXHandSize / n
+        return Offset(dx: o.dx * s, dy: o.dy * s)
+    }
+
     // Store a correction, clamped to maxOffsetXHandSize (direction preserved).
     func set(_ o: Offset, for id: String) {
-        var c = o
-        let n = o.norm
-        if n > Self.maxOffsetXHandSize, n > 0 {
-            let s = Self.maxOffsetXHandSize / n
-            c = Offset(dx: o.dx * s, dy: o.dy * s)
-        }
-        table[id] = c
+        table[id] = Self.clamped(o)
         persist()
     }
 
@@ -121,5 +127,17 @@ final class PointCalibration: ObservableObject {
         guard let off = table[pointId], let cf = Self.canonicalFrame(hand, aspect: aspect) else { return affine }
         let a = cf.to(Self.iso(affine, aspect))
         return Self.raw(cf.from(a.0 + off.dx, a.1 + off.dy), aspect)
+    }
+
+    // Single-point canonical round-trip, used by the locate step to keep the latched "your press"
+    // marker riding the LIVE hand for display (the confirm math itself uses the frozen snapshot).
+    static func canonical(_ p: CGPoint, hand: Hand, aspect: CGFloat) -> (x: Double, y: Double)? {
+        guard let cf = canonicalFrame(hand, aspect: aspect) else { return nil }
+        let q = cf.to(iso(p, aspect))
+        return (q.0, q.1)
+    }
+    static func reproject(_ q: (x: Double, y: Double), hand: Hand, aspect: CGFloat) -> CGPoint? {
+        guard let cf = canonicalFrame(hand, aspect: aspect) else { return nil }
+        return raw(cf.from(q.x, q.y), aspect)
     }
 }
