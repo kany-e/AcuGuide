@@ -11,6 +11,8 @@ struct ARCoachView: View {
     @StateObject private var camera: CameraCoach
     @StateObject private var voice = CoachVoice()
     @StateObject private var haptics = CoachHaptics()
+    // Hands-free confirm for the locate step (both hands are pressing — speaking beats tapping).
+    @StateObject private var locateVoice = LocateVoiceControl()
     @ObservedObject private var settings = AppSettings.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var acknowledged = false
@@ -83,10 +85,30 @@ struct ARCoachView: View {
             // An explicit user pause survives an app-switch: don't auto-restart the camera under it.
             if sp == .background {
                 engine.suspendLocate()   // frames stop → the confirm latch must not outlive them
+                locateVoice.stop()
                 camera.stop()
             } else if sp == .active && !userPaused { camera.start() }
         }
-        .onDisappear { camera.stop(); voice.reset() }
+        // Voice commands act through the SAME paths as the buttons (confirm gate included).
+        .onAppear {
+            locateVoice.onCommand = { cmd in
+                switch cmd {
+                case .confirm:
+                    if engine.confirmLocate(point: acupoint) {
+                        LocatedStore.shared.markLocated(acupoint.id)
+                        locateVoice.stop()
+                        handleLocateConfirmed()
+                    }
+                case .skip:
+                    locateVoice.stop()
+                    engine.endLocate()
+                    voice.handover()
+                }
+            }
+        }
+        // Leaving the locate step by ANY path shuts the mic — listening is locate-scoped.
+        .onChange(of: engine.mode) { if $0 == .coach { locateVoice.stop() } }
+        .onDisappear { locateVoice.stop(); camera.stop(); voice.reset() }
     }
 
     private func handleLocateChange(to state: LocateState) {
@@ -133,6 +155,7 @@ struct ARCoachView: View {
 
     // End the session at any point — quitting early is a normal outcome; the recap reports honestly.
     private func endSession() {
+        locateVoice.stop()
         camera.stop(); voice.reset()
         endedEarly = true
     }
@@ -182,7 +205,8 @@ struct ARCoachView: View {
                 }
                 Spacer()
                 if engine.mode == .locate {
-                    LocateCard(point: acupoint, engine: engine, hint: hintLine,
+                    LocateCard(point: acupoint, engine: engine, voiceControl: locateVoice,
+                               hint: hintLine,
                                onPause: { pauseSession() },
                                onEnd: { endSession() },   // nothing banked during locate → no confirm needed
                                onConfirmed: { handleLocateConfirmed() },
@@ -207,6 +231,7 @@ struct ARCoachView: View {
     private func pauseSession() {
         userPaused = true
         engine.suspendLocate()   // the confirm latch is frame-clocked — void it while frames stop
+        locateVoice.stop()       // nothing should be listening behind the pause overlay
         camera.stop()
         voice.reset()   // cut any mid-utterance cue
     }

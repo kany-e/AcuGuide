@@ -26,6 +26,7 @@ final class LocatedStore: IDSetStore {
 struct LocateCard: View {
     let point: Acupoint
     @ObservedObject var engine: CoachEngine   // mode flips to .coach on confirm/skip — parent swaps cards
+    @ObservedObject var voiceControl: LocateVoiceControl   // hands-free confirm (both hands are pressing)
     var hint: String?                          // ARCoachView's hintLine (occlusion + low-light)
     var onPause: () -> Void
     var onEnd: () -> Void
@@ -37,7 +38,7 @@ struct LocateCard: View {
     @ObservedObject private var settings = AppSettings.shared
     @State private var guideExpanded: Bool
 
-    init(point: Acupoint, engine: CoachEngine, hint: String? = nil,
+    init(point: Acupoint, engine: CoachEngine, voiceControl: LocateVoiceControl, hint: String? = nil,
          onPause: @escaping () -> Void, onEnd: @escaping () -> Void,
          onConfirmed: @escaping () -> Void = {}, onSkipped: @escaping () -> Void = {}) {
         self.point = point
@@ -47,6 +48,7 @@ struct LocateCard: View {
         self.onConfirmed = onConfirmed
         self.onSkipped = onSkipped
         _engine = ObservedObject(wrappedValue: engine)
+        _voiceControl = ObservedObject(wrappedValue: voiceControl)
         _calibration = ObservedObject(wrappedValue: engine.calibration)
         // First visit teaches; a repeat visit starts collapsed (the guide is one tap away).
         _guideExpanded = State(initialValue: !LocatedStore.shared.contains(point.id))
@@ -135,12 +137,39 @@ struct LocateCard: View {
                 }
                 .font(.subheadline).tint(Ink.gold)
                 .accessibilityHint(AppLocale.pick("直接开始按压引导", "Start coaching without saving a spot"))
+
+                Spacer(minLength: 0)
+                // Hands-free confirm: both hands are pressing, so the confirm can be SPOKEN.
+                // Opt-in per session; on-device recognition only (hidden when unsupported).
+                if voiceControl.available {
+                    Button { voiceControl.toggle() } label: {
+                        Image(systemName: voiceControl.listening ? "mic.fill" : "mic")
+                            .font(.subheadline)
+                            .foregroundStyle(voiceControl.listening ? Ink.gold : Ink.textDim)
+                            .padding(8)
+                            .background(Circle().stroke(voiceControl.listening ? Ink.gold : Ink.line,
+                                                        lineWidth: 1))
+                    }
+                    .accessibilityLabel(voiceControl.listening
+                        ? AppLocale.pick("停止语音确认", "Stop voice confirm")
+                        : AppLocale.pick("开启语音确认", "Enable voice confirm"))
+                    .accessibilityHint(AppLocale.pick("开启后说「就是这里」即可确认，无需腾出手",
+                                                      "When on, saying \"this is my spot\" confirms without freeing a hand"))
+                }
+            }
+            if voiceControl.denied {
+                Text(AppLocale.pick("语音确认需要麦克风与语音识别权限（设置中开启）。",
+                                    "Voice confirm needs mic + speech permission (enable in Settings)."))
+                    .font(.caption2).foregroundStyle(Ink.warn)
             }
             // The offer is time-boxed (the engine's confirm latch) — say so while it's live, so a
             // silent lapse mid-reach isn't a mystery (the lapsed cue then explains re-arming).
             if engine.locateState == .ready {
-                Text(AppLocale.pick("几秒内点击即可 — 再按一次那个点可重新确认。",
-                                    "Tap within a few seconds — pressing the spot again re-arms it."))
+                Text(voiceControl.listening
+                     ? AppLocale.pick("几秒内点击，或直接说「就是这里」。",
+                                      "Tap within a few seconds — or just say \"this is my spot\".")
+                     : AppLocale.pick("几秒内点击即可 — 再按一次那个点可重新确认。",
+                                      "Tap within a few seconds — pressing the spot again re-arms it."))
                     .font(.caption2).foregroundStyle(Ink.textDim)
             } else if calibration.hasCalibration(point.id) {
                 Text(AppLocale.pick("确认后会替换你保存的位置（小圆点）。",

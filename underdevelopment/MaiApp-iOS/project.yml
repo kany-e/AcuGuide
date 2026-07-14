@@ -38,6 +38,10 @@ targets:
       path: AcuGuide/Info.plist
       properties:
         NSCameraUsageDescription: "AcuGuide uses the camera to guide your acupressure press."
+        # Voice confirm in the guided locate step — both hands are occupied pressing, so
+        # "this is my spot" can be SPOKEN instead of tapped. On-device recognition only.
+        NSMicrophoneUsageDescription: "AcuGuide can listen for a short voice command so you can confirm a pressure point without lifting your hands."
+        NSSpeechRecognitionUsageDescription: "AcuGuide recognizes a few short commands on this device only. Audio never leaves your device."
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UILaunchScreen: {}
         UIAppFonts:

@@ -16,8 +16,13 @@ final class AtlasModel: ObservableObject {
     // (and the SwiftUI invalidation it causes) whenever nothing on screen actually moved.
     struct Label: Identifiable, Equatable { let id: String; let region: BodyAtlas.Region; let point: CGPoint; let opacity: Double }
     // A floating acupoint name tag drawn at a projected marker position (while a meridian is
-    // selected, or while a region is focused — its revealed markers get the same tags).
-    struct PLabel: Identifiable, Equatable { let id: String; let text: String; let color: Color; let point: CGPoint; let opacity: Double }
+    // selected, or while a region is focused — its revealed markers get the same tags). `dx`
+    // hangs the tag to the marker's LEFT or RIGHT (alternating, stable per point) so a cluster of
+    // points doesn't stack every label on one side (user-reported crowding).
+    struct PLabel: Identifiable, Equatable {
+        let id: String; let text: String; let color: Color
+        let point: CGPoint; let opacity: Double; let dx: CGFloat
+    }
     @Published var labels: [Label] = []          // region labels projected to screen (full-body mode)
     @Published var pointLabels: [PLabel] = []    // acupoint name tags (selected meridian / focused region)
     @Published var focused: BodyAtlas.Region?    // non-nil while zoomed into a region
@@ -81,7 +86,9 @@ struct Body3DView: View {
             // as you tap the channel"). Non-interactive — taps still reach the 3D markers/channels.
             ZStack {
                 ForEach(model.pointLabels) { lab in
-                    pointTag(lab).position(lab.point).opacity(lab.opacity)
+                    pointTag(lab)
+                        .position(x: lab.point.x + lab.dx, y: lab.point.y)
+                        .opacity(lab.opacity)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -655,16 +662,22 @@ struct SceneKitBody: UIViewRepresentable {
                     if simd_length(c) > 1e-4 { toCam = simd_normalize(c) }
                 }
                 var out: [AtlasModel.PLabel] = []
-                for (pt, node) in labeledNodes where !node.isHidden {
+                for (idx, entry) in labeledNodes.enumerated() where !entry.node.isHidden {
+                    let (pt, node) = entry
                     let wp = node.presentation.worldPosition
                     let p = view.projectPoint(wp)
                     guard p.z > 0 && p.z < 1 else { continue }
                     let facing = simd_dot(simd_float3(wp.x, wp.y, wp.z) - orbitCenter, toCam)
                     let opacity = Double(max(0, min(1, (facing + 0.05) / 0.09)))
                     if opacity > 0.04 {
+                        // Alternate the tag side by the point's STABLE index in the labeled set
+                        // (not by frame-dependent screen order): half the tags hang left of their
+                        // marker, half right, so a one-limb cluster stops stacking on one side.
+                        let dx: CGFloat = idx % 2 == 0 ? -58 : 58
                         out.append(.init(id: pt.id, text: "\(pt.id) · \(AppLocale.pick(pt.zh, pt.en))",
                                          color: MeridianColors.color(pt.meridian),
-                                         point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)), opacity: opacity))
+                                         point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)),
+                                         opacity: opacity, dx: dx))
                     }
                 }
                 if model.pointLabels != out { model.pointLabels = out }

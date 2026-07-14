@@ -26,7 +26,7 @@ struct Placement3D {
 enum AcupointPlacements {
     static let table: [String: Placement3D] = [
         // ── Hand (detail = the fingered hand sheet, dorsal pose) ─────────────────────────────
-        "TE3": Placement3D(body: [-0.370, -0.043, 0.883], detailUV: [ 0.245, -0.052]),  // 4th/5th MC groove behind the knuckles
+        "TE3": Placement3D(body: [-0.370, -0.043, 0.883], detailUV: [ 0.240, -0.080]),  // 4th/5th MC groove behind the knuckles (audited: was riding the MCP heads — moved proximal)
         "TE2": Placement3D(                               detailUV: [ 0.284,  0.055]),  // 4th/5th web margin
         // SI3/SI4 pulled onto the mesh (were 0.288/-0.066 and 0.160/-0.280): both sat just off
         // the ulnar silhouette, so their rays missed and the markers survived only via the spiral
@@ -38,33 +38,37 @@ enum AcupointPlacements {
         // (user-reported; was [0.200, -0.202]).
         "SI4": Placement3D(                               detailUV: [ 0.150, -0.270]),
         "HT7": Placement3D(body: [-0.352, -0.075, 0.922], detailUV: [ 0.069, -0.341], detailFarSide: true),  // ulnar palmar wrist, pisiform
-        "PC8": Placement3D(body: [-0.365, -0.088, 0.885], detailUV: [ 0.081, -0.163], detailFarSide: true),  // palm centre, 2nd/3rd MC
-        "HT8": Placement3D(                               detailUV: [ 0.194, -0.092], detailFarSide: true),  // where the pinky tip lands in a fist
+        "PC8": Placement3D(body: [-0.365, -0.088, 0.885], detailUV: [ 0.020, -0.170], detailFarSide: true),  // palm centre, 2nd/3rd MC (audited: was too ulnar — moved toward the 3rd MC)
+        "HT8": Placement3D(                               detailUV: [ 0.194, -0.075], detailFarSide: true),  // where the pinky tip lands in a fist (audited: nudged distal)
         // LU9/LU10 pulled IN toward the palm centreline (was u −0.10/−0.137): their old rays fell
         // off the radial silhouette into empty space, so the far-side raycast missed and the
         // markers floated beside the wrist (user-reported two floaters). u ≈ −0.05 keeps them on
         // the thenar/radial-wrist band, over solid mesh, matching LI5's on-hand column.
         "LU10": Placement3D(                              detailUV: [-0.050, -0.235], detailFarSide: true),  // thenar, 1st MC midpoint
-        "LU9": Placement3D(                               detailUV: [-0.070, -0.350], detailFarSide: true),  // radial end of palmar wrist crease
-        "LI5": Placement3D(                               detailUV: [-0.062, -0.312]),                       // anatomical snuffbox
+        "LU9": Placement3D(                               detailUV: [-0.085, -0.300], detailFarSide: true),  // radial end of palmar wrist crease (audited: v -0.35 landed on the stub CUT FACE — invisible from the palm)
+        "LI5": Placement3D(                               detailUV: [-0.105, -0.300]),                       // anatomical snuffbox (audited: was mid-wrist — pulled onto the radial border)
         // ── Forearm (full-body atlas only — no detail sheet reaches them) ────────────────────
         "PC6": Placement3D(body: [-0.323, -0.050, 1.002]),  // palmar forearm, 2 cun above the crease
         "SJ5": Placement3D(body: [-0.323, -0.004, 1.002]),  // dorsal forearm, opposite PC6
         // ── Head & face (detail = frontal head sheet) ─────────────────────────────────────────
-        "EX-HN3": Placement3D(body: [ 0.000, -0.085, 1.630], detailUV: [ 0.000,  0.050]),  // glabella
-        "EX-HN5": Placement3D(body: [-0.080, -0.025, 1.630], detailUV: [ 0.360,  0.050]),  // temple hollow
+        "EX-HN3": Placement3D(body: [ 0.000, -0.085, 1.630], detailUV: [ 0.000,  0.030]),  // glabella (audited: nudged down between the brows)
+        "EX-HN5": Placement3D(body: [-0.080, -0.025, 1.630], detailUV: [ 0.415,  0.075]),  // temple hollow (audited: was ON the eye corner — moved lateral/up into the temporal fossa)
         "GV20":   Placement3D(body: [ 0.000,  0.000, 1.760], detailUV: [ 0.000,  0.455]),  // vertex
         "EX-HN1": Placement3D(body: [ 0.000, -0.035, 1.748], detailUV: [ 0.000,  0.415]),  // just anterior of the vertex
         // ── Chest / abdomen (full-body atlas only) ────────────────────────────────────────────
         "CV17": Placement3D(body: [ 0.000, -0.100, 1.220]),  // mid-sternum
         "KI27": Placement3D(body: [-0.065, -0.090, 1.350]),  // under the collarbone
         "CV12": Placement3D(body: [ 0.000, -0.100, 1.080]),  // upper abdomen midline
-        "ST25": Placement3D(body: [-0.060, -0.100, 0.965]),  // beside the navel
+        // ST25 drawn on the LEFT side (+x): the point is bilateral, and with KI27 on the right the
+        // torso's labels were all stacking one side (user-reported crowding). Torso zooms frame
+        // the whole trunk, so a left-side marker stays in view — unlike the limb regions, whose
+        // zoom frames the RIGHT limb only (their markers must stay right).
+        "ST25": Placement3D(body: [ 0.060, -0.100, 0.965]),  // beside the navel (left side)
         // ── Arm (detail = horizontal arm sheet, dorsum to camera) ─────────────────────────────
         "LI11": Placement3D(body: [-0.295, -0.010, 1.155], detailUV: [ 0.160,  0.040]),                       // lateral elbow crease
         "LU5":  Placement3D(body: [-0.265, -0.050, 1.150], detailUV: [ 0.130,  0.000], detailFarSide: true),  // cubital crease (far side)
         "TE4":  Placement3D(body: [-0.345,  0.005, 0.960], detailUV: [-0.230,  0.030]),                       // dorsal wrist crease
-        "PC7":  Placement3D(body: [-0.350, -0.085, 0.952], detailUV: [-0.250, -0.050], detailFarSide: true),  // palmar wrist crease (far side)
+        "PC7":  Placement3D(body: [-0.350, -0.085, 0.952], detailUV: [-0.215,  0.005], detailFarSide: true),  // palmar wrist crease (audited: far-ray at the old uv exited through the THUMB)
         // ── Leg (full-body atlas only) ────────────────────────────────────────────────────────
         "ST36": Placement3D(body: [-0.115, -0.060, 0.400]),
         "GB34": Placement3D(body: [-0.135, -0.045, 0.480]),

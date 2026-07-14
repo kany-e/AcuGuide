@@ -97,3 +97,28 @@ final class CameraCoachMergeTests: XCTestCase {
                                                          noUpgradeStreak: 20, tick: stride + 1))
     }
 }
+
+// The hands-free confirm keyword matcher — pure, so ambient-speech safety is unit-tested.
+final class LocateVoiceCommandTests: XCTestCase {
+    func testConfirmPhrases() {
+        XCTAssertEqual(LocateVoiceCommand.parse("okay so this is my spot"), .confirm)
+        XCTAssertEqual(LocateVoiceCommand.parse("This is it"), .confirm)
+        XCTAssertEqual(LocateVoiceCommand.parse("that's it."), .confirm)
+        XCTAssertEqual(LocateVoiceCommand.parse("confirm"), .confirm)
+        XCTAssertEqual(LocateVoiceCommand.parse("嗯就是这里"), .confirm)
+        XCTAssertEqual(LocateVoiceCommand.parse("确认"), .confirm)
+    }
+    func testSkipPhrases() {
+        XCTAssertEqual(LocateVoiceCommand.parse("skip"), .skip)
+        XCTAssertEqual(LocateVoiceCommand.parse("跳过"), .skip)
+    }
+    func testAmbientSpeechDoesNotTrigger() {
+        // Bare agreement words and mid-sentence mentions must not fire.
+        XCTAssertNil(LocateVoiceCommand.parse("yes"))
+        XCTAssertNil(LocateVoiceCommand.parse("okay"))
+        XCTAssertNil(LocateVoiceCommand.parse("i think this is it maybe not actually"))
+        XCTAssertNil(LocateVoiceCommand.parse("is this the spot i wonder"))
+        XCTAssertNil(LocateVoiceCommand.parse("这里有点酸"))
+        XCTAssertNil(LocateVoiceCommand.parse(""))
+    }
+}

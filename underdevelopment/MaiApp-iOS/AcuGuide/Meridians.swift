@@ -7,8 +7,12 @@ import SwiftUI   // Color(hex:) + UIColor(Color)
 // skeleton (bind-pose bone positions, precomputed in the model's local mesh space: z-up,
 // 0=feet…1.78=head, x=left/right with the RIGHT side at −x, front of the body at −y).
 //
-// Per the web, the channels are NOT drawn in per-meridian colors — every channel is a single
-// subtle ink line (core #363c2f, soft halo #5b6551) so it "sits on the body". We keep that.
+// STYLE (shanshui, user-directed): channels are thin INK strokes — a dark ink core tinted just
+// faintly toward each meridian's hue (so a selected channel is still tellable apart) with a
+// soft, wider emissive ink WASH bleeding off it, like a brush line on damp paper. Acupoints sit
+// on the strokes as slightly larger ink dots. (The earlier bright per-meridian coloring read too
+// compact/synthetic against the shanshui theme; the UI cards/chips keep the full meridian
+// colors — only the 3D body goes ink.)
 enum BodyAtlas {
 
     // Hit-test categories. The body SURFACE keeps SceneKit's default category (1) and is the ONLY
@@ -104,13 +108,14 @@ enum BodyAtlas {
         let mats = channelMaterials(meridian)
         let node = SCNNode()
         if tappable { node.name = "mer:" + meridian }   // tap hit-test resolves the channel → card
+        // Thin ink stroke (core) + a wider soft wash bleeding off it (halo) — brush on damp paper.
         for i in 0 ..< path.count - 1 {
-            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0075, material: mats.halo))
-            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0032, material: mats.core))
+            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0052, material: mats.halo))
+            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0022, material: mats.core))
         }
         // Small joint spheres fill the V-gaps where straight segments meet at bends.
         for p in path {
-            let s = SCNNode(geometry: SCNSphere(radius: 0.0032))
+            let s = SCNNode(geometry: SCNSphere(radius: 0.0022))
             s.geometry?.firstMaterial = mats.core
             s.simdPosition = p
             s.renderingOrder = 12
@@ -253,15 +258,17 @@ enum BodyAtlas {
         }
     }
 
-    // Small glowing meridian-colored spheres; node names ("acu:<id>") let a tap hit-test identify
-    // the point. Added to the mesh (raw coords) so they ride the body through pose + spin.
+    // Acupoints as INK DOTS — slightly larger than the thin channel strokes they sit on, in the
+    // same faintly-tinted ink with a soft wash halo, so a revealed point reads like the brush
+    // pressed and paused there. Node names ("acu:<id>") let a tap hit-test identify the point.
+    // Added to the mesh (raw coords) so they ride the body through pose + spin.
     static func markers(on mesh: SCNNode) -> SCNNode {
         let root = SCNNode()
         for m in acuMarkers {
-            let col = UIColor(MeridianColors.color(m.meridian))
+            let col = inkTint(m.meridian, toward: 0.35)   // a touch more hue than the stroke — tappable focus
             let pos = snapToSurface(m.pos, mesh: mesh)
-            let node = AtlasMarkers.node(id: m.id, color: col, coreRadius: 0.0075,
-                                         haloRadius: 0.014, at: SCNVector3(pos.x, pos.y, pos.z))
+            let node = AtlasMarkers.node(id: m.id, color: col, coreRadius: 0.0080,
+                                         haloRadius: 0.0145, at: SCNVector3(pos.x, pos.y, pos.z))
             node.isHidden = true        // revealed only for the focused region / selected meridian
             root.addChildNode(node)
         }
@@ -322,11 +329,27 @@ enum BodyAtlas {
         return out
     }
 
-    // One colored core + a softer wider halo per meridian (MERIDIAN_COLORS). Created once per
-    // channel and shared across its segments.
+    // Deep ink faintly tinted toward the meridian's hue — `toward` is the blend fraction (0 =
+    // pure ink). Enough to tell a selected channel apart up close, never enough to read as color.
+    private static func inkTint(_ meridian: String, toward t: CGFloat = 0.18) -> UIColor {
+        let mer = UIColor(MeridianColors.color(meridian))
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        mer.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let ink: (r: CGFloat, g: CGFloat, b: CGFloat) = (0.173, 0.196, 0.153)   // #2c3227 deep pine ink
+        return UIColor(red: ink.r + (r - ink.r) * t, green: ink.g + (g - ink.g) * t,
+                       blue: ink.b + (b - ink.b) * t, alpha: 1)
+    }
+
+    // Ink stroke materials: a near-opaque dark core, and the emissive WASH — the same ink at low
+    // opacity with a soft self-glow, so the stroke reads as ink bleeding into the paper rather
+    // than a plastic tube. Created once per channel and shared across its segments.
     private static func channelMaterials(_ meridian: String) -> (core: SCNMaterial, halo: SCNMaterial) {
-        let col = UIColor(MeridianColors.color(meridian))
-        return (lineMaterial(col, 0.90), lineMaterial(col, 0.22))
+        let ink = inkTint(meridian)
+        let core = lineMaterial(ink, 0.92)
+        let halo = lineMaterial(ink, 0.16)
+        halo.emission.contents = ink
+        halo.emission.intensity = 0.6
+        return (core, halo)
     }
 
     // Invisible material for the wide tap-proxy tubes: never drawn, but still returned by hitTest.
