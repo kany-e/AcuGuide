@@ -329,15 +329,41 @@ enum BodyAtlas {
         return out
     }
 
+    // The resting stroke ink — deep pine, #2c3227. Exposed so the legend swatch reads the SAME ink
+    // the channels render in (they can't drift apart).
+    static let inkBase: (r: CGFloat, g: CGFloat, b: CGFloat) = (0.173, 0.196, 0.153)
+    static var inkSwatch: Color { Color(red: inkBase.r, green: inkBase.g, blue: inkBase.b) }
+
     // Deep ink faintly tinted toward the meridian's hue — `toward` is the blend fraction (0 =
     // pure ink). Enough to tell a selected channel apart up close, never enough to read as color.
     private static func inkTint(_ meridian: String, toward t: CGFloat = 0.18) -> UIColor {
         let mer = UIColor(MeridianColors.color(meridian))
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         mer.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let ink: (r: CGFloat, g: CGFloat, b: CGFloat) = (0.173, 0.196, 0.153)   // #2c3227 deep pine ink
+        let ink = inkBase
         return UIColor(red: ink.r + (r - ink.r) * t, green: ink.g + (g - ink.g) * t,
                        blue: ink.b + (b - ink.b) * t, alpha: 1)
+    }
+
+    // Brighten (or reset) a channel's strokes to its full meridian hue — the on-body IDENTITY of a
+    // SELECTED channel. The ink restyle made every channel a near-identical dark stroke, so a tap
+    // had no visible answer near the finger (the revealed markers sit only on the right limb);
+    // now the tapped channel lights up in its meridian color on BOTH sides (review-caught). Mutates
+    // the shared per-channel materials in place — transparency/geometry untouched, so it's cheap;
+    // skips the invisible hit-proxy tubes (colorBufferWriteMask empty).
+    static func setChannelHighlight(_ nodes: [SCNNode], meridian: String, on: Bool) {
+        let hue = UIColor(MeridianColors.color(meridian))
+        let ink = inkTint(meridian)
+        for node in nodes {
+            node.enumerateHierarchy { n, _ in
+                guard let mat = n.geometry?.firstMaterial, mat.colorBufferWriteMask != [] else { return }
+                mat.diffuse.contents = on ? hue : ink
+                if mat.emission.contents != nil {          // the soft wash halo
+                    mat.emission.contents = on ? hue : ink
+                    mat.emission.intensity = on ? 1.1 : 0.6
+                }
+            }
+        }
     }
 
     // Ink stroke materials: a near-opaque dark core, and the emissive WASH — the same ink at low

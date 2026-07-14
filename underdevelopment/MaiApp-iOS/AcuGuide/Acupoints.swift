@@ -24,6 +24,10 @@ struct MediaPipeTarget: Hashable {
 enum AppLocale {
     static var isChinese: Bool { AppSettings.shared.lang == .zh }
     static func pick(_ zh: String, _ en: String) -> String { isChinese ? zh : en }
+    // BCP-47 id for the TTS voice AND the speech recognizer (both must agree, and both used to
+    // hardcode the same ternary — one source now).
+    static var speechLocaleID: String { isChinese ? "zh-CN" : "en-US" }
+    static var speechLocale: Locale { Locale(identifier: speechLocaleID) }
 }
 
 // The coach's friendly face — copy says "Acu" rather than "the camera" / "the AI" (user feedback:

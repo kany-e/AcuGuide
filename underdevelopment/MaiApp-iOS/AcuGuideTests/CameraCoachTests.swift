@@ -1,6 +1,8 @@
 import XCTest
 import CoreGraphics
 import Vision
+import SceneKit
+import SwiftUI
 @testable import AcuGuide
 
 // The two-pass Vision merge + backoff policies, extracted pure exactly so the review-caught
@@ -120,5 +122,74 @@ final class LocateVoiceCommandTests: XCTestCase {
         XCTAssertNil(LocateVoiceCommand.parse("is this the spot i wonder"))
         XCTAssertNil(LocateVoiceCommand.parse("这里有点酸"))
         XCTAssertNil(LocateVoiceCommand.parse(""))
+    }
+
+    // Typographic apostrophe (U+2019) — what iOS speech transcription actually emits for
+    // contractions; the ASCII-only strip missed it and "that's it" silently failed on device.
+    func testCurlyApostropheMatches() {
+        XCTAssertEqual(LocateVoiceCommand.parse("that\u{2019}s it"), .confirm)
+        XCTAssertEqual(LocateVoiceCommand.parse("okay that\u{2019}s it."), .confirm)
+    }
+
+    // Negations must NOT fire (the phrase is spoken precisely when an offer is live).
+    func testNegationsDoNotTrigger() {
+        XCTAssertNil(LocateVoiceCommand.parse("wait don't confirm"))
+        XCTAssertNil(LocateVoiceCommand.parse("no this is not it"))
+        XCTAssertNil(LocateVoiceCommand.parse("let's not skip"))
+        XCTAssertNil(LocateVoiceCommand.parse("不要确认"))
+        XCTAssertNil(LocateVoiceCommand.parse("先别确认"))
+        XCTAssertNil(LocateVoiceCommand.parse("不就是这里"))
+        XCTAssertNil(LocateVoiceCommand.parse("别跳过"))
+    }
+
+    // Whole-word matching: a keyword embedded in a larger word must not fire.
+    func testEmbeddedKeywordDoesNotTrigger() {
+        XCTAssertNil(LocateVoiceCommand.parse("let me reconfirm"))
+        XCTAssertNil(LocateVoiceCommand.parse("再确认一下"))   // "let me double-check" — 确认 not a suffix
+    }
+
+    // Chinese matches by SUFFIX, so a settled phrase followed by later speech must not re-fire.
+    func testChineseStaleTailDoesNotRefire() {
+        XCTAssertNil(LocateVoiceCommand.parse("就是这里有点酸"))
+        XCTAssertEqual(LocateVoiceCommand.parse("嗯就是这里吧"), .confirm)   // trailing filler trimmed
+    }
+}
+
+// The selected-channel ink highlight: brightens the stroke's visible materials toward the meridian
+// hue and back, while never touching the invisible hit-proxy tubes (colorBufferWriteMask empty).
+final class ChannelHighlightTests: XCTestCase {
+    private func channelNode() -> (node: SCNNode, core: SCNMaterial, halo: SCNMaterial, proxy: SCNMaterial) {
+        // Core: opaque-ish, no emission. Halo: emissive wash. Proxy: invisible (no color writes).
+        let core = SCNMaterial(); core.lightingModel = .constant
+        core.diffuse.contents = UIColor(BodyAtlas.inkSwatch)
+        let halo = SCNMaterial(); halo.lightingModel = .constant
+        halo.diffuse.contents = UIColor(BodyAtlas.inkSwatch)
+        halo.emission.contents = UIColor(BodyAtlas.inkSwatch); halo.emission.intensity = 0.6
+        let proxy = SCNMaterial(); proxy.colorBufferWriteMask = []
+        proxy.diffuse.contents = UIColor.magenta   // sentinel: must never change
+
+        let node = SCNNode()
+        func tube(_ m: SCNMaterial) -> SCNNode {
+            let n = SCNNode(geometry: SCNCylinder(radius: 0.003, height: 0.05)); n.geometry?.firstMaterial = m; return n
+        }
+        node.addChildNode(tube(core)); node.addChildNode(tube(halo)); node.addChildNode(tube(proxy))
+        return (node, core, halo, proxy)
+    }
+
+    func testHighlightBrightensVisibleMaterialsAndSkipsProxy() {
+        let c = channelNode()
+        let hue = UIColor(MeridianColors.color("sj"))
+
+        BodyAtlas.setChannelHighlight([c.node], meridian: "sj", on: true)
+        XCTAssertEqual(c.core.diffuse.contents as? UIColor, hue, "core stroke must take the meridian hue")
+        XCTAssertEqual(c.halo.diffuse.contents as? UIColor, hue, "halo must take the meridian hue")
+        XCTAssertEqual(c.halo.emission.contents as? UIColor, hue, "halo wash emission must take the hue")
+        XCTAssertGreaterThan(c.halo.emission.intensity, 0.6, "highlight raises the wash emission")
+        XCTAssertEqual(c.proxy.diffuse.contents as? UIColor, .magenta, "invisible hit-proxy must be untouched")
+
+        BodyAtlas.setChannelHighlight([c.node], meridian: "sj", on: false)
+        XCTAssertNotEqual(c.core.diffuse.contents as? UIColor, hue, "reset returns the core to ink")
+        XCTAssertEqual(c.halo.emission.intensity, 0.6, accuracy: 1e-6, "reset returns the wash emission")
+        XCTAssertEqual(c.proxy.diffuse.contents as? UIColor, .magenta)
     }
 }

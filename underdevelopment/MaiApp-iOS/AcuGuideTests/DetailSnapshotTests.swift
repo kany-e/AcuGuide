@@ -173,5 +173,3 @@ private extension NSObject {
     // Tiny configure-in-place helper so the renderer can be set up inline.
     func also(_ body: (Self) -> Void) -> Self { body(self); return self }
 }
-
-

@@ -358,13 +358,14 @@ struct Body3DView: View {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(Ink.textDim)
                     }.accessibilityLabel(AppLocale.pick("关闭图例", "Close legend"))
                 }
-                legendRow(Circle().fill(Ink.gold).frame(width: 9, height: 9)
-                              .shadow(color: Ink.gold.opacity(0.9), radius: 3),
-                          "发光圆点：穴位，点按查看详情。",
-                          "Glowing dot: an acupoint — tap it for details.")
-                legendRow(Capsule().fill(Ink.jade).frame(width: 20, height: 3),
-                          "彩色线条：经络，点按查看它的穴位。",
-                          "Colored line: a meridian channel — tap it for its points.")
+                // Ink swatches match the shanshui restyle (was a gold glowing dot + jade "colored
+                // line" — the atlas has neither anymore; review-caught legend drift).
+                legendRow(Circle().fill(BodyAtlas.inkSwatch).frame(width: 10, height: 10),
+                          "墨点：穴位，点按查看详情。",
+                          "Ink dot: an acupoint — tap it for details.")
+                legendRow(Capsule().fill(BodyAtlas.inkSwatch).frame(width: 22, height: 2.5),
+                          "墨线：经络，点按后会以经络本色亮起并显示穴位。",
+                          "Ink stroke: a meridian channel — tap it to light it in its color and show its points.")
                 legendRow(Text("手").font(Typo.brush(16)).foregroundStyle(Ink.brush),
                           "毛笔区域名：点按放大到该部位。",
                           "Brush region name: tap it to zoom in.")
@@ -441,7 +442,7 @@ struct Body3DView: View {
                     Button(AppLocale.pick("手部图", "Hand chart")) { showHandChart = true }
                         .buttonStyle(GoldButtonStyle()).padding(.top, 2).padding(.bottom, 16)
                 } else {
-                    Text(AppLocale.pick("点按发光穴位查看详情。", "Tap a glowing point for its details."))
+                    Text(AppLocale.pick("点按穴位查看详情。", "Tap a point for its details."))
                         .font(.caption).foregroundStyle(Ink.textDim)
                         .multilineTextAlignment(.center).padding(.horizontal)
                         .padding(.bottom, PartDetail.forRegion(f.id) == nil ? 26 : 4)
@@ -561,6 +562,8 @@ struct SceneKitBody: UIViewRepresentable {
         var radius: Float = 1
         private var anchors: [(BodyAtlas.Region, SCNNode)] = []
         private var acuNodes: [String: SCNNode] = [:]    // id → marker node, for projecting name tags
+        private var channelNodes: [String: [SCNNode]] = [:]   // meridian id → its channel node(s) (both sides)
+        private var highlightedMer: String? = nil        // the channel currently lit in its meridian hue
         private var labeledKey: String? = nil            // cached tag source ("mer:<id>" / "reg:<id>")…
         private var labeledNodes: [(pt: Acupoint, node: SCNNode)] = []   // …and its points + marker nodes
         private var link: CADisplayLink?
@@ -590,10 +593,14 @@ struct SceneKitBody: UIViewRepresentable {
                 let n = SCNNode(); n.simdPosition = r.anchor; mesh.addChildNode(n)
                 return (r, n)
             }
-            // Cache the acupoint marker nodes so a selected meridian can float name tags on them.
-            acuNodes.removeAll()
+            // Cache the acupoint marker nodes so a selected meridian can float name tags on them,
+            // and the channel nodes (both sides, keyed by meridian id) so a tapped channel can be
+            // lit in its meridian hue.
+            acuNodes.removeAll(); channelNodes.removeAll(); highlightedMer = nil
             mesh.enumerateHierarchy { n, _ in
-                if let nm = n.name, nm.hasPrefix("acu:") { self.acuNodes[String(nm.dropFirst(4))] = n }
+                guard let nm = n.name else { return }
+                if nm.hasPrefix("acu:") { self.acuNodes[String(nm.dropFirst(4))] = n }
+                else if nm.hasPrefix("mer:") { self.channelNodes[String(nm.dropFirst(4)), default: []].append(n) }
             }
             // Orbit pinch/drag around the body center (origin) in full-body mode, so manual zoom
             // keeps the figure framed instead of dollying toward the scene origin and sliding off.
@@ -609,6 +616,20 @@ struct SceneKitBody: UIViewRepresentable {
             let now = link?.timestamp ?? 0
             if now - lastPublish < 1.0 / 30.0 { return }
             lastPublish = now
+
+            // Light the SELECTED channel in its meridian hue (both sides), reset the previous one —
+            // the resting ink is near-identical across channels, so this is the tapped channel's
+            // only on-body identity. Guarded, so it's a no-op except on a selection change.
+            let selMer = model.selectedMeridian?.id
+            if selMer != highlightedMer {
+                if let old = highlightedMer, let ns = channelNodes[old] {
+                    BodyAtlas.setChannelHighlight(ns, meridian: old, on: false)
+                }
+                if let new = selMer, let ns = channelNodes[new] {
+                    BodyAtlas.setChannelHighlight(ns, meridian: new, on: true)
+                }
+                highlightedMer = selMer
+            }
 
             // Region brush labels: full-body mode only. All stay fully visible/tappable (they're the
             // only full-body affordance now that markers are hidden until a region/meridian is picked),
@@ -661,24 +682,34 @@ struct SceneKitBody: UIViewRepresentable {
                     let c = pov.simdWorldPosition - orbitCenter
                     if simd_length(c) > 1e-4 { toCam = simd_normalize(c) }
                 }
-                var out: [AtlasModel.PLabel] = []
-                for (idx, entry) in labeledNodes.enumerated() where !entry.node.isHidden {
-                    let (pt, node) = entry
-                    let wp = node.presentation.worldPosition
+                // First gather the VISIBLE tags (after the isHidden + in-front + facing-fade culls),
+                // THEN assign sides down their on-screen vertical order — so spatially adjacent tags
+                // always alternate L/R (the old parity-over-the-full-array scheme stacked one side
+                // whenever the visible subset shared parity, or when index order ≠ spatial order;
+                // review-caught). A ±58 tag is flipped inward when it would clip the screen edge.
+                struct Vis { let pt: Acupoint; let point: CGPoint; let opacity: Double }
+                var vis: [Vis] = []
+                for entry in labeledNodes where !entry.node.isHidden {
+                    let wp = entry.node.presentation.worldPosition
                     let p = view.projectPoint(wp)
                     guard p.z > 0 && p.z < 1 else { continue }
                     let facing = simd_dot(simd_float3(wp.x, wp.y, wp.z) - orbitCenter, toCam)
                     let opacity = Double(max(0, min(1, (facing + 0.05) / 0.09)))
                     if opacity > 0.04 {
-                        // Alternate the tag side by the point's STABLE index in the labeled set
-                        // (not by frame-dependent screen order): half the tags hang left of their
-                        // marker, half right, so a one-limb cluster stops stacking on one side.
-                        let dx: CGFloat = idx % 2 == 0 ? -58 : 58
-                        out.append(.init(id: pt.id, text: "\(pt.id) · \(AppLocale.pick(pt.zh, pt.en))",
-                                         color: MeridianColors.color(pt.meridian),
-                                         point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)),
-                                         opacity: opacity, dx: dx))
+                        vis.append(Vis(pt: entry.pt, point: CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)),
+                                       opacity: opacity))
                     }
+                }
+                vis.sort { $0.point.y < $1.point.y }
+                let width = view.bounds.width, margin: CGFloat = 70
+                var out: [AtlasModel.PLabel] = []
+                for (i, v) in vis.enumerated() {
+                    var dx: CGFloat = i % 2 == 0 ? -58 : 58
+                    let x = v.point.x + dx
+                    if x < margin || x > width - margin { dx = -dx }   // flip inward off the edge
+                    out.append(.init(id: v.pt.id, text: "\(v.pt.id) · \(AppLocale.pick(v.pt.zh, v.pt.en))",
+                                     color: MeridianColors.color(v.pt.meridian),
+                                     point: v.point, opacity: v.opacity, dx: dx))
                 }
                 if model.pointLabels != out { model.pointLabels = out }
             } else {

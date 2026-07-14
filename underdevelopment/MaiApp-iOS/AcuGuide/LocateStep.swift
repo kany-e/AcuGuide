@@ -153,13 +153,19 @@ struct LocateCard: View {
                     .accessibilityLabel(voiceControl.listening
                         ? AppLocale.pick("停止语音确认", "Stop voice confirm")
                         : AppLocale.pick("开启语音确认", "Enable voice confirm"))
-                    .accessibilityHint(AppLocale.pick("开启后说「就是这里」即可确认，无需腾出手",
-                                                      "When on, saying \"this is my spot\" confirms without freeing a hand"))
+                    // Generic (no literal phrase): VoiceOver reads this on focus, possibly while
+                    // the mic is live — a matchable phrase here could self-trigger.
+                    .accessibilityHint(AppLocale.pick("开启后用一句话即可确认，无需腾出手",
+                                                      "When on, a short spoken phrase confirms without freeing a hand"))
                 }
             }
             if voiceControl.denied {
                 Text(AppLocale.pick("语音确认需要麦克风与语音识别权限（设置中开启）。",
                                     "Voice confirm needs mic + speech permission (enable in Settings)."))
+                    .font(.caption2).foregroundStyle(Ink.warn)
+            } else if voiceControl.unavailable {
+                Text(AppLocale.pick("语音识别暂时不可用 — 请用按钮确认。",
+                                    "Voice recognition is unavailable right now — use the button to confirm."))
                     .font(.caption2).foregroundStyle(Ink.warn)
             }
             // The offer is time-boxed (the engine's confirm latch) — say so while it's live, so a

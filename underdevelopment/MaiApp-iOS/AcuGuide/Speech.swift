@@ -4,7 +4,7 @@ import AVFoundation
 // CHANGE (never per frame), bilingual by device locale, with a mute toggle. The on-screen cue
 // copy stays in English; the spoken phrase is a short localized line per phase so a zh device
 // hears Chinese. All copy stays within the non-negotiables (no treat/cure/heal/diagnose).
-final class CoachVoice: ObservableObject {
+final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     // Persisted via AppSettings so the choice survives sessions (was per-session state).
     @Published var muted = AppSettings.shared.voiceMuted {
         didSet {
@@ -12,17 +12,27 @@ final class CoachVoice: ObservableObject {
             if muted { synth.stopSpeaking(at: .immediate) }
         }
     }
+    // True while an utterance is rendering — the locate voice-confirm mic reads this (bridged in
+    // ARCoachView) to ignore recognition while the app is speaking, so it can't transcribe and act
+    // on its own cues (the self-confirmation loop; review-caught).
+    @Published private(set) var isSpeaking = false
 
     private let synth = AVSpeechSynthesizer()
     private var lastSpokenPhase: CoachPhase? = nil
     private var lastSpokenLocate: LocateState? = nil
 
-    init() {
+    override init() {
+        super.init()
         // Use the app's audio session and the .ambient category so the spoken cue RESPECTS the
         // hardware silent switch and mixes with (rather than interrupting) any other audio.
         synth.usesApplicationAudioSession = true
+        synth.delegate = self
         try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
     }
+
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) { isSpeaking = true }
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { isSpeaking = false }
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) { isSpeaking = false }
 
     func reset() {
         lastSpokenPhase = nil
@@ -78,7 +88,10 @@ final class CoachVoice: ObservableObject {
                              "Feel around the dashed ring on their hand with your fingertip.")
         case .offGuide:  return AppLocale.pick("有点远了，回到虚线圈附近。", "A little far — closer to the dashed ring.")
         case .settling:  return AppLocale.pick("按住不动一小会儿。", "Hold the press still a moment.")
-        case .ready:     return AppLocale.pick("找到了就点「就是这里」。", "If that's the spot, tap \"This is my spot\".")
+        // Deliberately KEYWORD-FREE ("save", not "this is my spot"/"confirm"): this line is spoken
+        // out the speaker while the voice-confirm mic may be open, so it must not contain a command
+        // the recognizer would transcribe and act on (the self-confirmation loop; review-caught).
+        case .ready:     return AppLocale.pick("很好 — 现在可以保存这个位置了。", "Good — you can save this spot now.")
         }
     }
 
@@ -125,7 +138,7 @@ final class CoachVoice: ObservableObject {
         synth.stopSpeaking(at: .immediate)
         try? AVAudioSession.sharedInstance().setActive(true)
         let u = AVSpeechUtterance(string: text)
-        u.voice = AVSpeechSynthesisVoice(language: AppLocale.isChinese ? "zh-CN" : "en-US")
+        u.voice = AVSpeechSynthesisVoice(language: AppLocale.speechLocaleID)
         u.rate = AVSpeechUtteranceDefaultSpeechRate
         synth.speak(u)
     }

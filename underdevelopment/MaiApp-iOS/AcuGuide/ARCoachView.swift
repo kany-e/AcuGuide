@@ -90,22 +90,25 @@ struct ARCoachView: View {
             } else if sp == .active && !userPaused { camera.start() }
         }
         // Voice commands act through the SAME paths as the buttons (confirm gate included).
-        .onAppear {
-            locateVoice.onCommand = { cmd in
-                switch cmd {
-                case .confirm:
-                    if engine.confirmLocate(point: acupoint) {
-                        LocatedStore.shared.markLocated(acupoint.id)
-                        locateVoice.stop()
-                        handleLocateConfirmed()
-                    }
-                case .skip:
-                    locateVoice.stop()
-                    engine.endLocate()
-                    voice.handover()
+        // Observed, not a control-held closure: the handler is owned by the view, so it can't
+        // retain the engine/camera graph into a leak (review-caught). Guarded on live locate state
+        // + not paused, so a command delivered just as the step ends / pauses is dropped.
+        .onChange(of: locateVoice.command) { cmd in
+            guard let cmd, engine.mode == .locate, !userPaused, !endedEarly else { return }
+            switch cmd.kind {
+            case .confirm:
+                if engine.confirmLocate(point: acupoint) {
+                    LocatedStore.shared.markLocated(acupoint.id)
+                    handleLocateConfirmed()   // mode → .coach flips the mic off via onChange below
                 }
+            case .skip:
+                engine.endLocate()
+                voice.handover()
             }
         }
+        // The app's own TTS goes out the speaker into the open mic — pause recognition while it
+        // speaks so voice confirm can't transcribe and fire on the app's own cues.
+        .onChange(of: voice.isSpeaking) { locateVoice.setAppSpeaking($0) }
         // Leaving the locate step by ANY path shuts the mic — listening is locate-scoped.
         .onChange(of: engine.mode) { if $0 == .coach { locateVoice.stop() } }
         .onDisappear { locateVoice.stop(); camera.stop(); voice.reset() }
@@ -117,9 +120,11 @@ struct ARCoachView: View {
                            selfCoaching: camera.usingFront)
         if state == .ready {
             haptics.enterTick()   // the confirm just unlocked — a felt cue, like entering the ring
+            // Keyword-FREE (spoken by VoiceOver out the speaker while the mic may be open) — no
+            // "this is my spot"/"confirm" the recognizer could self-trigger on.
             UIAccessibility.post(notification: .announcement,
-                                 argument: AppLocale.pick("找到了 — 可以点「就是这里」。",
-                                                          "Spot settled — you can tap \"This is my spot\"."))
+                                 argument: AppLocale.pick("位置已锁定 — 准备好就保存。",
+                                                          "Spot settled — save it when you're ready."))
         }
     }
 
@@ -155,6 +160,7 @@ struct ARCoachView: View {
 
     // End the session at any point — quitting early is a normal outcome; the recap reports honestly.
     private func endSession() {
+        engine.suspendLocate()   // void the confirm latch so a spoken confirm can't fire on the recap
         locateVoice.stop()
         camera.stop(); voice.reset()
         endedEarly = true
