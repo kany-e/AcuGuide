@@ -107,7 +107,8 @@ final class AcuGuideTests: XCTestCase {
         }
         for p in Acupoint.all {
             check(p.id, [p.locationEn, p.indicationsEn, p.coachAlign, p.coachHold,
-                         p.locationZh, p.indicationsZh, p.roleEn, p.roleZh, p.englishName])
+                         p.locationZh, p.indicationsZh, p.roleEn, p.roleZh, p.englishName,
+                         p.cautionEn, p.cautionZh])   // caution is user-facing (atlas detail cards) too
         }
         // Per-point AR cue table (the 7 non-TE3 coachable points get their cues from here).
         for (id, c) in Acupoint.coachCues { check("coachCues[\(id)]", [c.alignEn, c.holdEn, c.alignZh, c.holdZh]) }

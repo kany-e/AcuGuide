@@ -117,11 +117,14 @@ struct ARCoachView: View {
     private func handleLocateChange(to state: LocateState) {
         guard engine.mode == .locate else { return }
         voice.updateLocate(state: state, requiresDorsal: acupoint.requiresDorsal,
-                           selfCoaching: camera.usingFront)
+                           selfCoaching: camera.usingFront, voiceConfirmActive: locateVoice.listening)
         if state == .ready {
             haptics.enterTick()   // the confirm just unlocked — a felt cue, like entering the ring
-            // Keyword-FREE (spoken by VoiceOver out the speaker while the mic may be open) — no
-            // "this is my spot"/"confirm" the recognizer could self-trigger on.
+            // The VoiceOver announcement is ALWAYS posted — it's the eyes-free readiness signal and,
+            // being keyword-free, is safe to speak while the mic is open (it can't self-trigger the
+            // recognizer, and unlike the AVSpeech cue it does NOT set CoachVoice.isSpeaking, so it
+            // never suppresses recognition of the user's confirm). Only the AVSpeech .ready cue —
+            // which DOES gate the mic via appSpeaking — is held back while listening (in Speech.swift).
             UIAccessibility.post(notification: .announcement,
                                  argument: AppLocale.pick("位置已锁定 — 准备好就保存。",
                                                           "Spot settled — save it when you're ready."))

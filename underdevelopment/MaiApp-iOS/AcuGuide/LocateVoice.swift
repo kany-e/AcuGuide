@@ -84,6 +84,15 @@ final class LocateVoiceControl: ObservableObject {
     private var noProgressRestarts = 0         // recognizer-failure backoff / cap
     private static let maxRestarts = 3
 
+    // Config-change recovery burst tracking. An occasional audio route/format settle (the app's TTS
+    // engaging the shared session, a Bluetooth route change) reshapes the graph and must be RECOVERED
+    // from, not treated as fatal — the old hard stop() killed the mic on essentially every spoken cue.
+    // Only a rapid STORM of changes (a genuinely broken route) is fatal. `ignoreConfigUntil` absorbs
+    // the engine's own initial reconfigure right after start.
+    private var lastConfigRecover = Date.distantPast
+    private var configRecoverBurst = 0
+    private var ignoreConfigUntil = Date.distantPast
+
     // Self-confirmation guard: the app's own spoken cues + VoiceOver announcements come out the
     // speaker into the open mic. While CoachVoice is speaking (and a short tail after), ignore
     // recognition so the app can't transcribe and act on its own voice (review-caught). The cue
@@ -93,7 +102,14 @@ final class LocateVoiceControl: ObservableObject {
 
     private var observers: [NSObjectProtocol] = []
 
-    var available: Bool { recognizer?.supportsOnDeviceRecognition == true }
+    // Whether to OFFER the mic button. Deliberately NOT gated on supportsOnDeviceRecognition:
+    // that flag commonly reads false until Speech has been authorized once and the on-device asset
+    // is present, so gating the button on it created a deadlock — the button stayed hidden, so the
+    // tap that would REQUEST authorization never happened, so the flag never flipped true and voice
+    // control was permanently invisible on a fresh install (and always on Simulator; user-reported
+    // "does not work"). A recognizer merely EXISTS for supported locales; on-device support is now
+    // resolved after authorization inside start(), which surfaces `unavailable` if it truly can't run.
+    var available: Bool { recognizer != nil }
 
     init() { recognizer = SFSpeechRecognizer(locale: AppLocale.speechLocale) }
     deinit { removeObservers() }
@@ -107,7 +123,7 @@ final class LocateVoiceControl: ObservableObject {
     }
 
     func start() {
-        guard !listening, let recognizer, recognizer.supportsOnDeviceRecognition else { return }
+        guard !listening, let recognizer else { return }
         denied = false; unavailable = false
         generation += 1
         let gen = generation
@@ -115,6 +131,11 @@ final class LocateVoiceControl: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, gen == self.generation else { return }   // stop()/re-toggle cancelled us
                 guard auth == .authorized else { self.denied = true; return }
+                // On-device support is re-checked AFTER authorization (it can read false until then,
+                // and until the asset downloads). We require it — audio must never leave the device
+                // (requiresOnDeviceRecognition below) — so if it's still unsupported, surface the
+                // honest "unavailable" fallback rather than silently doing nothing.
+                guard recognizer.supportsOnDeviceRecognition else { self.unavailable = true; return }
                 AVAudioSession.sharedInstance().requestRecordPermission { granted in
                     DispatchQueue.main.async {
                         guard gen == self.generation else { return }
@@ -140,6 +161,8 @@ final class LocateVoiceControl: ObservableObject {
         audioEngine.prepare()
         guard (try? audioEngine.start()) != nil else { restoreSession(); return }
 
+        ignoreConfigUntil = Date().addingTimeInterval(0.5)   // absorb the engine's own start-time settle
+        configRecoverBurst = 0
         registerObservers()
         noProgressRestarts = 0
         listening = true
@@ -177,6 +200,7 @@ final class LocateVoiceControl: ObservableObject {
     private func handle(result: SFSpeechRecognitionResult?, error: Error?) {
         if let text = result?.bestTranscription.formattedString, !text.isEmpty {
             noProgressRestarts = 0                   // real transcription → the pipeline is healthy
+            configRecoverBurst = 0                   // …and route recovery is working, not storming
             // Ignore the app's own voice, and only fire once per fresh utterance (the transcript
             // is cumulative within a task; require it to have grown past the last fire).
             let quiet = !appSpeaking && Date() >= ignoreHitsUntil
@@ -250,8 +274,32 @@ final class LocateVoiceControl: ObservableObject {
                                         object: nil, queue: nil, using: onInterrupt))
         observers.append(nc.addObserver(forName: .AVAudioEngineConfigurationChange,
                                         object: audioEngine, queue: nil) { [weak self] _ in
-            DispatchQueue.main.async { self?.stop() }
+            DispatchQueue.main.async { self?.recoverFromConfigChange() }
         })
+    }
+
+    // Rebuild the mic tap + recognition task over the (possibly new-format) input after an audio
+    // graph reconfigure, instead of tearing the feature down. Bumps `generation` so any trailing
+    // callback from the torn-down task no-ops; a rapid burst of changes (broken route) gives up.
+    private func recoverFromConfigChange() {
+        guard listening else { return }
+        let now = Date()
+        guard now >= ignoreConfigUntil else { return }   // the engine's own start-time settle
+        // Only RAPID-FIRE changes (a genuinely broken route re-settling faster than we can re-arm)
+        // count toward giving up; an occasional TTS/route settle >0.3s apart resets the burst and
+        // recovers indefinitely. (A slow-but-persistent flap that still yields recognition also
+        // resets the burst in handle().)
+        configRecoverBurst = now.timeIntervalSince(lastConfigRecover) < 0.3 ? configRecoverBurst + 1 : 0
+        lastConfigRecover = now
+        guard configRecoverBurst < 4 else { failAndStop(); return }
+        generation += 1                                  // stale callbacks from the old task no-op
+        teardownTask()
+        if !audioEngine.isRunning {
+            audioEngine.prepare()
+            guard (try? audioEngine.start()) != nil else { failAndStop(); return }
+        }
+        armTask()                                        // re-installs the tap on the current format
+        ignoreConfigUntil = Date().addingTimeInterval(0.5)   // absorb THIS restart's own settle
     }
     private func removeObservers() {
         observers.forEach(NotificationCenter.default.removeObserver)

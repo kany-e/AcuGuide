@@ -143,25 +143,7 @@ struct PartDetailSheet: View {
                     Spacer()
                     VStack(spacing: 8) {
                         if let s = sel {
-                            HStack(spacing: 8) {
-                                Circle().fill(MeridianColors.color(s.meridian)).frame(width: 9, height: 9)
-                                Text("\(s.id) · \(s.zh)").font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
-                                Text(s.en).font(Typo.code(15)).foregroundStyle(Ink.textDim)
-                            }
-                            if !s.role.isEmpty {
-                                Text(s.role).font(.caption2).foregroundStyle(Ink.gold.opacity(0.85))
-                                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                            }
-                            Text(s.location).font(.caption).foregroundStyle(Ink.text)
-                                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                            if !s.indications.isEmpty {
-                                Text(s.indications).font(.caption2).foregroundStyle(Ink.textDim)
-                                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                            }
-                            if !s.caution.isEmpty {
-                                Text(s.caution).font(.caption2).foregroundStyle(Ink.gold.opacity(0.9))
-                                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                            }
+                            AtlasPointCard(pt: s)
                         } else {
                             Text(AppLocale.pick("点按发光穴位查看详情：" + config.points.map { "\($0.id) \($0.zh)" }.joined(separator: " · "),
                                                 "Tap a glowing point for its details: " + config.points.map { "\($0.id) \($0.en)" }.joined(separator: " · ")))

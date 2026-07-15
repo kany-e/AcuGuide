@@ -45,8 +45,16 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     // whole find-the-spot flow was SILENT for eyes-free users (review-caught). Same
     // transition-debounced contract as update(phase:). `selfCoaching` = front camera (your own
     // hand) vs back camera (someone else's — the "your hand" lines switch person).
-    func updateLocate(state: LocateState, requiresDorsal: Bool, selfCoaching: Bool = true) {
+    func updateLocate(state: LocateState, requiresDorsal: Bool, selfCoaching: Bool = true,
+                      voiceConfirmActive: Bool = false) {
         guard state != lastSpokenLocate else { return }
+        // While the hands-free mic is open, the AVSpeech .ready cue would play out the speaker at the
+        // exact moment the user speaks their confirm — its didStart sets isSpeaking → appSpeaking,
+        // which suppresses (and the consume-once transcript then drops) the command, so voice-confirm
+        // never fired. Stay silent on .ready while listening (the VoiceOver announcement + haptic still
+        // signal readiness). Do NOT record it as spoken, so it can still be delivered if .ready is
+        // re-entered while the mic is off.
+        if state == .ready && voiceConfirmActive { return }
         lastSpokenLocate = state
         guard !muted,
               let line = locatePhrase(for: state, requiresDorsal: requiresDorsal,

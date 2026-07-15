@@ -43,6 +43,21 @@ enum CoachConst {
     // A "confident" fingertip measurement — shared by the palm-glaze engagement gate and the
     // locate step's capture gate (was two independent 0.4 literals; review-caught).
     static let minTipConfidence: Float = 0.4
+    // ── Presser-tip acquisition (user-directed) ─────────────────────────────────────────────────
+    // The pressing fingertip is chosen as the nearest fingertip of a hand OTHER than the one the
+    // acupoint sits on (the massaging hand can never be the receiving hand), within this radius of
+    // the ring — so the receiver's OWN fingers and anything hovering far from the point are voided
+    // ("only detect the finger tip that comes in the proximity of the acupoint, the rest voided").
+    // Sized in hand-size units, generous enough that the dot appears as the finger approaches (and
+    // an off-guide-but-near press still tracks so the cue can say "a little far" rather than losing
+    // it); the acquire radius is floored at the exit band so a tip inside the exit band is always a
+    // candidate. Only genuinely-far hovering (beyond ~2/3 of a hand) is voided.
+    static let presserAcquireXHandSize: CGFloat = 0.65
+    // Identity hold so the chosen tip doesn't flicker between two near-equidistant fingertips: the
+    // held finger keeps the slot while it stays a candidate and isn't more than this isotropic margin
+    // farther from the ring than the new nearest fingertip. Beyond that margin the press really moved
+    // to another finger and we switch (and reset the tip smoother so it doesn't lerp across the gap).
+    static let presserHoldMargin: CGFloat = 0.04
     // ── Guided locate (find-it-by-feel ON CAMERA, before coaching starts) ──────────────────────
     // The user follows the plain-language guide, presses around the dashed "about here" ring, and
     // confirms the spot that feels right; the confirmed press becomes their personal correction.
@@ -343,6 +358,14 @@ final class CoachEngine: ObservableObject {
     private var lastPresserWrist: CGPoint? = nil
     private var swapVotes = 0
 
+    // Held pressing-finger identity (which fingertip is currently the presser) so the press dot doesn't
+    // flicker between near-equidistant fingertips, and so the caller can tell a genuine finger SWITCH
+    // (reset the tip smoother) from a continuous same-finger track (keep smoothing). There is only ever
+    // one non-receiver hand (maximumHandCount 2, receiver excluded), so the finger enum alone identifies
+    // it — no wrist tracking needed. Kept across a brief no-candidate dropout so a re-acquire of the SAME
+    // finger doesn't read as a switch.
+    private var heldPresserFinger: HandJoint? = nil
+
     // Last face verdict that we could actually compute — reused when a frame can't verify the
     // face (a required MCP landmark dropped) so a brief occlusion doesn't flip to WRONG_FACE
     // and reset the steadiness run.
@@ -560,18 +583,26 @@ final class CoachEngine: ObservableObject {
             faceCorrect = lastFaceCorrect
         }
 
-        // 5) Press tip + contact. The second (massaging) hand's fingertip is noisy in Vision, so
-        // One-Euro-smooth it BEFORE the contact test and before drawing (mirrors the target ring).
-        // The tip is also the joint Vision DROPS most (it's doing the occluding), so a transient
-        // loss gets a short grace (tipGraceS): keep the last dot on screen and step the machine as
-        // inside-the-exit-band with NO offset — engagement survives via the dropout debounce, but
-        // hold time never advances on unverifiable geometry (same rule as receiver occlusion).
-        // Only after the grace expires does the tip clear + the filter reset (a longer gap means
-        // the finger really left; restarting the filter clean avoids a stale-velocity lerp back).
+        // 5) Press tip + contact. The pressing fingertip is now the nearest fingertip of a hand OTHER
+        // than the receiver, within an acquire radius of the ring (selectPresserTip) — so the receiver's
+        // own fingers and anything hovering far away can never be tracked as the press (user-directed).
+        // The second (massaging) hand's fingertip is noisy in Vision, so One-Euro-smooth it BEFORE the
+        // contact test and before drawing (mirrors the target ring). The tip is also the joint Vision
+        // DROPS most (it's doing the occluding), so a transient loss gets a short grace (tipGraceS):
+        // keep the last dot on screen and step the machine as inside-the-exit-band with NO offset —
+        // engagement survives via the dropout debounce, but hold time never advances on unverifiable
+        // geometry (same rule as receiver occlusion). Only after the grace expires does the tip clear +
+        // the filter reset (a longer gap means the finger really left; restarting the filter clean
+        // avoids a stale-velocity lerp back).
         var inEnter = false, inExit = false, hasPresser = false
         var offN: Double? = nil
         var tipConf: Float = 1
-        if let presser, let measured = presser.pressTip(target.pressFinger) {
+        // Generous enough that the dot appears as the finger approaches, but never below the exit band
+        // so a tip inside the exit band is always a candidate.
+        let acquireRadius = max(hs * CoachConst.presserAcquireXHandSize, tol * CoachConst.exitRadiusMult)
+        if let measured = selectPresserTip(hands: hands, receiverWrist: receiver.p(.wrist),
+                                           ringCenter: center, acquireRadius: acquireRadius) {
+            if measured.changed { pressSmoother.reset() }   // new physical fingertip — don't lerp from the old one
             let tip = pressSmoother.filter(measured.point, now)
             overlay.pressTip = tip; hasPresser = true
             lastTipT = now
@@ -961,7 +992,56 @@ final class CoachEngine: ObservableObject {
 
     // MARK: - Sticky role assignment
 
-    private func roleReset() { lastReceiverWrist = nil; lastPresserWrist = nil; swapVotes = 0 }
+    private func roleReset() {
+        lastReceiverWrist = nil; lastPresserWrist = nil; swapVotes = 0
+        heldPresserFinger = nil
+    }
+
+    // Every fingertip considered as the pressing finger — ANY finger, not a fixed index (the user
+    // may press with the thumb / middle / etc.). Index first so a genuine index press wins a tie.
+    // (`Hand.pressTip` supplies the DIP/PIP reconstruction for .indexTip when the tip is occluded.)
+    private static let pressFingers: [HandJoint] = [.indexTip, .middleTip, .thumbTip, .ringTip, .pinkyTip]
+
+    // The pressing fingertip = the fingertip of a NON-receiver hand nearest the ring, within
+    // `acquireRadius`. This is the user-directed rewrite of presser detection: the massaging hand can
+    // never be the hand the acupoint sits on (receiver excluded by wrist identity), and only a tip
+    // that comes into PROXIMITY of the point counts — the receiver's own fingers and anything hovering
+    // far away are voided. The chosen identity is HELD across frames so the dot doesn't flicker; a
+    // genuine identity change is reported so the caller can reset the tip smoother (no cross-finger lerp).
+    private func selectPresserTip(hands: [Hand], receiverWrist: CGPoint?,
+                                  ringCenter: CGPoint, acquireRadius: CGFloat)
+            -> (point: CGPoint, confidence: Float, changed: Bool)? {
+        struct Cand { let finger: HandJoint; let point: CGPoint; let conf: Float; let d: CGFloat }
+        var cands: [Cand] = []
+        for h in hands {
+            // Exclude the receiving hand — its own fingertips must never be read as the presser.
+            if let rw = receiverWrist, let w = h.p(.wrist), w == rw { continue }
+            for finger in Self.pressFingers {
+                guard let m = h.pressTip(finger) else { continue }
+                cands.append(Cand(finger: finger, point: m.point, conf: m.confidence, d: isoDist(m.point, ringCenter)))
+            }
+        }
+        // The nearest fingertip within the acquire radius is a fresh candidate. The currently-held
+        // finger keeps its slot within a LARGER keep radius (exit-band hysteresis), so a one-frame
+        // boundary wobble or a near-tie doesn't drop it and flip identity. Only switch to a fresh
+        // finger that is clearly closer (beyond the hold margin) — that's a real change of press.
+        let keepRadius = acquireRadius * CoachConst.exitRadiusMult
+        let fresh = cands.filter { $0.d <= acquireRadius }.min(by: { $0.d < $1.d })
+        let held = heldPresserFinger.flatMap { hf in cands.first { $0.finger == hf && $0.d <= keepRadius } }
+        let chosen: Cand?
+        if let held, let fresh {
+            chosen = held.d <= fresh.d + CoachConst.presserHoldMargin ? held : fresh
+        } else {
+            chosen = held ?? fresh
+        }
+        // No candidate this frame: return nil but KEEP heldPresserFinger, so a re-acquire of the same
+        // finger after a within-grace dropout is not misread as a switch (which would reset the smoother
+        // and lerp the dot across the gap; the caller's grace/gone branches govern the dot itself).
+        guard let c = chosen else { return nil }
+        let changed = heldPresserFinger != nil && c.finger != heldPresserFinger
+        heldPresserFinger = c.finger
+        return (c.point, c.conf, changed)
+    }
 
     private func assignRoles(_ hands: [Hand], target: MediaPipeTarget) -> (Hand?, Hand?) {
         // One hand: keep the sticky receiver/presser wrist anchors (a brief drop to one hand —

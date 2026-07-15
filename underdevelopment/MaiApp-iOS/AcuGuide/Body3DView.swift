@@ -134,14 +134,9 @@ struct Body3DView: View {
                         Spacer()
                         VStack(spacing: 8) {
                             if let s = handSel {
-                                // Tapped-marker detail.
-                                HStack(spacing: 8) {
-                                    Circle().fill(MeridianColors.color(s.meridian)).frame(width: 9, height: 9)
-                                    Text("\(s.id) · \(s.zh)").font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
-                                    Text(s.en).font(Typo.code(15)).foregroundStyle(Ink.textDim)
-                                }
-                                Text(s.location).font(.caption).foregroundStyle(Ink.text)
-                                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                                // Tapped-marker detail — the shared rich card (meridian, role,
+                                // location, uses, caution), not just the location line.
+                                AtlasPointCard(pt: s)
                                 Button(s.mediapipeTarget != nil
                                        ? AppLocale.pick("用相机练习", "Practice with camera")
                                        : AppLocale.pick("计时引导练习", "Guided practice (timer)")) { handChartCoach = s }

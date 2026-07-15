@@ -408,6 +408,43 @@ enum AtlasMeshCache {
     static func store(_ node: SCNNode, for key: String) { meshes[key] = node }
 }
 
+// Shared tapped-point detail lines for the atlas drill-down sheets (the hand chart + the head/arm/
+// foot part sheets). ONE place so the hand chart no longer shows only the location while the part
+// sheets show more — they had drifted, and the hand chart (where the coached points TE3/SI3/PC8/HT7
+// live) was the thinnest: a tap answered "where to find it" but nothing about the point. Centered to
+// sit in the bottom card over the 3D model; the host adds its own practice button / credit below.
+struct AtlasPointCard: View {
+    let pt: Acupoint
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Circle().fill(MeridianColors.color(pt.meridian)).frame(width: 9, height: 9)
+                Text("\(pt.id) · \(pt.zh)").font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
+                Text(pt.en).font(Typo.code(15)).foregroundStyle(Ink.textDim)
+            }
+            // Meridian + standard English name ("Sanjiao · Central Islet").
+            Text(pt.meridianName + (pt.englishName.isEmpty ? "" : " · \(pt.englishName)"))
+                .font(.caption2).foregroundStyle(Ink.textDim)
+            // Classical role (Five-Shu / Yuan / Luo …) — traditional framing only.
+            if !pt.role.isEmpty {
+                Text(pt.role).font(.caption2).foregroundStyle(Ink.gold.opacity(0.85))
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
+            Text(pt.location).font(.caption).foregroundStyle(Ink.text)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            if !pt.indications.isEmpty {
+                Text(pt.indications).font(.caption2).foregroundStyle(Ink.textDim)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
+            if !pt.caution.isEmpty {
+                Text(pt.caution).font(.caption2).foregroundStyle(Ink.gold.opacity(0.9))
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 // Subtle parchment spinner shown centered over an atlas view while its GLB decodes.
 struct AtlasLoadingIndicator: View {
     var body: some View {

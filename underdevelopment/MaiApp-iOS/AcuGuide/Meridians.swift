@@ -58,29 +58,32 @@ enum BodyAtlas {
             let s = side.sign
             // Both sides are tappable so a tap on whichever limb faces you opens the meridian; the
             // selection reveals that meridian's points (modeled on the right) regardless of side.
-            // Arm chain shoulder → upper arm → elbow → WRIST. It stops at the wrist (0.7 of the way to
-            // the hand), NOT the hand centre: the six arm channels converge there, and their tap-proxy
-            // tubes would otherwise blanket the Hand region label and swallow taps meant to drill into
-            // the hand (they'd select a meridian instead). Markers still sit on the hand when focused.
+            // The stroke threads through its acupoint dots — but only on the RIGHT, where the markers
+            // live; the left limb keeps the plain bone route (no dots to thread, so no beside-the-dots
+            // look to fix). Arm chain shoulder → upper arm → elbow → WRIST; the hand-ward acupoints
+            // (TE3/SI3/PC8/HT7, below the wrist) EXTEND the stroke to their dots via the anchor thread,
+            // while the fat tap-proxies stay on the arm so they can't blanket the Hand region label.
+            let thread = side == .right
             let wristEnd = mix(b(side.k("LowerArm")), b(side.k("Hand")), 0.7)
             let arm = [b(side.k("Shoulder")), b(side.k("UpperArm")), b(side.k("LowerArm")), wristEnd]
             // Yin — anterior (palmar) surface: radial LU, middle PC, ulnar HT.
-            root.addChildNode(channel(arm, dx: -s * ax, meridian: "lung",  mesh: mesh, front: true))
-            root.addChildNode(channel(arm, dx:  0,      meridian: "pc",    mesh: mesh, front: true))
-            root.addChildNode(channel(arm, dx:  s * ax, meridian: "heart", mesh: mesh, front: true))
+            root.addChildNode(channel(arm, dx: -s * ax, meridian: "lung",  mesh: mesh, front: true,  threadAnchors: thread))
+            root.addChildNode(channel(arm, dx:  0,      meridian: "pc",    mesh: mesh, front: true,  threadAnchors: thread))
+            root.addChildNode(channel(arm, dx:  s * ax, meridian: "heart", mesh: mesh, front: true,  threadAnchors: thread))
             // Yang — posterior (dorsal) surface: radial LI, middle SJ, ulnar SI.
-            root.addChildNode(channel(arm, dx: -s * ax, meridian: "li",    mesh: mesh, front: false))
-            root.addChildNode(channel(arm, dx:  0,      meridian: "sj",    mesh: mesh, front: false))
-            root.addChildNode(channel(arm, dx:  s * ax, meridian: "si",    mesh: mesh, front: false))
+            root.addChildNode(channel(arm, dx: -s * ax, meridian: "li",    mesh: mesh, front: false, threadAnchors: thread))
+            root.addChildNode(channel(arm, dx:  0,      meridian: "sj",    mesh: mesh, front: false, threadAnchors: thread))
+            root.addChildNode(channel(arm, dx:  s * ax, meridian: "si",    mesh: mesh, front: false, threadAnchors: thread))
             // Full leg chain: hip → thigh → knee → ankle.
             let leg = [b(side.k("UpperLeg")), b(side.k("LowerLeg")), mix(b(side.k("LowerLeg")), b(side.k("Foot")), 0.7)]
-            root.addChildNode(channel(leg, dx: s * outer * 0.8, meridian: "stomach", mesh: mesh, front: true)) // front-lateral
-            root.addChildNode(channel(leg, dx: s * outer * 1.5, meridian: "gb",      mesh: mesh, front: true)) // lateral / side
+            root.addChildNode(channel(leg, dx: s * outer * 0.8, meridian: "stomach", mesh: mesh, front: true, threadAnchors: thread)) // front-lateral
+            root.addChildNode(channel(leg, dx: s * outer * 1.5, meridian: "gb",      mesh: mesh, front: true, threadAnchors: thread)) // lateral / side
         }
-        // Torso midlines: ren (front) and du (back) — single + central, always tappable.
+        // Torso midlines: ren (front, threads CV17/CV12) and du (back, extends up to GV20) — single +
+        // central, always tappable.
         let spine = [b("Hips"), b("Spine"), b("Chest"), b("Neck")]
-        root.addChildNode(channel(spine, dx: 0, meridian: "ren", mesh: mesh, front: true))
-        root.addChildNode(channel(spine, dx: 0, meridian: "du",  mesh: mesh, front: false))
+        root.addChildNode(channel(spine, dx: 0, meridian: "ren", mesh: mesh, front: true,  threadAnchors: true))
+        root.addChildNode(channel(spine, dx: 0, meridian: "du",  mesh: mesh, front: false, threadAnchors: true))
         // Everything built above is decoration: exclude it from the surface-snap raycasts (see
         // surfaceCategory). categoryBitMask is NOT inherited, so stamp every node in the tree.
         root.enumerateHierarchy { n, _ in n.categoryBitMask = decorationCategory }
@@ -94,44 +97,132 @@ enum BodyAtlas {
         func k(_ base: String) -> String { base + suffix }
     }
 
-    // One channel: lateral-offset the skeleton control points, densify → Laplacian-smooth →
-    // centripetal Catmull-Rom, PROJECT each sample onto the body surface (so it lies ON the limb,
-    // not beside it), then lay a thin meridian-colored tube + halo + gap-filling joints, drawn on
-    // top of the translucent body (high renderingOrder) so it never blends away at grazing angles.
+    // One channel, as a single flowing ink stroke that threads THROUGH its acupoint dots. Pipeline:
+    // lateral-offset the skeleton control points → densify → PROJECT the coarse samples onto the body
+    // surface (project BEFORE the final smoothing, so the per-facet raycast snap can't re-jag the curve
+    // — the old order projected a smoothed curve and re-roughened it) → weave the meridian's acupoint
+    // anchors in at their arc-length (snapped to the surface exactly like the markers) → one centripetal
+    // Catmull-Rom that INTERPOLATES every control point. The result is swept as ONE continuous tube (core
+    // + soft wash halo), drawn on top of the translucent body (high renderingOrder) so it never blends
+    // away at grazing angles. No per-segment cylinders and no bead spheres — those were the "bunch of
+    // points connected, not a single line" look.
     private static func channel(_ pts: [SIMD3<Float>], dx: Float, meridian: String,
-                                mesh: SCNNode, front: Bool, tappable: Bool = true) -> SCNNode {
+                                mesh: SCNNode, front: Bool, threadAnchors: Bool = false,
+                                tappable: Bool = true) -> SCNNode {
         let offset = pts.map { SIMD3<Float>($0.x + dx, $0.y, $0.z) }
-        let dense = densify(offset, perSegment: 6)
-        let smoothed = smoothPts(dense, iterations: 3)
-        let curve = catmullRom(smoothed, perSegment: 6)
-        let path = projectAll(curve, mesh: mesh, front: front)
+        let bones = projectAll(densify(offset, perSegment: 4), mesh: mesh, front: front)
+        let anchors = threadAnchors
+            ? AcupointPlacements.bodyAnchors(meridian: meridian).map { snapToSurface($0, mesh: mesh) }
+            : []
+        let curve = catmullRom(threadThroughAnchors(bones, anchors), perSegment: 6)
+
         let mats = channelMaterials(meridian)
         let node = SCNNode()
         if tappable { node.name = "mer:" + meridian }   // tap hit-test resolves the channel → card
-        // Thin ink stroke (core) + a wider soft wash bleeding off it (halo) — brush on damp paper.
-        for i in 0 ..< path.count - 1 {
-            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0052, material: mats.halo))
-            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0022, material: mats.core))
-        }
-        // Small joint spheres fill the V-gaps where straight segments meet at bends.
-        for p in path {
-            let s = SCNNode(geometry: SCNSphere(radius: 0.0022))
-            s.geometry?.firstMaterial = mats.core
-            s.simdPosition = p
-            s.renderingOrder = 12
-            node.addChildNode(s)
-        }
-        // Modest, fully-transparent hit-proxy tubes (children of the named node) so a tap near the
-        // hairline channel still selects it — but small enough not to swallow taps meant for the
-        // region labels / empty body. Only added when the channel is tappable.
+        // One swept tube for the soft wash halo + one for the thin ink core, both carrying the shared
+        // core/halo materials so setChannelHighlight still lights the whole channel in its hue.
+        if let halo = sweptTube(curve, radius: 0.0052, radialSegments: 7, material: mats.halo) { node.addChildNode(halo) }
+        if let core = sweptTube(curve, radius: 0.0024, radialSegments: 7, material: mats.core) { node.addChildNode(core) }
+        // Modest, fully-transparent hit-proxy tubes so a tap near the hairline channel still selects it —
+        // laid along the BONE route only (not the hand/foot the anchor thread can extend the visible
+        // stroke into), so they never blanket the Hand region label and swallow its drill-in tap.
         if tappable {
-            let step = max(1, path.count / 16)
+            let proxyPath = catmullRom(bones, perSegment: 6)
+            let step = max(1, proxyPath.count / 16)
             var i = 0
-            while i + step < path.count {
-                node.addChildNode(tube(from: path[i], to: path[i + step], radius: 0.03, material: hitProxyMaterial()))
+            while i + step < proxyPath.count {
+                node.addChildNode(tube(from: proxyPath[i], to: proxyPath[i + step], radius: 0.03, material: hitProxyMaterial()))
                 i += step
             }
         }
+        return node
+    }
+
+    // Weave the meridian's acupoint anchors into the (already surface-projected) bone polyline at their
+    // arc-length position, so the interpolating spline passes exactly through each dot. An anchor beyond
+    // a chain end (a hand/foot point below the wrist/ankle) may overshoot the end segment, so it EXTENDS
+    // the stroke to its dot instead of piling onto the endpoint. Anchors sitting too far off the route
+    // (e.g. the torso ST25 vs the stomach LEG channel) are dropped by the distance gate.
+    private static func threadThroughAnchors(_ poly: [SIMD3<Float>], _ anchors: [SIMD3<Float>]) -> [SIMD3<Float>] {
+        guard !anchors.isEmpty, poly.count >= 2 else { return poly }
+        var arc = [Float](repeating: 0, count: poly.count)
+        for i in 1 ..< poly.count { arc[i] = arc[i - 1] + simd_length(poly[i] - poly[i - 1]) }
+        var control: [(s: Float, p: SIMD3<Float>)] = zip(arc, poly).map { ($0, $1) }
+        let maxOffRoute: Float = 0.13   // an anchor farther than this from the route isn't on this channel
+        for a in anchors {
+            var best: (s: Float, d: Float) = (0, .greatestFiniteMagnitude)
+            for i in 0 ..< poly.count - 1 {
+                let p0 = poly[i], p1 = poly[i + 1]
+                let seg = p1 - p0
+                let len2 = simd_length_squared(seg)
+                guard len2 > 1e-9 else { continue }
+                // Overshoot the first/last vertex generously so a hand/foot/head anchor well beyond the
+                // wrist/ankle/neck (e.g. SI3 below the wrist ≈ 4-5 densified segments out, GV20 above the
+                // neck) still projects to the extended limb axis and threads in. The perpendicular
+                // distance to that axis is what the 0.13 gate below measures, so a truly OFF-route point
+                // (torso ST25 vs the stomach LEG channel) is still rejected regardless of the overshoot.
+                let tLo: Float = (i == 0) ? -6.0 : 0
+                let tHi: Float = (i == poly.count - 2) ? 6.0 : 1
+                let t = max(tLo, min(tHi, simd_dot(a - p0, seg) / len2))
+                let d = simd_length(a - (p0 + seg * t))
+                if d < best.d { best = (arc[i] + simd_length(seg) * t, d) }
+            }
+            if best.d <= maxOffRoute { control.append((best.s, a)) }
+        }
+        control.sort { $0.s < $1.s }
+        return control.map { $0.p }
+    }
+
+    // Sweep a small R-gon cross-section along `path` with parallel-transport frames (no twist) as ONE
+    // SCNGeometry — a single continuous tube. Double-sided material, so triangle winding is not load-bearing.
+    private static func sweptTube(_ path: [SIMD3<Float>], radius: Float, radialSegments: Int,
+                                  material: SCNMaterial) -> SCNNode? {
+        guard path.count >= 2, radialSegments >= 3 else { return nil }
+        let R = radialSegments
+        var tan = [SIMD3<Float>](repeating: SIMD3<Float>(0, 1, 0), count: path.count)
+        for i in 0 ..< path.count {
+            let d = path[min(i + 1, path.count - 1)] - path[max(i - 1, 0)]
+            tan[i] = simd_length(d) > 1e-6 ? simd_normalize(d) : tan[max(i - 1, 0)]
+        }
+        // Initial normal perpendicular to the first tangent, then parallel-transported along the path.
+        var refUp = SIMD3<Float>(0, 0, 1)
+        if abs(simd_dot(refUp, tan[0])) > 0.9 { refUp = SIMD3<Float>(1, 0, 0) }
+        var nrm = simd_normalize(refUp - tan[0] * simd_dot(refUp, tan[0]))
+        var verts: [SCNVector3] = []; verts.reserveCapacity(path.count * R)
+        var norms: [SCNVector3] = []; norms.reserveCapacity(path.count * R)
+        for i in 0 ..< path.count {
+            if i > 0 {
+                let axis = simd_cross(tan[i - 1], tan[i])
+                let sinA = simd_length(axis)
+                if sinA > 1e-6 {
+                    let angle = atan2(sinA, simd_dot(tan[i - 1], tan[i]))
+                    nrm = simd_quatf(angle: angle, axis: axis / sinA).act(nrm)
+                }
+                nrm = simd_normalize(nrm - tan[i] * simd_dot(nrm, tan[i]))   // re-orthogonalize against drift
+            }
+            let bin = simd_normalize(simd_cross(tan[i], nrm))
+            for j in 0 ..< R {
+                let ang = Float(j) / Float(R) * 2 * .pi
+                let dir = nrm * cos(ang) + bin * sin(ang)
+                let v = path[i] + dir * radius
+                verts.append(SCNVector3(v.x, v.y, v.z))
+                norms.append(SCNVector3(dir.x, dir.y, dir.z))
+            }
+        }
+        var idx: [Int32] = []; idx.reserveCapacity((path.count - 1) * R * 6)
+        for i in 0 ..< path.count - 1 {
+            for j in 0 ..< R {
+                let j1 = (j + 1) % R
+                let a = Int32(i * R + j), bb = Int32(i * R + j1)
+                let c = Int32((i + 1) * R + j), d = Int32((i + 1) * R + j1)
+                idx.append(contentsOf: [a, c, bb, bb, c, d])
+            }
+        }
+        let geo = SCNGeometry(sources: [SCNGeometrySource(vertices: verts), SCNGeometrySource(normals: norms)],
+                              elements: [SCNGeometryElement(indices: idx, primitiveType: .triangles)])
+        geo.firstMaterial = material
+        let node = SCNNode(geometry: geo)
+        node.renderingOrder = 12
         return node
     }
 
@@ -193,21 +284,6 @@ enum BodyAtlas {
         }
         out.append(p[p.count - 1])
         return out
-    }
-
-    // Laplacian smoothing (web smoothPts): average each interior point with its neighbors, keeping
-    // the endpoints pinned so the channel still starts/ends on the limb.
-    private static func smoothPts(_ p: [SIMD3<Float>], iterations: Int) -> [SIMD3<Float>] {
-        guard p.count >= 3 else { return p }
-        var pts = p
-        for _ in 0 ..< iterations {
-            var next = pts
-            for i in 1 ..< pts.count - 1 {
-                next[i] = (pts[i - 1] + pts[i] * 2 + pts[i + 1]) * 0.25
-            }
-            pts = next
-        }
-        return pts
     }
 
     // MARK: Region anchors (for the projected SwiftUI labels)
@@ -305,28 +381,49 @@ enum BodyAtlas {
 
     private static func mix(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ t: Float) -> SIMD3<Float> { a + (b - a) * t }
 
+    // CENTRIPETAL Catmull-Rom (alpha = 0.5, Barry-Goldman form): knot spacing = sqrt(distance). This
+    // prevents the cusps / self-intersections uniform Catmull-Rom produces when control points are
+    // unevenly spaced — exactly our case now that clustered acupoint anchors are woven between the far-
+    // apart bone joints. Still interpolates every control point, so the stroke passes through each dot.
     private static func catmullRom(_ p: [SIMD3<Float>], perSegment: Int) -> [SIMD3<Float>] {
         guard p.count >= 2 else { return p }
         var out: [SIMD3<Float>] = []
         let n = p.count
         for i in 0 ..< n - 1 {
             let p0 = p[max(i - 1, 0)], p1 = p[i], p2 = p[i + 1], p3 = p[min(i + 2, n - 1)]
+            let t0: Float = 0
+            let t1 = t0 + knot(p0, p1)
+            let t2 = t1 + knot(p1, p2)
+            let t3 = t2 + knot(p2, p3)
             for s in 0 ..< perSegment {
-                let t = Float(s) / Float(perSegment)
-                let t2 = t * t, t3 = t2 * t
-                let c0 = p1 * 2
-                let c1 = p2 - p0
-                let c2 = p0 * 2 - p1 * 5 + p2 * 4 - p3
-                let c3 = p3 - p0 + p1 * 3 - p2 * 3
-                var v = c0
-                v += c1 * t
-                v += c2 * t2
-                v += c3 * t3
-                out.append(v * 0.5)
+                let t = t1 + (t2 - t1) * Float(s) / Float(perSegment)
+                out.append(catmullRomPoint(p0, p1, p2, p3, t0, t1, t2, t3, t))
             }
         }
         out.append(p[n - 1])
         return out
+    }
+
+    private static func knot(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+        max(simd_length(b - a).squareRoot(), 1e-4)   // sqrt spacing (alpha=0.5); floor avoids a zero knot
+    }
+
+    // Barry-Goldman recursive evaluation of the segment p1→p2 at parameter t ∈ [t1, t2].
+    private static func catmullRomPoint(_ p0: SIMD3<Float>, _ p1: SIMD3<Float>, _ p2: SIMD3<Float>, _ p3: SIMD3<Float>,
+                                        _ t0: Float, _ t1: Float, _ t2: Float, _ t3: Float, _ t: Float) -> SIMD3<Float> {
+        let a1 = lerpT(p0, p1, t0, t1, t)
+        let a2 = lerpT(p1, p2, t1, t2, t)
+        let a3 = lerpT(p2, p3, t2, t3, t)
+        let b1 = lerpT(a1, a2, t0, t2, t)
+        let b2 = lerpT(a2, a3, t1, t3, t)
+        return lerpT(b1, b2, t1, t2, t)
+    }
+
+    // Linear interpolation between a (at ta) and b (at tb), evaluated at t; guards a zero interval.
+    private static func lerpT(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ ta: Float, _ tb: Float, _ t: Float) -> SIMD3<Float> {
+        let d = tb - ta
+        guard abs(d) > 1e-6 else { return a }
+        return a + (b - a) * ((t - ta) / d)
     }
 
     // The resting stroke ink — deep pine, #2c3227. Exposed so the legend swatch reads the SAME ink
