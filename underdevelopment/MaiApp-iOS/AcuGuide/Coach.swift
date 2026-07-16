@@ -34,8 +34,10 @@ enum CoachConst {
     // The massaging fingertip is the joint Vision drops most (it's the one doing the occluding —
     // confirmed unstable in on-device shadow capture). Keep the press dot + engagement alive through
     // a dropout this brief (the state machine's dropout debounce then governs), instead of instantly
-    // nil-ing the tip / resetting its smoother / disengaging on a single missed frame.
-    static let tipGraceS             = 0.3
+    // nil-ing the tip / resetting its smoother / disengaging on a single missed frame. Held a bit
+    // longer (0.3 → 0.5) so the intermittent top-down hand's dot stops FLICKERING on/off between reads —
+    // still short enough that a finger that really lifts clears within half a second (user-reported).
+    static let tipGraceS             = 0.5
     // How long a lone surviving hand may be treated as "the presser occluding the receiver" before
     // the assumption decays and roles reset (the hand becomes the receiver by the single-hand rule).
     // Unbounded, this state froze the ring forever and could self-latch a receiving hand as presser.
@@ -517,8 +519,12 @@ final class CoachEngine: ObservableObject {
         guard let receiver = receiverOpt else {
             // Same tip handling as the main path: measured → smooth + draw; brief dropout → keep
             // the dot within tipGraceS; expired → clear + reset the filter so a re-acquired tip
-            // doesn't lerp across the screen with stale velocity.
-            if let presser, let tip = presser.pressTip(target.pressFinger) {
+            // doesn't lerp across the screen with stale velocity. BUT only draw the lone hand's tip if
+            // it's near the LAST known point (there's no fresh ring here): otherwise the "occluding
+            // presser" assumption is wrong — the lone hand is some other hand or the weakly-seen
+            // RECEIVER — and painting its fingertip is the wrong-hand jump the user reported.
+            if let presser, let tip = presser.pressTip(target.pressFinger),
+               overlay.ringCenter.map({ isoDist(tip.point, $0) <= max(overlay.ringRadius * 3, 0.12) }) ?? true {
                 overlay.pressTip = pressSmoother.filter(tip.point, now); lastTipT = now
             } else if pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {
                 // keep the last dot

@@ -4,11 +4,11 @@ import AVFoundation
 
 // Hands-free confirm for the guided locate step: BOTH of the user's hands are occupied (one being
 // pressed, one pressing), so the "This is my spot" button is physically awkward even with the
-// confirm latch — a short spoken command does it instead (user-requested). Strictly ON-DEVICE
-// recognition: if the device can't recognize locally, the feature reports unavailable rather than
-// ever sending audio off the device (the app's privacy stance). Listening is opt-in per session
-// (the mic button on the LocateCard), runs only while the locate step is active, and stops on
-// confirm/skip/pause/disappear.
+// confirm latch — a short spoken command does it instead (user-requested). Recognition prefers
+// ON-DEVICE when the device supports it (audio stays local) and falls back to Apple's speech service
+// otherwise (user-approved: strict on-device-only just reported "unavailable" on a device without the
+// on-device model). Listening is opt-in per session (the mic button on the LocateCard), runs only
+// while the locate step is active, and stops on confirm/skip/pause/disappear.
 enum LocateVoiceCommand: Equatable {
     case confirm   // "this is my spot" — same path as tapping the button
     case skip      // "skip" — same as tapping Skip
@@ -131,13 +131,10 @@ final class LocateVoiceControl: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, gen == self.generation else { return }   // stop()/re-toggle cancelled us
                 guard auth == .authorized else { self.denied = true; return }
-                // We deliberately do NOT gate on `supportsOnDeviceRecognition` here. It reads false
-                // until the on-device language asset finishes downloading (which only STARTS after this
-                // first authorization) and is an unreliable predictor — gating on it reported "unavailable"
-                // on a perfectly capable device. Instead we just try: the request keeps
-                // requiresOnDeviceRecognition = true (audio never leaves the device), so if on-device
-                // truly can't run, the recognition task errors and the keep-alive backoff lands on
-                // `unavailable` after a few tries. (Simulator has no audio input → beginListening's
+                // We do NOT gate on `supportsOnDeviceRecognition` here — it reads false until the
+                // on-device asset downloads (which only STARTS after this first authorization) and is an
+                // unreliable predictor. armTask prefers on-device when available and falls back to the
+                // server otherwise, so we just try. (Simulator has no audio input → beginListening's
                 // sample-rate guard reports unavailable immediately.)
                 AVAudioSession.sharedInstance().requestRecordPermission { granted in
                     DispatchQueue.main.async {
@@ -182,7 +179,11 @@ final class LocateVoiceControl: ObservableObject {
         guard listening, let recognizer else { return }
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
-        req.requiresOnDeviceRecognition = true      // audio must never leave the device
+        // Prefer ON-DEVICE recognition when the device supports it (audio stays local); otherwise fall
+        // back to Apple's speech service so voice-confirm works at all (user-approved privacy trade —
+        // on-device wasn't installed for the app's language on the user's iPhone, so requiring it just
+        // reported "unavailable"). Only the short confirm phrase is ever spoken while listening.
+        req.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         request = req
         firedAtLength = 0
 
