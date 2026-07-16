@@ -97,24 +97,28 @@ enum BodyAtlas {
         func k(_ base: String) -> String { base + suffix }
     }
 
-    // One channel, as a single flowing ink stroke that threads THROUGH its acupoint dots. Pipeline:
-    // lateral-offset the skeleton control points → densify → PROJECT the coarse samples onto the body
-    // surface (project BEFORE the final smoothing, so the per-facet raycast snap can't re-jag the curve
-    // — the old order projected a smoothed curve and re-roughened it) → weave the meridian's acupoint
-    // anchors in at their arc-length (snapped to the surface exactly like the markers) → one centripetal
-    // Catmull-Rom that INTERPOLATES every control point. The result is swept as ONE continuous tube (core
-    // + soft wash halo), drawn on top of the translucent body (high renderingOrder) so it never blends
-    // away at grazing angles. No per-segment cylinders and no bead spheres — those were the "bunch of
-    // points connected, not a single line" look.
+    // One channel, as a single flowing ink stroke that threads THROUGH its acupoint dots — swept as ONE
+    // continuous tube (core + soft wash halo), drawn on top of the translucent body (high renderingOrder)
+    // so it never blends away at grazing angles. No per-segment cylinders, no bead spheres. See channel()
+    // below for the control-point pipeline; the load-bearing detail is that control points are ordered
+    // along the limb axis and all projected the SAME way, so the stroke can't twist.
     private static func channel(_ pts: [SIMD3<Float>], dx: Float, meridian: String,
                                 mesh: SCNNode, front: Bool, threadAnchors: Bool = false,
                                 tappable: Bool = true) -> SCNNode {
         let offset = pts.map { SIMD3<Float>($0.x + dx, $0.y, $0.z) }
-        let bones = projectAll(densify(offset, perSegment: 4), mesh: mesh, front: front)
-        let anchors = threadAnchors
-            ? AcupointPlacements.bodyAnchors(meridian: meridian).map { snapToSurface($0, mesh: mesh) }
-            : []
-        let curve = catmullRom(threadThroughAnchors(bones, anchors), perSegment: 6)
+        // Control points = the densified bone chain + this meridian's on-route acupoint dots. CRITICAL
+        // (this is what a first attempt got wrong and twisted the stroke): order every control point by
+        // the limb axis (bones run proximal→distal on the limbs = descending z, the spine runs bottom→top
+        // = ascending z) so the curve can never fold back on itself, and PROJECT them all the SAME way
+        // (front-aware depth) — mixing depth-projected bones with radially-snapped anchors put them at
+        // different depths and zig-zagged the line.
+        var control = densify(offset, perSegment: 3)
+        if threadAnchors {
+            control += AcupointPlacements.bodyAnchors(meridian: meridian).filter { onRoute($0, offset) }
+        }
+        let ascending = (pts.last?.z ?? 0) > (pts.first?.z ?? 0)
+        control.sort { ascending ? $0.z < $1.z : $0.z > $1.z }
+        let curve = catmullRom(projectAll(control, mesh: mesh, front: front), perSegment: 6)
 
         let mats = channelMaterials(meridian)
         let node = SCNNode()
@@ -124,10 +128,10 @@ enum BodyAtlas {
         if let halo = sweptTube(curve, radius: 0.0052, radialSegments: 7, material: mats.halo) { node.addChildNode(halo) }
         if let core = sweptTube(curve, radius: 0.0024, radialSegments: 7, material: mats.core) { node.addChildNode(core) }
         // Modest, fully-transparent hit-proxy tubes so a tap near the hairline channel still selects it —
-        // laid along the BONE route only (not the hand/foot the anchor thread can extend the visible
-        // stroke into), so they never blanket the Hand region label and swallow its drill-in tap.
+        // laid along the BONE route only (not any hand/foot the anchor thread extends the stroke into),
+        // so they never blanket the Hand region label and swallow its drill-in tap.
         if tappable {
-            let proxyPath = catmullRom(bones, perSegment: 6)
+            let proxyPath = catmullRom(projectAll(densify(offset, perSegment: 3), mesh: mesh, front: front), perSegment: 6)
             let step = max(1, proxyPath.count / 16)
             var i = 0
             while i + step < proxyPath.count {
@@ -138,39 +142,24 @@ enum BodyAtlas {
         return node
     }
 
-    // Weave the meridian's acupoint anchors into the (already surface-projected) bone polyline at their
-    // arc-length position, so the interpolating spline passes exactly through each dot. An anchor beyond
-    // a chain end (a hand/foot point below the wrist/ankle) may overshoot the end segment, so it EXTENDS
-    // the stroke to its dot instead of piling onto the endpoint. Anchors sitting too far off the route
-    // (e.g. the torso ST25 vs the stomach LEG channel) are dropped by the distance gate.
-    private static func threadThroughAnchors(_ poly: [SIMD3<Float>], _ anchors: [SIMD3<Float>]) -> [SIMD3<Float>] {
-        guard !anchors.isEmpty, poly.count >= 2 else { return poly }
-        var arc = [Float](repeating: 0, count: poly.count)
-        for i in 1 ..< poly.count { arc[i] = arc[i - 1] + simd_length(poly[i] - poly[i - 1]) }
-        var control: [(s: Float, p: SIMD3<Float>)] = zip(arc, poly).map { ($0, $1) }
-        let maxOffRoute: Float = 0.13   // an anchor farther than this from the route isn't on this channel
-        for a in anchors {
-            var best: (s: Float, d: Float) = (0, .greatestFiniteMagnitude)
-            for i in 0 ..< poly.count - 1 {
-                let p0 = poly[i], p1 = poly[i + 1]
-                let seg = p1 - p0
-                let len2 = simd_length_squared(seg)
-                guard len2 > 1e-9 else { continue }
-                // Overshoot the first/last vertex generously so a hand/foot/head anchor well beyond the
-                // wrist/ankle/neck (e.g. SI3 below the wrist ≈ 4-5 densified segments out, GV20 above the
-                // neck) still projects to the extended limb axis and threads in. The perpendicular
-                // distance to that axis is what the 0.13 gate below measures, so a truly OFF-route point
-                // (torso ST25 vs the stomach LEG channel) is still rejected regardless of the overshoot.
-                let tLo: Float = (i == 0) ? -6.0 : 0
-                let tHi: Float = (i == poly.count - 2) ? 6.0 : 1
-                let t = max(tLo, min(tHi, simd_dot(a - p0, seg) / len2))
-                let d = simd_length(a - (p0 + seg * t))
-                if d < best.d { best = (arc[i] + simd_length(seg) * t, d) }
-            }
-            if best.d <= maxOffRoute { control.append((best.s, a)) }
+    // Is an acupoint anchor ON this channel's route? Measured as the perpendicular distance to the bone
+    // polyline's EXTENDED axis (the end segments overshoot generously) — so a hand/foot/head point well
+    // beyond the wrist/ankle/neck (SI3 below the wrist, GV20 above it) reads as on-axis and threads in,
+    // while a point laterally off the route (the torso ST25 vs the stomach LEG channel) is rejected.
+    private static func onRoute(_ a: SIMD3<Float>, _ poly: [SIMD3<Float>]) -> Bool {
+        guard poly.count >= 2 else { return false }
+        var best: Float = .greatestFiniteMagnitude
+        for i in 0 ..< poly.count - 1 {
+            let p0 = poly[i], p1 = poly[i + 1]
+            let seg = p1 - p0
+            let len2 = simd_length_squared(seg)
+            guard len2 > 1e-9 else { continue }
+            let tLo: Float = (i == 0) ? -6.0 : 0
+            let tHi: Float = (i == poly.count - 2) ? 6.0 : 1
+            let t = max(tLo, min(tHi, simd_dot(a - p0, seg) / len2))
+            best = min(best, simd_length(a - (p0 + seg * t)))
         }
-        control.sort { $0.s < $1.s }
-        return control.map { $0.p }
+        return best <= 0.13
     }
 
     // Sweep a small R-gon cross-section along `path` with parallel-transport frames (no twist) as ONE

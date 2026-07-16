@@ -123,7 +123,7 @@ final class LocateVoiceControl: ObservableObject {
     }
 
     func start() {
-        guard !listening, let recognizer else { return }
+        guard !listening, recognizer != nil else { return }
         denied = false; unavailable = false
         generation += 1
         let gen = generation
@@ -131,11 +131,14 @@ final class LocateVoiceControl: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, gen == self.generation else { return }   // stop()/re-toggle cancelled us
                 guard auth == .authorized else { self.denied = true; return }
-                // On-device support is re-checked AFTER authorization (it can read false until then,
-                // and until the asset downloads). We require it — audio must never leave the device
-                // (requiresOnDeviceRecognition below) — so if it's still unsupported, surface the
-                // honest "unavailable" fallback rather than silently doing nothing.
-                guard recognizer.supportsOnDeviceRecognition else { self.unavailable = true; return }
+                // We deliberately do NOT gate on `supportsOnDeviceRecognition` here. It reads false
+                // until the on-device language asset finishes downloading (which only STARTS after this
+                // first authorization) and is an unreliable predictor — gating on it reported "unavailable"
+                // on a perfectly capable device. Instead we just try: the request keeps
+                // requiresOnDeviceRecognition = true (audio never leaves the device), so if on-device
+                // truly can't run, the recognition task errors and the keep-alive backoff lands on
+                // `unavailable` after a few tries. (Simulator has no audio input → beginListening's
+                // sample-rate guard reports unavailable immediately.)
                 AVAudioSession.sharedInstance().requestRecordPermission { granted in
                     DispatchQueue.main.async {
                         guard gen == self.generation else { return }
@@ -157,7 +160,9 @@ final class LocateVoiceControl: ObservableObject {
         try? AVAudioSession.sharedInstance().setActive(true)
 
         let format = audioEngine.inputNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else { restoreSession(); return }   // no usable input route (Simulator quirk)
+        // No usable input route → there is no mic to listen with (the Simulator, or a device with no
+        // input). Report it honestly instead of silently no-op'ing the mic button.
+        guard format.sampleRate > 0 else { restoreSession(); unavailable = true; return }
         audioEngine.prepare()
         guard (try? audioEngine.start()) != nil else { restoreSession(); return }
 

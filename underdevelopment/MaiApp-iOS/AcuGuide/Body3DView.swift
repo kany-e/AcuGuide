@@ -712,25 +712,17 @@ struct SceneKitBody: UIViewRepresentable {
                 if !model.pointLabels.isEmpty { model.pointLabels = [] }
             }
 
-            // Acupoint markers are HIDDEN until you tap a region label (→ that region's points) or a
-            // meridian channel (→ that meridian's points). Keeps the full-body figure uncluttered.
-            // Newly revealed markers FADE in (0→1, ~0.3 s) so a focus reads as a gentle reveal —
-            // instant under Reduce Motion. The body is static so there's no facing fade to keep —
-            // the camera orbits and hitTest's nearest-first order handles occlusion.
+            // Acupoint DOTS are shown on the body so each meridian reads as its dots strung on the
+            // stroke (user-requested "----acupoint----acupoint----"). They fade in once (~0.3 s, instant
+            // under Reduce Motion); after that they stay put (the `where node.isHidden` skip makes the
+            // per-tick loop a no-op). Point-NAME labels still appear only for a tapped meridian / focused
+            // region (above), so the resting figure stays legible. hitTest's nearest-first order handles
+            // occlusion as the camera orbits.
             var revealed: [SCNNode] = []
-            for (id, node) in acuNodes {
-                let pt = Acupoint.byId[id]
-                let inRegion = model.focused != nil && model.focused?.id == pt?.region
-                let inMeridian = model.selectedMeridian != nil && model.selectedMeridian?.id == pt?.meridian
-                let show = inRegion || inMeridian
-                if show && node.isHidden {
-                    node.isHidden = false
-                    if UIAccessibility.isReduceMotionEnabled { node.opacity = 1.0 }
-                    else { node.opacity = 0.0; revealed.append(node) }
-                } else if !show && !node.isHidden {
-                    node.isHidden = true
-                    node.opacity = 1.0
-                }
+            for (_, node) in acuNodes where node.isHidden {
+                node.isHidden = false
+                if UIAccessibility.isReduceMotionEnabled { node.opacity = 1.0 }
+                else { node.opacity = 0.0; revealed.append(node) }
             }
             if !revealed.isEmpty {
                 SCNTransaction.begin()

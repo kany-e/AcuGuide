@@ -347,11 +347,12 @@ final class CoachEngine: ObservableObject {
         self.calibration = calibration
     }
     private let smoother = OneEuroPoint()        // target ring
-    // Second-hand press tip. Tuned heavier than the target ring: minCutoff 0.45 (more smoothing at
-    // rest — the tip should sit still while pressing; was 0.6, lowered another notch for the shaky
-    // top-down presser) and beta 0.8 (noise spikes read as "speed" and would otherwise disable
-    // smoothing exactly when the occluded tip wanders; user-reported drift).
-    private let pressSmoother = OneEuroPoint(OneEuroOptions(minCutoff: 0.45, beta: 0.8, dCutoff: 1.0))
+    // Second-hand press tip. Tuned much heavier than the target ring because the massaging fingertip is
+    // Vision's noisiest joint (it's the one doing the occluding): minCutoff 0.30 (heavy smoothing at rest —
+    // the tip should sit still while pressing; was 0.6 → 0.45 → 0.30, still reported shaky) and beta 0.4
+    // (LOW, so a noise spike read as "speed" can't disable the smoothing exactly when the occluded tip
+    // wanders — was 0.8). The small extra lag on a fast approach is an acceptable trade for a steady dot.
+    private let pressSmoother = OneEuroPoint(OneEuroOptions(minCutoff: 0.30, beta: 0.4, dCutoff: 1.0))
 
     // Sticky two-hand role tracking (stops the ring jumping between hands).
     private var lastReceiverWrist: CGPoint? = nil
