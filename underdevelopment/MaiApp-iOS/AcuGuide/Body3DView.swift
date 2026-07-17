@@ -712,17 +712,24 @@ struct SceneKitBody: UIViewRepresentable {
                 if !model.pointLabels.isEmpty { model.pointLabels = [] }
             }
 
-            // Acupoint DOTS are shown on the body so each meridian reads as its dots strung on the
-            // stroke (user-requested "----acupoint----acupoint----"). They fade in once (~0.3 s, instant
-            // under Reduce Motion); after that they stay put (the `where node.isHidden` skip makes the
-            // per-tick loop a no-op). Point-NAME labels still appear only for a tapped meridian / focused
-            // region (above), so the resting figure stays legible. hitTest's nearest-first order handles
-            // occlusion as the camera orbits.
+            // Acupoint DOTS are HIDDEN until you tap a meridian channel (→ that meridian's points) or a
+            // body region (→ that region's points) — the resting figure shows meridians only, uncluttered
+            // (user-directed). Newly revealed dots FADE in (~0.3 s, instant under Reduce Motion); leaving
+            // the selection hides them again. hitTest's nearest-first order handles occlusion on orbit.
             var revealed: [SCNNode] = []
-            for (_, node) in acuNodes where node.isHidden {
-                node.isHidden = false
-                if UIAccessibility.isReduceMotionEnabled { node.opacity = 1.0 }
-                else { node.opacity = 0.0; revealed.append(node) }
+            for (id, node) in acuNodes {
+                let pt = Acupoint.byId[id]
+                let inRegion = model.focused != nil && model.focused?.id == pt?.region
+                let inMeridian = model.selectedMeridian != nil && model.selectedMeridian?.id == pt?.meridian
+                let show = inRegion || inMeridian
+                if show && node.isHidden {
+                    node.isHidden = false
+                    if UIAccessibility.isReduceMotionEnabled { node.opacity = 1.0 }
+                    else { node.opacity = 0.0; revealed.append(node) }
+                } else if !show && !node.isHidden {
+                    node.isHidden = true
+                    node.opacity = 1.0
+                }
             }
             if !revealed.isEmpty {
                 SCNTransaction.begin()

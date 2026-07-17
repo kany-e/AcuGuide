@@ -116,6 +116,7 @@ struct PointInfoView: View {
     var onPractice: (_ point: Acupoint, _ rounds: Int, _ timerOnly: Bool) -> Void
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var favorites = Favorites.shared
+    @ObservedObject private var speaker = AtlasSpeaker.shared
     @State private var rounds = CoachConst.sessionRounds
 
     var body: some View {
@@ -134,6 +135,18 @@ struct PointInfoView: View {
                         Text(point.role).font(.caption).foregroundStyle(Ink.gold.opacity(0.9))
                     }
                     labeled(AppLocale.pick("定位", "Location"), point.location)
+                    // Plain-language "how to find it" (the same guide the on-camera locate step uses) —
+                    // easier to act on than the formal location.
+                    if point.hasFindGuide {
+                        labeled(AppLocale.pick("这样找", "How to find it"), point.findHow, tint: Ink.gold)
+                    }
+                    // Read the name + where-to-find aloud, for anyone who'd rather listen than read.
+                    Button { speaker.toggle(point.spokenInfo) } label: {
+                        Label(speaker.speaking ? AppLocale.pick("停止朗读", "Stop reading")
+                                                : AppLocale.pick("朗读位置与找法", "Read the location aloud"),
+                              systemImage: speaker.speaking ? "speaker.wave.2.fill" : "speaker.wave.2")
+                            .font(.subheadline.weight(.medium)).foregroundStyle(Ink.gold)
+                    }
                     labeled(AppLocale.pick("传统用途", "Traditional uses"), point.indications)
                     if !point.caution.isEmpty {
                         labeled(AppLocale.pick("注意", "Caution"), point.caution, tint: Ink.terracotta)
@@ -181,6 +194,7 @@ struct PointInfoView: View {
                                     : AppLocale.pick("收藏", "Add favorite"))
             }
         }
+        .onDisappear { speaker.stop() }
     }
 
     private var sessionMinutes: Int { Routine.minutes(forRounds: rounds) }

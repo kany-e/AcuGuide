@@ -145,9 +145,63 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     private func speak(_ text: String) {
         synth.stopSpeaking(at: .immediate)
         try? AVAudioSession.sharedInstance().setActive(true)
-        let u = AVSpeechUtterance(string: text)
-        u.voice = AVSpeechSynthesisVoice(language: AppLocale.speechLocaleID)
-        u.rate = AVSpeechUtteranceDefaultSpeechRate
-        synth.speak(u)
+        synth.speak(SpeechVoice.utterance(text))
     }
+}
+
+// Picks the most NATURAL available voice for a language and builds a calm utterance — shared by the
+// coach cues and the atlas read-aloud so both sound the same. Prefers premium > enhanced > default
+// (compact) quality: the enhanced/premium neural voices are the good-sounding ones, but the user has
+// to install them once in Settings → Accessibility → Spoken Content → Voices; if none is installed we
+// fall back to the built-in compact voice (still works, just more synthetic).
+enum SpeechVoice {
+    static func best(for localeID: String) -> AVSpeechSynthesisVoice? {
+        let lang = localeID.lowercased()
+        let prefix = String(lang.prefix(2))                      // "en", "zh"
+        let voices = AVSpeechSynthesisVoice.speechVoices().filter {
+            let vl = $0.language.lowercased()
+            return vl == lang || vl.hasPrefix(prefix)
+        }
+        func quality(_ v: AVSpeechSynthesisVoice) -> Int {
+            if #available(iOS 16.0, *), v.quality == .premium { return 3 }
+            return v.quality == .enhanced ? 2 : 1
+        }
+        // Exact-locale match wins, then highest quality, then a stable name order.
+        func rank(_ v: AVSpeechSynthesisVoice) -> Int { (v.language.lowercased() == lang ? 10 : 0) + quality(v) }
+        return voices.max { rank($0) != rank($1) ? rank($0) < rank($1) : $0.identifier > $1.identifier }
+            ?? AVSpeechSynthesisVoice(language: localeID)
+    }
+
+    // A calm, natural utterance in the current app language (a touch slower than default reads warmer).
+    static func utterance(_ text: String) -> AVSpeechUtterance {
+        let u = AVSpeechUtterance(string: text)
+        u.voice = best(for: AppLocale.speechLocaleID)
+        u.rate = AVSpeechUtteranceDefaultSpeechRate * 0.95
+        u.pitchMultiplier = 1.0
+        return u
+    }
+}
+
+// Reads acupoint info aloud in the atlas / detail cards — decoupled from the coach's CoachVoice so it
+// can be used anywhere a point is shown. Opt-in (a speaker button); toggling stops it. Uses .playback
+// so an explicit "read aloud" tap is audible even with the silent switch on.
+final class AtlasSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+    static let shared = AtlasSpeaker()
+    @Published private(set) var speaking = false
+    private let synth = AVSpeechSynthesizer()
+    override init() { super.init(); synth.delegate = self; synth.usesApplicationAudioSession = true }
+
+    func toggle(_ text: String) { speaking ? stop() : speak(text) }
+    func speak(_ text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers, .duckOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
+        synth.stopSpeaking(at: .immediate)
+        synth.speak(SpeechVoice.utterance(text))
+    }
+    func stop() { synth.stopSpeaking(at: .immediate) }
+
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didStart u: AVSpeechUtterance) { speaking = true }
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { speaking = false }
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) { speaking = false }
 }

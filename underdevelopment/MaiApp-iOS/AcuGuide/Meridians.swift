@@ -112,14 +112,15 @@ enum BodyAtlas {
         let mats = channelMaterials(meridian)
         let node = SCNNode()
         if tappable { node.name = "mer:" + meridian }   // tap hit-test resolves the channel → card
-        // Thin ink stroke (core) + a wider soft wash bleeding off it (halo) — brush on damp paper.
+        // Fine ink stroke (core) + a soft wash bleeding off it (halo) — brush on damp paper. Kept thin
+        // (core 0.0013, halo 0.0034 — was 0.0022/0.0052) so the channels read as hairline strokes.
         for i in 0 ..< path.count - 1 {
-            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0052, material: mats.halo))
-            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0022, material: mats.core))
+            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0034, material: mats.halo))
+            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0013, material: mats.core))
         }
-        // Small joint spheres fill the V-gaps where straight segments meet at bends.
+        // Small joint spheres fill the V-gaps where straight segments meet at bends (match the core).
         for p in path {
-            let s = SCNNode(geometry: SCNSphere(radius: 0.0022))
+            let s = SCNNode(geometry: SCNSphere(radius: 0.0013))
             s.geometry?.firstMaterial = mats.core
             s.simdPosition = p
             s.renderingOrder = 12

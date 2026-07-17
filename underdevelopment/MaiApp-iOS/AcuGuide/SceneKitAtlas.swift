@@ -415,12 +415,21 @@ enum AtlasMeshCache {
 // sit in the bottom card over the 3D model; the host adds its own practice button / credit below.
 struct AtlasPointCard: View {
     let pt: Acupoint
+    @ObservedObject private var speaker = AtlasSpeaker.shared
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 8) {
                 Circle().fill(MeridianColors.color(pt.meridian)).frame(width: 9, height: 9)
                 Text("\(pt.id) · \(pt.zh)").font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
                 Text(pt.en).font(Typo.code(15)).foregroundStyle(Ink.textDim)
+                // Read aloud: speaks the point's name + where to find it (for anyone who'd rather hear
+                // it than read, and hands-free while positioning the hand). Tap again to stop.
+                Button { speaker.toggle(pt.spokenInfo) } label: {
+                    Image(systemName: speaker.speaking ? "speaker.wave.2.fill" : "speaker.wave.2")
+                        .font(.caption).foregroundStyle(Ink.gold)
+                }
+                .accessibilityLabel(speaker.speaking ? AppLocale.pick("停止朗读", "Stop reading")
+                                                       : AppLocale.pick("朗读位置", "Read location aloud"))
             }
             // Meridian + standard English name ("Sanjiao · Central Islet").
             Text(pt.meridianName + (pt.englishName.isEmpty ? "" : " · \(pt.englishName)"))
@@ -430,8 +439,15 @@ struct AtlasPointCard: View {
                 Text(pt.role).font(.caption2).foregroundStyle(Ink.gold.opacity(0.85))
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             }
+            // WHERE it is: the formal location, then a plain-language "how to find it" that's easier to
+            // act on (the same guide the on-camera locate step uses).
             Text(pt.location).font(.caption).foregroundStyle(Ink.text)
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            if pt.hasFindGuide {
+                Text(AppLocale.pick("这样找：", "To find it: ") + pt.findHow)
+                    .font(.caption2).foregroundStyle(Ink.gold.opacity(0.9))
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
             if !pt.indications.isEmpty {
                 Text(pt.indications).font(.caption2).foregroundStyle(Ink.textDim)
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
@@ -441,7 +457,8 @@ struct AtlasPointCard: View {
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
+        .onDisappear { speaker.stop() }
     }
 }
 

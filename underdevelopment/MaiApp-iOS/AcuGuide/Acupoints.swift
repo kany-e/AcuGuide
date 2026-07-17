@@ -98,6 +98,16 @@ struct Acupoint: Identifiable, Hashable {
     var findHow: String { AppLocale.pick(Acupoint.findGuide[id]?.findZh ?? "", Acupoint.findGuide[id]?.findEn ?? "") }
     var findFeel: String { AppLocale.pick(Acupoint.findGuide[id]?.feelZh ?? "", Acupoint.findGuide[id]?.feelEn ?? "") }
 
+    // Plain read-aloud of WHERE the point is + how to find it, for the atlas "read aloud" button.
+    var spokenInfo: String {
+        var parts = [AppLocale.pick(zh, en), location]
+        if hasFindGuide {
+            parts.append(findHow)
+            if !findFeel.isEmpty { parts.append(findFeel) }
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: ". ")
+    }
+
     static let all: [Acupoint] = [
         // ── The one validated AR-coached point. ──────────────────────────────────────────────
         Acupoint(
