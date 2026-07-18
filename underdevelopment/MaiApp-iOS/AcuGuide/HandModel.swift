@@ -73,7 +73,9 @@ struct Hand {
     func pressTip(_ finger: HandJoint) -> (point: CGPoint, confidence: Float)? {
         if let tip = p(finger) { return (tip, confidence[finger] ?? 1) }   // fixtures: no dict → reliable
         guard finger == .indexTip, let dip = p(.indexDIP), let pip = p(.indexPIP) else { return nil }
-        return (CGPoint(x: dip.x + 0.9 * (dip.x - pip.x), y: dip.y + 0.9 * (dip.y - pip.y)), 0)
+        // k = 0.6 (was 0.9): a pressing finger is BENT at the DIP, so the tip curls short of a straight
+        // extension of the distal segment — a smaller step lands nearer the actual (occluded) fingertip.
+        return (CGPoint(x: dip.x + 0.6 * (dip.x - pip.x), y: dip.y + 0.6 * (dip.y - pip.y)), 0)
     }
 
     // Scale unit, invariant-ish to finger spread (wrist -> middle MCP).

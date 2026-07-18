@@ -332,9 +332,9 @@ final class AcuGuideTests: XCTestCase {
         pts[.indexTip] = nil
         let dropped = Hand(points: pts, chirality: .right, confidence: [.indexDIP: 0.9, .indexPIP: 0.9])
         let t = dropped.pressTip(.indexTip)!
-        XCTAssertEqual(Double(t.point.x), 0.40 + 0.9 * (0.40 - 0.44), accuracy: 1e-9,
-                       "missing tip → extend the DIP−PIP segment")
-        XCTAssertEqual(Double(t.point.y), 0.40 + 0.9 * (0.40 - 0.46), accuracy: 1e-9)
+        XCTAssertEqual(Double(t.point.x), 0.40 + 0.6 * (0.40 - 0.44), accuracy: 1e-9,
+                       "missing tip → extend the DIP−PIP segment (k=0.6, a bent finger curls short)")
+        XCTAssertEqual(Double(t.point.y), 0.40 + 0.6 * (0.40 - 0.46), accuracy: 1e-9)
         XCTAssertEqual(t.confidence, 0, "a reconstructed tip is an unmeasured guess — must not gate as reliable")
 
         // Nothing tracked on the finger → nil (the tip-grace path handles the gap).

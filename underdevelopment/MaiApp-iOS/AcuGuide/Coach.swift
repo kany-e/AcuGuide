@@ -356,12 +356,13 @@ final class CoachEngine: ObservableObject {
     // still following a deliberate move; the hand is mostly still during coaching so the small extra
     // lag is worth it. (Fixtures press a STATIONARY hand → constant input → One-Euro is exact, unaffected.)
     private let smoother = OneEuroPoint(OneEuroOptions(minCutoff: 0.5, beta: 1.0, dCutoff: 1.0))
-    // Second-hand press tip. Tuned much heavier than the target ring because the massaging fingertip is
-    // Vision's noisiest joint (it's the one doing the occluding): minCutoff 0.30 (heavy smoothing at rest —
-    // the tip should sit still while pressing; was 0.6 → 0.45 → 0.30, still reported shaky) and beta 0.4
-    // (LOW, so a noise spike read as "speed" can't disable the smoothing exactly when the occluded tip
-    // wanders — was 0.8). The small extra lag on a fast approach is an acceptable trade for a steady dot.
-    private let pressSmoother = OneEuroPoint(OneEuroOptions(minCutoff: 0.30, beta: 0.4, dCutoff: 1.0))
+    // Second-hand press tip. One-Euro has two ORTHOGONAL dials: minCutoff = jitter at REST, beta = lag
+    // during MOTION. minCutoff 0.30 keeps the tip rock-steady while pressing (the user's "shaky" report).
+    // But beta had been dropped to 0.4, which over-smoothed MOTION so the dot LAGGED behind the moving
+    // fingertip (user: "not accurately at the finger tip"). Restored beta to 1.2 so it tracks the finger
+    // as it moves onto the point, while staying smooth at rest (the velocity estimate is dCutoff-filtered,
+    // so resting noise doesn't spike the cutoff). The hand-jump shake is handled upstream by the face gate.
+    private let pressSmoother = OneEuroPoint(OneEuroOptions(minCutoff: 0.30, beta: 1.2, dCutoff: 1.0))
 
     // Sticky two-hand role tracking (stops the ring jumping between hands).
     private var lastReceiverWrist: CGPoint? = nil
