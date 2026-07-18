@@ -59,7 +59,9 @@ enum CoachConst {
     // held finger keeps the slot while it stays a candidate and isn't more than this isotropic margin
     // farther from the ring than the new nearest fingertip. Beyond that margin the press really moved
     // to another finger and we switch (and reset the tip smoother so it doesn't lerp across the gap).
-    static let presserHoldMargin: CGFloat = 0.04
+    // Widened 0.04 → 0.08 so a noisy on-device fingertip stops hopping between fingers (user-reported
+    // shaky tip) — still switches on a clear, sustained move to a different finger, so not rigid.
+    static let presserHoldMargin: CGFloat = 0.08
     // ── Guided locate (find-it-by-feel ON CAMERA, before coaching starts) ──────────────────────
     // The user follows the plain-language guide, presses around the dashed "about here" ring, and
     // confirms the spot that feels right; the confirmed press becomes their personal correction.
@@ -348,7 +350,12 @@ final class CoachEngine: ObservableObject {
         self.mode = initialMode
         self.calibration = calibration
     }
-    private let smoother = OneEuroPoint()        // target ring
+    // Target ring. Was the light web default (minCutoff 1.0, beta 1.5) which left the acupoint ring
+    // jittering with the receiving hand's noisy landmarks (user-reported "too shaky"). Heavier now
+    // (minCutoff 0.5 — more smoothing at rest, beta 1.0) so the ring sits steady on a held hand while
+    // still following a deliberate move; the hand is mostly still during coaching so the small extra
+    // lag is worth it. (Fixtures press a STATIONARY hand → constant input → One-Euro is exact, unaffected.)
+    private let smoother = OneEuroPoint(OneEuroOptions(minCutoff: 0.5, beta: 1.0, dCutoff: 1.0))
     // Second-hand press tip. Tuned much heavier than the target ring because the massaging fingertip is
     // Vision's noisiest joint (it's the one doing the occluding): minCutoff 0.30 (heavy smoothing at rest —
     // the tip should sit still while pressing; was 0.6 → 0.45 → 0.30, still reported shaky) and beta 0.4
@@ -496,7 +503,7 @@ final class CoachEngine: ObservableObject {
         if strongHands.isEmpty {
             (receiverOpt, presser) = (nil, hands.first)
         } else {
-            (receiverOpt, presser) = assignRoles(strongHands, target: target)
+            (receiverOpt, presser) = assignRoles(strongHands, target: target, requiresDorsal: point.requiresDorsal)
             if presser == nil, receiverOpt != nil { presser = hands.first(where: { $0.weak }) }
         }
         if receiverOpt == nil {
@@ -511,7 +518,7 @@ final class CoachEngine: ObservableObject {
                     return
                 }
                 roleReset(); lonePresserSince = nil
-                (receiverOpt, presser) = assignRoles(strongHands, target: target)   // lone strong hand = receiver
+                (receiverOpt, presser) = assignRoles(strongHands, target: target, requiresDorsal: point.requiresDorsal)   // lone strong hand = receiver
             }
         } else {
             lonePresserSince = nil
@@ -1052,7 +1059,7 @@ final class CoachEngine: ObservableObject {
         return (c.point, c.conf, changed)
     }
 
-    private func assignRoles(_ hands: [Hand], target: MediaPipeTarget) -> (Hand?, Hand?) {
+    private func assignRoles(_ hands: [Hand], target: MediaPipeTarget, requiresDorsal: Bool) -> (Hand?, Hand?) {
         // One hand: keep the sticky receiver/presser wrist anchors (a brief drop to one hand —
         // reaching, repositioning — should NOT discard the identity hysteresis; cleared only when
         // NO hands are present, via roleReset in update). But DO reset swapVotes: the one-hand gap
@@ -1080,14 +1087,25 @@ final class CoachEngine: ObservableObject {
         let a = hands[0], b = hands[1]
 
         // Heuristic preference: receiver = the hand whose target zone is nearest the
-        // OTHER hand's press tip (the original choice — preserved as the initial pick).
+        // OTHER hand's press tip (the original choice — the score tiebreak below).
         func score(_ recv: Hand, _ other: Hand) -> CGFloat {
             guard let t = recv.weightedTarget(target.anchors),
                   let tip = other.pressTip(target.pressFinger)?.point else { return .greatestFiniteMagnitude }
             return isoDist(t, tip)
         }
         let sA = score(a, b), sB = score(b, a)
-        let prefAIsReceiver = sA <= sB
+        // PRIMARY signal: the receiver is the hand whose FACE matches the point (dorsal for TE3). The
+        // massaging hand reaches in fingers-first and does NOT pass the face gate, so this separates the
+        // two robustly — unlike the symmetric nearest-target score, which oscillates when the hands
+        // overlap and flips the ring onto the massaging hand (worst on the two-person BACK camera,
+        // user-reported). Fall back to the score only when the face gate can't tell them apart (both or
+        // neither match, or a face is momentarily unreadable — isDorsal nil).
+        let faceA = a.isDorsal.map { $0 == requiresDorsal }
+        let faceB = b.isDorsal.map { $0 == requiresDorsal }
+        let prefAIsReceiver: Bool
+        if faceA == true, faceB != true { prefAIsReceiver = true }
+        else if faceB == true, faceA != true { prefAIsReceiver = false }
+        else { prefAIsReceiver = sA <= sB }
 
         // Match the two current hands to the previous roles by wrist proximity (Vision
         // does not give stable IDs across frames), then only flip on sustained disagreement.
