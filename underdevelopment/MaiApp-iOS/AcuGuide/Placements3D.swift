@@ -82,17 +82,6 @@ enum AcupointPlacements {
         "KI3":  Placement3D(body: [-0.105,  0.020, 0.110], detailUV: [-0.220, -0.100]),
     ]
 
-    // The on-body acupoint anchors for a meridian: every point that HAS a body coordinate and belongs to
-    // this meridian. Intended for threading the 3D channel stroke THROUGH its acupoint dots — currently
-    // UNUSED (R14.15/16 threading twisted and was reverted; the dots are drawn as separate markers). Kept
-    // for the eventual screenshot-verified threading pass. detailUV-only hand points have no body coord.
-    static func bodyAnchors(meridian: String) -> [SIMD3<Float>] {
-        Acupoint.all.compactMap { pt in
-            guard pt.meridian == meridian, let p = table[pt.id]?.body else { return nil }
-            return p
-        }
-    }
-
     // THE registry-consumption rule for detail sheets — PartDetail.byRegion, the hand sheet's
     // placeMarkers, and the snapshot test all read through here, so a change to what gets placed
     // (filtering, farSide policy) lands everywhere at once.

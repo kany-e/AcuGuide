@@ -517,15 +517,17 @@ final class CoachEngine: ObservableObject {
             lonePresserSince = nil
         }
         guard let receiver = receiverOpt else {
-            // Same tip handling as the main path: measured → smooth + draw; brief dropout → keep
-            // the dot within tipGraceS; expired → clear + reset the filter so a re-acquired tip
-            // doesn't lerp across the screen with stale velocity. BUT only draw the lone hand's tip if
-            // it's near the LAST known point (there's no fresh ring here): otherwise the "occluding
-            // presser" assumption is wrong — the lone hand is some other hand or the weakly-seen
-            // RECEIVER — and painting its fingertip is the wrong-hand jump the user reported.
-            if let presser, let tip = presser.pressTip(target.pressFinger),
-               overlay.ringCenter.map({ isoDist(tip.point, $0) <= max(overlay.ringRadius * 3, 0.12) }) ?? true {
-                overlay.pressTip = pressSmoother.filter(tip.point, now); lastTipT = now
+            // Receiver occluded: resolve the press dot through the SAME selectPresserTip path as the
+            // main press (any finger, identity-hold, changed→smoother-reset), gated to the LAST known
+            // ring (there's no fresh one) — so a non-index press and the tip smoother stay consistent
+            // across the occlusion boundary, and only a fingertip near the last point is painted (not a
+            // stray/weakly-seen hand far away, the wrong-hand jump). No ring ever established → no
+            // reference → no dot. Brief dropout keeps the last dot within tipGraceS; expired clears.
+            if let ring = overlay.ringCenter,
+               let measured = selectPresserTip(hands: hands, receiverWrist: nil, ringCenter: ring,
+                                               acquireRadius: max(overlay.ringRadius * 3, 0.12)) {
+                if measured.changed { pressSmoother.reset() }
+                overlay.pressTip = pressSmoother.filter(measured.point, now); lastTipT = now
             } else if pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {
                 // keep the last dot
             } else {

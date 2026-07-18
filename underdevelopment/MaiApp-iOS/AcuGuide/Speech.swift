@@ -155,7 +155,11 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
 // to install them once in Settings → Accessibility → Spoken Content → Voices; if none is installed we
 // fall back to the built-in compact voice (still works, just more synthetic).
 enum SpeechVoice {
+    // The best installed voice per locale is stable for the session — cache it so we don't enumerate
+    // the whole system voice catalog on every spoken cue. (Main-thread only, like all speak() calls.)
+    private static var cache: [String: AVSpeechSynthesisVoice?] = [:]
     static func best(for localeID: String) -> AVSpeechSynthesisVoice? {
+        if let hit = cache[localeID] { return hit }
         let lang = localeID.lowercased()
         let prefix = String(lang.prefix(2))                      // "en", "zh"
         let voices = AVSpeechSynthesisVoice.speechVoices().filter {
@@ -168,8 +172,10 @@ enum SpeechVoice {
         }
         // Exact-locale match wins, then highest quality, then a stable name order.
         func rank(_ v: AVSpeechSynthesisVoice) -> Int { (v.language.lowercased() == lang ? 10 : 0) + quality(v) }
-        return voices.max { rank($0) != rank($1) ? rank($0) < rank($1) : $0.identifier > $1.identifier }
+        let chosen = voices.max { rank($0) != rank($1) ? rank($0) < rank($1) : $0.identifier > $1.identifier }
             ?? AVSpeechSynthesisVoice(language: localeID)
+        cache[localeID] = chosen
+        return chosen
     }
 
     // A calm, natural utterance in the current app language (a touch slower than default reads warmer).
@@ -202,6 +208,14 @@ final class AtlasSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     func stop() { synth.stopSpeaking(at: .immediate) }
 
     func speechSynthesizer(_ s: AVSpeechSynthesizer, didStart u: AVSpeechUtterance) { speaking = true }
-    func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { speaking = false }
-    func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) { speaking = false }
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { speaking = false; restore() }
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) { speaking = false; restore() }
+
+    // Restore the app's gentle silent-switch-respecting default when a read-aloud ends, so the
+    // .playback/.duckOthers we set for it doesn't leak app-wide — otherwise other apps stay ducked and
+    // later coach cues (CoachVoice sets .ambient only once in init) would play over the silent switch.
+    private func restore() {
+        try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
 }

@@ -458,6 +458,9 @@ struct AtlasPointCard: View {
             }
         }
         .accessibilityElement(children: .contain)
+        // Stop the previous point's narration when the card is swapped in place to another marker
+        // (the sheet reuses this view, so .onDisappear does NOT fire on a point change) or dismissed.
+        .onChange(of: pt.id) { _ in speaker.stop() }
         .onDisappear { speaker.stop() }
     }
 }

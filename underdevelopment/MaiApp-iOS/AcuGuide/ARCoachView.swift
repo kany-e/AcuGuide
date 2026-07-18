@@ -111,6 +111,17 @@ struct ARCoachView: View {
         .onChange(of: voice.isSpeaking) { locateVoice.setAppSpeaking($0) }
         // Leaving the locate step by ANY path shuts the mic — listening is locate-scoped.
         .onChange(of: engine.mode) { if $0 == .coach { locateVoice.stop() } }
+        // The .ready spoken cue is suppressed WHILE listening (so the app doesn't talk over the confirm)
+        // and deliberately not marked as spoken. If the user turns the mic off while still settled at
+        // .ready, re-speak it now — handleLocateChange only fires on a locateState CHANGE, so otherwise
+        // the cue would be lost until the state bounces out of .ready. (The VoiceOver announcement was
+        // already posted when .ready was reached, so eyes-free users weren't left silent regardless.)
+        .onChange(of: locateVoice.listening) { listening in
+            if !listening, engine.mode == .locate, engine.locateState == .ready, !userPaused, !endedEarly {
+                voice.updateLocate(state: .ready, requiresDorsal: acupoint.requiresDorsal,
+                                   selfCoaching: camera.usingFront, voiceConfirmActive: false)
+            }
+        }
         .onDisappear { locateVoice.stop(); camera.stop(); voice.reset() }
     }
 
