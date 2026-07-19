@@ -148,7 +148,7 @@ final class LocateVoiceControl: ObservableObject {
     }
 
     private func beginListening() {
-        guard !listening, let recognizer else { return }
+        guard !listening, recognizer != nil else { return }   // armTask re-binds it where it's used
         // .playAndRecord so CoachVoice's spoken cues keep working while the mic is open;
         // defaultToSpeaker keeps them audible, allowBluetoothA2DP keeps output on the user's
         // headphones (without it, enabling the mic yanks audio to the phone speaker).
