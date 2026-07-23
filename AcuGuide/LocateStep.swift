@@ -142,14 +142,24 @@ struct LocateCard: View {
                 // Hands-free confirm: both hands are pressing, so the confirm can be SPOKEN.
                 // Opt-in per session; on-device recognition only (hidden when unsupported).
                 if voiceControl.available {
+                    // NAMED, not a bare icon. This was an unlabeled mic glyph in a small circle,
+                    // last in the row behind a Spacer — the weakest element on the card — so new
+                    // users never discovered that the confirm can be spoken at all (user-reported).
+                    // A capsule with a visible word and a >=44 pt target says what it does.
                     Button { voiceControl.toggle() } label: {
-                        Image(systemName: voiceControl.listening ? "mic.fill" : "mic")
-                            .font(.subheadline)
-                            .foregroundStyle(voiceControl.listening ? Ink.gold : Ink.textDim)
-                            .padding(8)
-                            .background(Circle().stroke(voiceControl.listening ? Ink.gold : Ink.line,
-                                                        lineWidth: 1))
+                        HStack(spacing: 5) {
+                            Image(systemName: voiceControl.listening ? "mic.fill" : "mic")
+                            Text(voiceControl.listening ? AppLocale.pick("在听", "Listening")
+                                                        : AppLocale.pick("免提", "Hands-free"))
+                        }
+                        .font(.caption.bold())
+                        .foregroundStyle(voiceControl.listening ? Ink.gold : Ink.textDim)
+                        .padding(.horizontal, 11)
+                        .frame(minHeight: 44)
+                        .background(Capsule().stroke(voiceControl.listening ? Ink.gold : Ink.line,
+                                                     lineWidth: 1))
                     }
+                    .contentShape(Capsule())
                     .accessibilityLabel(voiceControl.listening
                         ? AppLocale.pick("停止语音确认", "Stop voice confirm")
                         : AppLocale.pick("开启语音确认", "Enable voice confirm"))
@@ -174,8 +184,12 @@ struct LocateCard: View {
                 Text(voiceControl.listening
                      ? AppLocale.pick("几秒内点击，或直接说「就是这里」。",
                                       "Tap within a few seconds — or just say \"this is my spot\".")
-                     : AppLocale.pick("几秒内点击即可 — 再按一次那个点可重新确认。",
-                                      "Tap within a few seconds — pressing the spot again re-arms it."))
+                     // OFF state now NAMES the hands-free option, so it is discoverable without
+                     // having to switch it on first. Deliberately GENERIC — no literal confirm
+                     // phrase here: VoiceOver may read this aloud while the mic is live, and a
+                     // matchable phrase coming out of the speaker would self-confirm.
+                     : AppLocale.pick("几秒内点击即可 — 或开启「免提」，不用腾出手也能确认。",
+                                      "Tap within a few seconds — or turn on Hands-free to confirm without freeing a hand."))
                     .font(.caption2).foregroundStyle(Ink.textDim)
             } else if calibration.hasCalibration(point.id) {
                 Text(AppLocale.pick("确认后会替换你保存的位置（小圆点）。",

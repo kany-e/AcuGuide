@@ -74,7 +74,7 @@ struct PartModel3DView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.allowsCameraControl = true
         view.autoenablesDefaultLighting = false
-        view.antialiasingMode = .multisampling4X
+        view.antialiasingMode = .multisampling2X   // 4X is the macOS default; halve the sample cost on phones
 
         let scene = SCNScene()
         AtlasMarkers.addStudioLighting(to: scene)

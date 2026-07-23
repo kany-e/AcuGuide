@@ -82,18 +82,36 @@ struct Body3DView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea()
 
-            // Acupoint name tags floating on the selected meridian's markers ("their names display
-            // as you tap the channel"). Non-interactive — taps still reach the 3D markers/channels.
+            // Acupoint name tags floating beside the selected meridian's markers ("their names
+            // display as you tap the channel").
+            //
+            // These used to be `.allowsHitTesting(false)` while being drawn up to ±58 pt to the SIDE
+            // of the dot they name — so tapping the thing that looks and reads like a button was a
+            // guaranteed miss, and the user had to hit a ~6 pt dot instead. That is the main reason
+            // "when you click on labels, it doesn't respond". The tag now selects its own point:
+            // PLabel.id IS the acupoint id, so it maps straight through Acupoint.byId. Only the tag
+            // capsule is hit-testable (the ZStack itself stays transparent to touches), so taps on
+            // empty space still reach the 3D markers and channels underneath.
             ZStack {
                 ForEach(model.pointLabels) { lab in
-                    pointTag(lab)
-                        .position(x: lab.point.x + lab.dx, y: lab.point.y)
-                        .opacity(lab.opacity)
+                    Button {
+                        guard let pt = Acupoint.byId[lab.id] else { return }
+                        model.selectedMeridian = nil
+                        model.pointLabels = []
+                        model.selectedPoint = pt
+                    } label: {
+                        pointTag(lab)
+                    }
+                    .buttonStyle(.plain)
+                    .position(x: lab.point.x + lab.dx, y: lab.point.y)
+                    .opacity(lab.opacity)
+                    .allowsHitTesting(lab.opacity > 0.35)   // don't tap a nearly-faded tag
+                    .accessibilityLabel(lab.text)
+                    .accessibilityAddTraits(.isButton)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea()
-            .allowsHitTesting(false)
 
             // Full-body model.glb decode in flight → centered spinner (the capsule placeholder
             // renders beneath it until the figure swaps in).
@@ -474,7 +492,7 @@ struct SceneKitBody: UIViewRepresentable {
         view.backgroundColor = .clear
         view.allowsCameraControl = true
         view.autoenablesDefaultLighting = false   // its omni light glosses the body; light softly instead
-        view.antialiasingMode = .multisampling4X
+        view.antialiasingMode = .multisampling2X   // iOS default is .none; 4X is the macOS default and was quadrupling sample cost
 
         let scene = SCNScene()
         addSoftLighting(to: scene)                // ambient + low fill, no bright directional
@@ -528,6 +546,12 @@ struct SceneKitBody: UIViewRepresentable {
                     cam.camera?.fieldOfView = 50
                     cam.camera?.zNear = 0.01
                     cam.camera?.zFar = Double(radius) * 400 + 100
+                    // Don't RENDER the invisible tap proxies. They are 0.03-radius tubes (9x the
+                    // visible halo) that write no color but were still vertex-shaded and rasterized
+                    // double-sided every frame, and their screen coverage grows with zoom — which is
+                    // exactly when the user reported lag. view.hitTest passes no categoryBitMask, so
+                    // they remain fully tappable.
+                    cam.camera?.categoryBitMask = ~BodyAtlas.proxyCategory
                     cam.position = SCNVector3(0, 0, radius * 11)
                     scene.rootNode.addChildNode(cam)
                     view.pointOfView = cam
@@ -572,6 +596,11 @@ struct SceneKitBody: UIViewRepresentable {
         func attach(view: SpinSCNView, spin: SCNNode) {
             self.view = view; self.spin = spin
             let l = CADisplayLink(target: self, selector: #selector(tick))
+            // Ask the OS for ~30 fps instead of firing at the display's native rate and throwing the
+            // work away in software: on a ProMotion iPhone this callback was being delivered 120x/s
+            // on the MAIN thread, and .common mode means it keeps firing during a pinch/drag, where
+            // it competes with touch delivery. The body of tick() still guards on lastPublish.
+            l.preferredFrameRateRange = CAFrameRateRange(minimum: 20, maximum: 30, preferred: 30)
             l.add(to: .main, forMode: .common)
             l.isPaused = !model.atlasVisible
             link = l
@@ -886,11 +915,17 @@ struct BrushLabel: View {
                 .foregroundStyle(Ink.brush)
                 .shadow(color: Ink.paperLight.opacity(0.95), radius: 1.6)
                 .shadow(color: Ink.paperLight.opacity(0.7), radius: 0.6)
+                // The ink stays 19 pt, but the TAP TARGET grows to Apple's 44x44 minimum. The
+                // button's content was a bare single CJK glyph (~19x25 pt), less than a third of
+                // the recommended area, on a label that also drifts as the body auto-rotates —
+                // which is why taps on the region labels so often did nothing (user-reported).
+                .frame(minWidth: 44, minHeight: 44)
         }
         .buttonStyle(BrushPressStyle(hovering: hovering))
         .onHover { hovering = $0 }
         .contentShape(Rectangle())
         .accessibilityLabel(text)
+        .accessibilityAddTraits(.isButton)
     }
 }
 

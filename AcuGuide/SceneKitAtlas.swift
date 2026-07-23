@@ -25,8 +25,12 @@ enum AtlasMarkers {
     // A tappable acupoint marker: glowing core + softer halo, named "acu:<id>" for hit-testing.
     static func node(id: String, color: UIColor, coreRadius: CGFloat, haloRadius: CGFloat,
                      at pos: SCNVector3, depthTested: Bool = false) -> SCNNode {
-        let core = SCNSphere(radius: coreRadius); core.firstMaterial = glowMat(color, 1.0, depthTested: depthTested)
-        let halo = SCNSphere(radius: haloRadius); halo.firstMaterial = glowMat(color, 0.22, depthTested: depthTested)
+        // segmentCount 12 (SceneKit's default is 24 => 1,104 triangles EACH): these render a few
+        // pixels across, and there are two per acupoint across ~30 points.
+        let core = SCNSphere(radius: coreRadius); core.segmentCount = 12
+        core.firstMaterial = glowMat(color, 1.0, depthTested: depthTested)
+        let halo = SCNSphere(radius: haloRadius); halo.segmentCount = 12
+        halo.firstMaterial = glowMat(color, 0.22, depthTested: depthTested)
         let node = SCNNode(geometry: core)
         let h = SCNNode(geometry: halo); h.renderingOrder = 14
         node.addChildNode(h)

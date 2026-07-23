@@ -25,6 +25,10 @@ enum BodyAtlas {
     // matches every category.)
     static let surfaceCategory = 1
     static let decorationCategory = 2
+    // Invisible tap-proxy tubes. Own bit so the CAMERA can skip rendering them while view.hitTest
+    // (which passes no categoryBitMask) still returns them. Surface raycasts match surfaceCategory
+    // only, so this bit is excluded from those automatically.
+    static let proxyCategory = 4
 
     // ---- Bind-pose bone positions in mesh space (from model.glb inverseBindMatrices) ----
     static let bone: [String: SIMD3<Float>] = [
@@ -83,8 +87,11 @@ enum BodyAtlas {
         root.addChildNode(channel(spine, dx: 0, meridian: "ren", mesh: mesh, front: true))
         root.addChildNode(channel(spine, dx: 0, meridian: "du",  mesh: mesh, front: false))
         // Everything built above is decoration: exclude it from the surface-snap raycasts (see
-        // surfaceCategory). categoryBitMask is NOT inherited, so stamp every node in the tree.
-        root.enumerateHierarchy { n, _ in n.categoryBitMask = decorationCategory }
+        // surfaceCategory). categoryBitMask is NOT inherited, so stamp every node in the tree —
+        // but do NOT clobber the tap proxies, which carry their own bit so the camera can cull them.
+        root.enumerateHierarchy { n, _ in
+            if n.categoryBitMask != proxyCategory { n.categoryBitMask = decorationCategory }
+        }
         return root
     }
 
@@ -112,30 +119,59 @@ enum BodyAtlas {
         let mats = channelMaterials(meridian)
         let node = SCNNode()
         if tappable { node.name = "mer:" + meridian }   // tap hit-test resolves the channel → card
+
+        // ── The VISIBLE stroke, built into its own subtree so it can be flattened. ──────────────
+        // PERFORMANCE (user-reported: "very laggy, even on my new phone when you zoom in"). Every
+        // segment used to be its own SCNNode+SCNGeometry: ~5,700 nodes across the 18 channels, i.e.
+        // ~5,700 draw calls, ALL alpha-blended — so SceneKit also re-sorted them back-to-front every
+        // frame the camera moved, which is every frame of a pinch. The geometry is unchanged (same
+        // path, same radii, same materials); only the node/draw-call structure is.
+        let visual = SCNNode()
         // Fine ink stroke (core) + a soft wash bleeding off it (halo) — brush on damp paper. Kept thin
         // (core 0.0013, halo 0.0034 — was 0.0022/0.0052) so the channels read as hairline strokes.
         for i in 0 ..< path.count - 1 {
-            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0034, material: mats.halo))
-            node.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0013, material: mats.core))
+            visual.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0034, material: mats.halo))
+            visual.addChildNode(tube(from: path[i], to: path[i + 1], radius: 0.0013, material: mats.core))
         }
         // Small joint spheres fill the V-gaps where straight segments meet at bends (match the core).
+        // ONE shared low-poly geometry per channel: SCNSphere defaults to segmentCount 24 (1,104
+        // triangles EACH), and there are ~109 beads per channel — that alone was ~2M triangles of
+        // sub-pixel decoration on a 1,388-triangle body. At radius 0.0013 (0.07% of the body) six
+        // segments is indistinguishable. Per channel, not global, so the shared core material stays
+        // per-channel and setChannelHighlight can't bleed one meridian's hue into another.
+        let bead = SCNSphere(radius: 0.0013)
+        bead.segmentCount = 6
+        bead.firstMaterial = mats.core
         for p in path {
-            let s = SCNNode(geometry: SCNSphere(radius: 0.0013))
-            s.geometry?.firstMaterial = mats.core
+            let s = SCNNode(geometry: bead)
             s.simdPosition = p
-            s.renderingOrder = 12
-            node.addChildNode(s)
+            visual.addChildNode(s)
         }
-        // Modest, fully-transparent hit-proxy tubes (children of the named node) so a tap near the
-        // hairline channel still selects it — but small enough not to swallow taps meant for the
-        // region labels / empty body. Only added when the channel is tappable.
+        // Merge the whole stroke into one geometry per material (core / halo). flattenedClone bakes
+        // the child transforms and groups by material — it cannot move a vertex, so the stroke shape
+        // is bit-identical; this is purely a draw-call collapse (~320 nodes -> 1 per channel).
+        let flat = visual.flattenedClone()
+        flat.renderingOrder = 12                // draw on top of the translucent body (was per-tube)
+        node.addChildNode(flat)
+
+        // ── Invisible tap proxies, kept OUT of the flattened stroke. ────────────────────────────
+        // Modest, fully-transparent hit-proxy tubes so a tap near the hairline channel still selects
+        // it — but small enough not to swallow taps meant for the region labels / empty body. They
+        // live under their own node with `proxyCategory` so the camera can skip RENDERING them (at
+        // radius 0.03 — 9x the visible halo — they were being rasterized full-screen on every zoom)
+        // while `view.hitTest` still returns them: hitTest matches all categories unless a
+        // categoryBitMask option is passed, and Body3DView's tap does not pass one.
         if tappable {
+            let proxies = SCNNode()
+            let proxyMat = hitProxyMaterial()   // one material, not one per segment
             let step = max(1, path.count / 16)
             var i = 0
             while i + step < path.count {
-                node.addChildNode(tube(from: path[i], to: path[i + step], radius: 0.03, material: hitProxyMaterial()))
+                proxies.addChildNode(tube(from: path[i], to: path[i + step], radius: 0.03, material: proxyMat))
                 i += step
             }
+            node.addChildNode(proxies)
+            proxies.enumerateHierarchy { n, _ in n.categoryBitMask = proxyCategory }
         }
         return node
     }
@@ -381,11 +417,16 @@ enum BodyAtlas {
         let ink = inkTint(meridian)
         for node in nodes {
             node.enumerateHierarchy { n, _ in
-                guard let mat = n.geometry?.firstMaterial, mat.colorBufferWriteMask != [] else { return }
-                mat.diffuse.contents = on ? hue : ink
-                if mat.emission.contents != nil {          // the soft wash halo
-                    mat.emission.contents = on ? hue : ink
-                    mat.emission.intensity = on ? 1.1 : 0.6
+                // Iterate ALL materials, not just firstMaterial: the stroke is flattened into one
+                // geometry per channel, so core and halo are two ELEMENTS of a single geometry and
+                // only looking at firstMaterial would leave the wash un-highlighted.
+                guard let mats = n.geometry?.materials else { return }
+                for mat in mats where mat.colorBufferWriteMask != [] {
+                    mat.diffuse.contents = on ? hue : ink
+                    if mat.emission.contents != nil {      // the soft wash halo
+                        mat.emission.contents = on ? hue : ink
+                        mat.emission.intensity = on ? 1.1 : 0.6
+                    }
                 }
             }
         }
