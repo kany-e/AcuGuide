@@ -1,3 +1,8 @@
+> **HISTORICAL.** This prompt was written against the pre-`edeeade` layout, when the app lived at
+> `underdevelopment/MaiApp-iOS/`. The app is now at the **repository root** (`AcuGuide/`,
+> `AcuGuideTests/`, `project.yml`) and the web prototypes are under `archive/`. Paths below are
+> kept verbatim as a record of what was asked at the time — do not follow them literally.
+
 # Claude Code prompt — make the native iOS (SwiftUI) port build, run, and feel right
 
 Paste everything below the line into Claude Code, running **from the repo root on a Mac with

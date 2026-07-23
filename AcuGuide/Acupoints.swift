@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Acupoint dataset — hand set ported from MaiApp/src/data.js, body regions added later (all
+// Acupoint dataset — hand set ported from archive/MaiApp/src/data.js, body regions added later (all
 // WHO-2008 sourced). x,y are legacy 360×440 hand-chart coordinates (still used by search/data
 // provenance only — ALL 3D marker positions are authored in AcupointPlacements, Placements3D.swift).
 // `mediapipeTarget` drives the AR coach and is non-nil for the EIGHT documented coached points

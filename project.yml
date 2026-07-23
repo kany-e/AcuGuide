@@ -17,7 +17,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
 
 packages:
-  # Loads MaiApp/model.glb at runtime (no usdz conversion) — same asset as the web app.
+  # Loads AcuGuide/Resources/model.glb at runtime (no usdz conversion) — the same asset as the
+  # retired web atlas, archive/MaiApp/model.glb.
   # Binary xcframework, pinned for reproducibility.
   GLTFKit2:
     url: https://github.com/warrenm/GLTFKit2
@@ -29,7 +30,18 @@ targets:
     platform: iOS
     deploymentTarget: "16.0"
     sources:
+      # Everything except the pre-rendered voice clips, which need a folder reference (below).
       - path: AcuGuide
+        excludes:
+          - "VoiceClips"
+      # FOLDER REFERENCE, not a group: a group would flatten all 102 clips into the .app root,
+      # where they share one namespace with model.glb, the fonts and AcupointHead.mlmodelc (119
+      # loose entries) and where `VoiceClips.url(for:)`'s `subdirectory: "VoiceClips"` lookup can
+      # never resolve -- it only worked via the flat `??` fallback. This copies the directory
+      # intact to AcuGuide.app/VoiceClips/, so the primary lookup is the one that answers.
+      - path: AcuGuide/VoiceClips
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: GLTFKit2
     # Generated Info.plist (so UIAppFonts — an array — can be declared; not expressible as an
@@ -77,8 +89,14 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.acuguide.ios.tests
         GENERATE_INFOPLIST_FILE: YES
+        # Match the app (iPhone-only). Without this the test bundle inherits XcodeGen's
+        # iPhone+iPad default and disagrees with its own host.
+        TARGETED_DEVICE_FAMILY: "1"
     dependencies:
       - target: AcuGuide
+      # DetailSnapshotTests imports GLTFKit2 directly. It links today only because the host app
+      # embeds the framework and Swift autolinks it — declare it so the dependency is explicit.
+      - package: GLTFKit2
 
 schemes:
   AcuGuide:

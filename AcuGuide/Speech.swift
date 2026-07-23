@@ -227,10 +227,14 @@ final class AtlasSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     func toggle(_ text: String) { speaking ? stop() : speak(text) }
     func speak(_ text: String) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers, .duckOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        // Stop the previous utterance BEFORE claiming the session. Stopping fires that utterance's
+        // completion handler, which calls restore() and hands the session back to .ambient — so doing
+        // this after setCategory/setActive would tear down the session we just set up and leave the
+        // new read-aloud playing under .ambient, i.e. silenced by the hardware mute switch.
         synth.stopSpeaking(at: .immediate)
         clip.stop()
+        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers, .duckOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
         if let url = VoiceClips.url(for: text) {
             speaking = true
             let started = clip.play(url) { [weak self] in self?.speaking = false; self?.restore() }

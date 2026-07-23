@@ -28,18 +28,26 @@ user would have to find it themselves, and Chinese caps at "Enhanced". Pre-rende
 2. `VoiceScriptTests.testDumpVoiceScriptManifest` prints that list as JSON between
    `<<<VOICE_SCRIPT_BEGIN>>>` / `<<<VOICE_SCRIPT_END>>>` markers.
 3. `render_voice.py` renders each line and encodes it to AAC named `<key>.m4a`, where
-   `key = sha256("<locale>|<normalized text>")[:16]` — the same key `VoiceClips.key(_:locale:)` computes
-   at runtime.
-4. At runtime `CoachVoice`/`AtlasSpeaker` look the clip up and play it; **if it's missing they fall back
-   to `AVSpeechSynthesizer`**, so a reworded or newly added line is still spoken, just in the system voice.
-5. `VoiceScriptTests.testEverySpokenLineHasABundledClip` fails when a spoken line has no clip, so drift
-   is caught at build time.
+   `key = sha256("<locale>|<normalized text>").digest()[:16].hex()` — the first 16 **bytes** of the
+   digest, i.e. a **32-character** hex filename. Same key `VoiceClips.key(_:locale:)` computes at runtime.
+4. The clips ship as a **folder reference** (`project.yml` declares `AcuGuide/VoiceClips` with
+   `type: folder`) so they land in `AcuGuide.app/VoiceClips/` rather than being flattened into the
+   bundle root. At runtime `CoachVoice`/`AtlasSpeaker` look the clip up and play it; **if it's missing
+   they fall back to `AVSpeechSynthesizer`**, so a reworded or new line is still spoken, in the system voice.
+5. `VoiceScriptTests` catches drift in **both** directions at build time:
+   `testEverySpokenLineHasABundledClip` fails on a line with no clip, and
+   `testNoOrphanedClipsAreShipped` fails on a clip no line can reach (re-rendering copies in but never
+   prunes). `SafetyInvariantTests` additionally scans the spoken script for forbidden claim language —
+   worth remembering that a bad line is baked into AUDIO and cannot be hot-fixed by editing a string.
 
 ## Re-rendering (after changing any spoken copy, or to change voice)
 
 ```bash
-# 1. dump the manifest from the app's own phrase tables
-make test 2>&1 | tee /tmp/voice.log
+# 0. everything below runs from tools/voice/
+cd "$(git rev-parse --show-toplevel)/tools/voice"
+
+# 1. dump the manifest from the app's own phrase tables (make lives at the repo root)
+(cd "$(git rev-parse --show-toplevel)" && make test) 2>&1 | tee /tmp/voice.log
 python3 - <<'PY'
 import re, json
 log = open("/tmp/voice.log", errors="ignore").read()
@@ -52,9 +60,16 @@ pip3 install sherpa-onnx
 curl -L -o k.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2
 tar xjf k.tar.bz2 && rm k.tar.bz2
 
-# 3. render (~35 min for the full script) and install
+# 3. render (~35 min for the full script) and install.
+#    Start from an empty out_clips so a reworded line cannot leave its old clip behind, and REPLACE
+#    the shipped directory rather than merging into it — testNoOrphanedClipsAreShipped fails on any
+#    clip the script can no longer reach.
+rm -rf out_clips
 python3 render_voice.py
+rm -f ../../AcuGuide/VoiceClips/*.m4a
 cp out_clips/*.m4a ../../AcuGuide/VoiceClips/
+#    voice_manifest.json stays HERE (tools/voice/) as the render record — it is deliberately not
+#    shipped in the app bundle, because nothing reads it at runtime.
 
 # voice comparison samples only (fast):
 python3 render_voice.py --samples-only

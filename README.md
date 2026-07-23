@@ -17,6 +17,7 @@ AcuGuideTests/         # unit tests
 project.yml            # XcodeGen spec — the project is generated, never hand-assembled
 Makefile               # make project / build / test
 claude-deliverables/   # CV research, acupoint sources, and the replay fixtures the tests bundle
+tools/voice/           # offline Kokoro renderer for the pre-rendered voice clips
 docs/                  # privacy policy, icon drafts
 archive/               # superseded work, kept for reference — nothing here is built (see below)
 ```
@@ -32,14 +33,14 @@ docs and the old web-era `README-web-apps.md`. **Nothing in `archive/` is part o
 | `AcuGuideApp.swift` | App entry. |
 | `RootView.swift` | Tab nav: **Atlas · Coach · Coach AI**; Atlas drills body → hand → back; launches the AR coach. |
 | `Theme.swift` | Ink-and-gold palette (1:1 with the archived web app's `styles.css` tokens) + panel/button styles. |
-| `Acupoints.swift` | Full bilingual hand atlas (TE3 + PC6/SJ5/PC8/HT7/SI3; TE3 only AR; no LI4). |
+| `Acupoints.swift` | Full bilingual atlas — 30 sourced points across hand, face, torso, arm and leg; TE3 is the only AR-coached one; LI4 excluded. |
 | `Body3DView.swift` | SceneKit body — loads `model.glb` via **GLTFKit2** (sage material), capsule fallback; pulsing hand hotspot. |
 | `HandModel3DView.swift` | Detailed 3D hand drill-down (scribbletoad's CC-BY model) with raycast acupoint markers. |
 | `HandModel.swift` | Vision joints + geometry: `weightedTarget`, `handSize`, **calibrated dorsal/palmar test**. |
 | `Coach.swift` | `CoachEngine` — position + hold + steadiness state machine (no cadence; correct technique). |
 | `CameraCoach.swift` | AVCapture + `VNDetectHumanHandPoseRequest` → drives `CoachEngine`; camera preview. |
 | `ARCoachView.swift` | Safety gate (forced) → live overlay (ring/finger/feedback) → recap. |
-| `ChatView.swift` | Themed bilingual coach chat + `ChatService` (plug in your LLM key). |
+| `ChatView.swift` | Themed bilingual coach chat + `ChatService` — fully on-device, no API key, no network. |
 
 ## Setup (Xcode, on your Mac)
 The project is **generated from `project.yml`** — no hand-assembly. You need
@@ -56,7 +57,7 @@ The project is **generated from `project.yml`** — no hand-assembly. You need
 2. **Build / test from the CLI** (no Xcode UI needed):
    ```bash
    make build            # xcodebuild build for a generic iOS device (signing off)
-   make test             # xcodebuild test on the iPhone 17 simulator
+   make test             # xcodebuild test (auto-picks a simulator; override with SIM="iPhone 16")
    ```
 3. **Signing:** set your team on the `AcuGuide` target to run on a physical device.
 4. **3D model:** loaded at runtime from the bundled `AcuGuide/Resources/model.glb` via the
@@ -68,12 +69,16 @@ The project is **generated from `project.yml`** — no hand-assembly. You need
 6. **Run on a real device** (camera + Vision hand-pose don't work in the Simulator).
 
 ## Native features (Phase 2)
-- **Voice cues** (`AVSpeechSynthesizer`) on phase change only; bilingual by device locale; mute
-  toggle (speaker button); `.ambient` audio session (respects the silent switch).
+- **Voice** — every spoken line is a fixed string, so the whole script is **pre-rendered offline**
+  into 102 bilingual AAC clips (`AcuGuide/VoiceClips/`, ~4.6 MB, Kokoro / Apache-2.0; the pipeline is
+  in `tools/voice/`). Playback is the primary path; `AVSpeechSynthesizer` is the fallback for any line
+  that has drifted away from its clip. Cues fire on phase change only; mute toggle (speaker button);
+  `.ambient` audio session for coach cues (respects the silent switch), `.playback` for read-aloud.
 - **Haptics** (`CoreHaptics`, `UIFeedbackGenerator` fallback): a tick on first entering the target,
   a success pattern at COMPLETE; nothing during NO_HAND / WRONG_FACE.
-- **Atlas:** TE3 + PC6 / SJ5 / PC8 / HT7 / SI3 with bilingual labels, location, and traditional-use
-  text carried over from the archived web atlas. **TE3 is the only AR-coached point**; LI4 is excluded.
+- **Atlas:** 30 points across hand, face, torso, arm and leg with bilingual labels, location,
+  "how to find it" guidance and traditional-use text, each sourced and adversarially verified (see the
+  in-app Sources screen). **TE3 is the only AR-coached point**; LI4 is excluded entirely.
 
 ## Notes / things to tune on-device
 - **Mirror / face gate:** a calibration menu (slider icon) in the coach view flips the preview

@@ -40,16 +40,36 @@ final class VoiceScriptTests: XCTestCase {
                        "whitespace normalization must be stable")
     }
 
-    /// DRIFT GUARD: once clips are bundled, every spoken line must have one. Skips (rather than fails)
-    /// when no clips are bundled at all, so the suite still passes before the first render.
-    func testEverySpokenLineHasABundledClip() throws {
+    /// DRIFT GUARD (missing direction): every spoken line must have a rendered clip.
+    ///
+    /// This deliberately does NOT skip when nothing is bundled. It used to `XCTSkipIf(present.isEmpty)`,
+    /// which meant the one failure it most needed to catch — the clips silently dropping out of the app
+    /// target — turned into a green skip. The clips are shipped now, so absence is a failure.
+    func testEverySpokenLineHasABundledClip() {
         let lines = VoiceScript.allLines()
-        let present = lines.filter { VoiceClips.url(for: $0.text, locale: $0.locale) != nil }
-        try XCTSkipIf(present.isEmpty, "no voice clips bundled yet — render step not run")
-
         let missing = lines.filter { VoiceClips.url(for: $0.text, locale: $0.locale) == nil }
         XCTAssertTrue(missing.isEmpty,
-                      "\(missing.count) spoken line(s) have no rendered clip (re-run the render script): "
+                      "\(missing.count) spoken line(s) have no rendered clip (re-run tools/voice/render_voice.py): "
                       + missing.prefix(5).map { "[\($0.locale)] \($0.text)" }.joined(separator: " | "))
+    }
+
+    /// DRIFT GUARD (orphan direction): every clip shipped in the app must still be claimed by a spoken
+    /// line. Re-rendering copies files in but never prunes, so a reworded line leaves its old clip
+    /// behind as dead weight that nothing can ever play — invisible to the missing-direction check.
+    ///
+    /// Reads the shipped bundle rather than the repo-side manifest so it verifies what actually ships.
+    func testNoOrphanedClipsAreShipped() throws {
+        let bundled = Bundle.main.urls(forResourcesWithExtension: "m4a", subdirectory: VoiceClips.directory) ?? []
+        XCTAssertFalse(bundled.isEmpty,
+                       "no clips found in \(VoiceClips.directory)/ — the folder reference in project.yml is gone, "
+                       + "so every line would silently fall back to AVSpeech")
+
+        let shipped = Set(bundled.map { $0.deletingPathExtension().lastPathComponent })
+        let expected = Set(VoiceScript.allLines().map { VoiceClips.key($0.text, locale: $0.locale) })
+        let orphans = shipped.subtracting(expected)
+        XCTAssertTrue(orphans.isEmpty,
+                      "\(orphans.count) orphaned clip(s) ship but are unreachable — delete them: "
+                      + orphans.sorted().prefix(5).joined(separator: ", "))
+        XCTAssertEqual(shipped, expected, "shipped clip set must match the spoken script exactly")
     }
 }

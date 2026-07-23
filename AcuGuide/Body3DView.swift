@@ -3,7 +3,7 @@ import SceneKit
 import GLTFKit2
 import simd
 
-// Rotatable 3D body — native port of MaiApp's Body3D.jsx. Loads the SAME asset as the web app,
+// Rotatable 3D body — native port of the archived web atlas's Body3D.jsx. Loads the SAME asset as the web app,
 // model.glb, at runtime via GLTFKit2 (no usdz / no drift). Sage-green matte material, soft
 // lighting, gentle auto-rotate, meridian channels along the skeleton, and brush-style region
 // labels (头/胸/腹/臂/腿/足/手部) projected onto the body. Tapping a body region zooms the camera

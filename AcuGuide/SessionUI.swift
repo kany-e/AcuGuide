@@ -26,6 +26,27 @@ enum FeelingScale: String, CaseIterable {
         }
     }
 
+    // ── Non-negotiable safety decisions, hoisted out of the view body so they are testable. ──
+    // These used to be inline `feeling == FeelingScale.uncomfortable.rawValue` string comparisons in
+    // RecapView, which no test could reach — and which compared against the CANONICAL key only, so a
+    // stored legacy "worse" entry (accepted by init(anyKey:)) slipped past and still offered
+    // "continue". Routing both decisions through init(anyKey:) closes that.
+
+    /// This outcome must show stop guidance.
+    var advisesStop: Bool { self == .uncomfortable }
+
+    /// Whether a routine may offer its next-step button after this outcome.
+    /// Unrecorded (nil) or unrecognized → the user never said it hurt, so continuing is allowed.
+    static func allowsContinue(_ key: String?) -> Bool {
+        guard let scale = FeelingScale(anyKey: key) else { return true }
+        return !scale.advisesStop
+    }
+
+    /// Whether the stop-and-consider-care guidance must be shown for this recorded outcome.
+    static func showsStopGuidance(_ key: String?) -> Bool {
+        FeelingScale(anyKey: key)?.advisesStop ?? false
+    }
+
     // History-row label (lowercase in English, matching the session line it sits on).
     var label: String {
         switch self {
@@ -100,14 +121,14 @@ struct SessionRecapView: View {
                 }
             }
             // "Uncomfortable" → advise stopping, never "continue" (immutable safety behavior).
-            if feeling == FeelingScale.uncomfortable.rawValue {
+            if FeelingScale.showsStopGuidance(feeling) {
                 Text(AppLocale.pick("请暂时停止。如果不适严重或持续，请考虑就医。",
                                     "Please stop for now. If the discomfort is strong or persistent, consider seeing a professional."))
                     .font(.footnote).foregroundStyle(Ink.terracotta).multilineTextAlignment(.center).padding()
             }
             // Routine flow: hand off to the next step (suppressed after "Uncomfortable" — never
             // encourage continuing past discomfort).
-            if let next = onNext, feeling != FeelingScale.uncomfortable.rawValue {
+            if let next = onNext, FeelingScale.allowsContinue(feeling) {
                 Button(next.label) { next.action() }.buttonStyle(GoldButtonStyle())
             }
             WellnessFooter()

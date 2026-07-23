@@ -20,6 +20,7 @@ AcuGuideTests/         # unit tests (fixtures bundled from claude-deliverables/f
 project.yml            # XcodeGen spec  -> AcuGuide.xcodeproj (gitignored)
 Makefile               # make project / build / test
 claude-deliverables/   # CV research, acupoint source verification, replay fixtures
+tools/voice/           # offline Kokoro renderer for the pre-rendered voice clips
 docs/                  # privacy policy, icon drafts
 archive/               # superseded pre-iOS work — NOT part of the build
 acuguide-dashboard.html
@@ -47,6 +48,14 @@ CI mirrors this in `.github/workflows/ios-tests.yml`.
    If an SPM cleanup nukes the artifact, re-resolve before assuming the code broke.
 4. **Camera and Vision hand-pose do not work in the Simulator.** Unit tests run there; anything
    involving the live coach has to be checked on a device.
+5. **The spoken script is shipped as pre-rendered AUDIO, not synthesized on device.** Every line in
+   `Speech.swift`'s phrase tables and `Acupoint.spokenInfo` is rendered offline into
+   `AcuGuide/VoiceClips/<key>.m4a`, where `key = sha256("<locale>|<normalized text>")`. **Rewording
+   any spoken string changes its key and orphans its clip** — that line silently drops to the robotic
+   AVSpeech fallback. `VoiceScriptTests` fails in both directions (missing clip / orphaned clip); when
+   it does, re-render with `tools/voice/render_voice.py` (see `tools/voice/README.md`). The clips ship
+   as a **folder reference** in `project.yml` — a plain group would flatten them into the bundle root
+   and break the `subdirectory: "VoiceClips"` lookup.
 
 ## Safety rules (non-negotiable)
 

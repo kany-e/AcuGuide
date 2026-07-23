@@ -39,9 +39,9 @@ def write_wav(path, audio):
         pcm = array.array("h", [int(max(-1.0, min(1.0, s)) * 32767) for s in audio.samples])
         w.writeframes(pcm.tobytes())
 
-def to_m4a(wav, m4a, bitrate="48000"):
+def to_m4a(wav, m4a, bitrate="48000"):   # -b is bits/sec => 48 kbps, mono 24 kHz AAC
     # afconvert is Apple's own encoder — AAC-LC mono, ideal for short speech clips.
-    subprocess.run(["afconvert", "-f", "m4af", "-d", f"aac@{24000}", "-b", bitrate,
+    subprocess.run(["afconvert", "-f", "m4af", "-d", "aac@24000", "-b", bitrate,
                     "--mix", "-c", "1", wav, m4a],
                    check=True, capture_output=True)
 

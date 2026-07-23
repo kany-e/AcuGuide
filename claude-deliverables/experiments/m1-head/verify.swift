@@ -6,7 +6,9 @@
 import Foundation
 import CoreML
 
-let DIR = "/Users/kanye/AcuGuide/claude-deliverables/experiments/m1-head"
+// Derived from this file's own location so the script keeps working if the repo is cloned
+// elsewhere or the directory moves (it used to hardcode one developer's home path).
+let DIR = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let HANDSIZE = 0.13, IMG_W = 1488.0   // typical image-normalized handSize; MetaAcuPoint native width
 
 struct Vec: Codable { let features: [Float]; let point: String; let pointIdx: Int; let predCanon: [Double]; let sigma: [Double] }

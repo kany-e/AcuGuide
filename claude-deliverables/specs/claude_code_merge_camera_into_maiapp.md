@@ -1,3 +1,8 @@
+> **HISTORICAL.** This prompt was written against the pre-`edeeade` layout, when the app lived at
+> `underdevelopment/MaiApp-iOS/`. The app is now at the **repository root** (`AcuGuide/`,
+> `AcuGuideTests/`, `project.yml`) and the web prototypes are under `archive/`. Paths below are
+> kept verbatim as a record of what was asked at the time — do not follow them literally.
+
 # Claude Code Instructions — Merge the camera coach INTO MaiApp (the real app)
 
 MaiApp ("poetic-meridian-atlas") is the app we demo. All the camera-coaching work lives in the

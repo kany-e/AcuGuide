@@ -1,6 +1,6 @@
 # Claude Deliverables — AcuGuide Hand Coach
 
-Generated for the CV / data-acquisition + safety workstreams. Placed in a subfolder so nothing in your existing repo (Citations.md, PointLandmark.json, demo-app/, experiment.md) is overwritten — merge as you like.
+Generated for the CV / data-acquisition + safety workstreams. Kept in a subfolder of its own so it never collided with the app sources. (Historical note: this was written when the repo still held the web prototypes; the iOS app now lives at the repository root and the web work is under `archive/`.) — merge as you like.
 
 ## data/
 - **acuguide_hand_points.json** — the core CV dataset. Maps each hand/wrist acupoint to MediaPipe Hands landmarks (target geometry, tolerances, technique, coach copy), plus the feedback state machine and safety layer. Pregnancy-safe (LI4 excluded). Compare against your `PointLandmark.json`.

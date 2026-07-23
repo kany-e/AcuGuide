@@ -10,7 +10,8 @@ xcuserdata/
 DerivedData/
 build/
 *.xcuserstate
-# Secrets — chatbot API key lives here, never committed.
+# Belt-and-braces: no xcconfig exists and the chat is fully on-device (no API key, no network),
+# but keep the rule so a future secrets file can never be committed by accident.
 Secrets.xcconfig
 
 # --- Node / Vite build (archive/ web apps) ---
@@ -42,3 +43,10 @@ _archive/
 *.webm
 TrainingVid/
 drive-download-*/
+
+# --- Voice render pipeline (tools/voice) — build-time only, never committed ---
+# The documented re-render downloads a ~350 MB Kokoro model and writes clips next to the script.
+tools/voice/kokoro-*/
+tools/voice/out_clips/
+tools/voice/samples/
+tools/voice/*.tar.bz2
