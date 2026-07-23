@@ -63,6 +63,9 @@ CI mirrors this in `.github/workflows/ios-tests.yml`.
 - The safety gate before the camera is **forced** — it cannot be skipped.
 - "Felt worse" after a routine → show stop guidance, never "continue".
 - **LI4 is excluded entirely** (pregnancy-contraindicated), so no pregnancy screening is needed.
+- **Eight points are camera-coached** (non-nil `mediapipeTarget`, test-pinned): TE3, PC6, SJ5, PC8,
+  HT7, SI3, TE4, PC7. TE3 is only the DEFAULT DEMO point — the docs used to say it was the only
+  coached one, which undersold the app's main differentiator by 8x.
 - Acupoint data is sourced and adversarially verified — see
   `claude-deliverables/references/acuguide_source_upgrade.md` and the in-app Sources screen.
 
