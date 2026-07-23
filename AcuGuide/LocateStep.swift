@@ -104,7 +104,11 @@ struct LocateCard: View {
                 .foregroundStyle(Ink.gold)
             }
             .accessibilityHint(AppLocale.pick("展开或收起找穴说明", "Shows or hides the finding guide"))
-            if guideExpanded {
+            // Open when the user asked for it OR when the engine is actively telling them to hunt.
+            // The .noPress / .offGuide cues literally say to follow the guide — collapsing the guide
+            // at exactly that moment is what made the spoken prompt reference text the user could not
+            // see. `guideExpanded` stays a real user override for the states where they are on target.
+            if guideExpanded || engine.locateState == .noPress || engine.locateState == .offGuide {
                 Text(point.findHow).font(.footnote).foregroundStyle(Ink.text)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(point.findFeel).font(.caption).foregroundStyle(Ink.gold)
