@@ -183,6 +183,16 @@ struct TimerSessionView: View {
             Text(acupoint.location)
                 .font(.subheadline).foregroundStyle(Ink.text)
                 .multilineTextAlignment(.center).padding(.horizontal)
+            // The ready-state copy below says "find the spot with the notes above" — but until now the
+            // only note above was the clinical WHO location ("4 cun above the navel"), which is exactly
+            // the string a self-locating user cannot act on. Show the plain-language guide when the
+            // point has one, so the instruction and the notes it refers to actually agree.
+            if acupoint.hasFindGuide {
+                Text(AppLocale.pick("这样找：", "To find it: ") + acupoint.findHow)
+                    .font(.footnote).foregroundStyle(Ink.gold)
+                    .multilineTextAlignment(.center).padding(.horizontal)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             ZStack {
                 Circle().stroke(Ink.line, lineWidth: 8).frame(width: 150, height: 150)

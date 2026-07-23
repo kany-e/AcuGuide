@@ -345,6 +345,24 @@ struct ARCoachView: View {
                 }
                 Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
                     .lineLimit(3).minimumScaleFactor(0.7)
+                // HOW TO FIND IT, on the camera screen, while the coach is still hunting.
+                //
+                // The spoken cue tells the user to find the point "around the outlined area", but the
+                // written guidance had only ONE render site on this screen — inside LocateCard's
+                // collapsed disclosure — and a user who has already calibrated this point skips the
+                // locate step entirely (ARCoachView.swift:46 `startLocating: … && !calibrated`). So the
+                // audio promised instructions the screen never showed (user-reported).
+                //
+                // Shown only while searching/no-hand: it must never crowd the card during a good hold,
+                // and it must never grow the card mid-press. No tap needed — both hands are busy.
+                if acupoint.hasFindGuide,
+                   engine.phase == .searching || engine.phase == .noHand || engine.phase == .wrongFace {
+                    Text(acupoint.findHow)
+                        .font(.caption2).foregroundStyle(Ink.gold)
+                        .lineLimit(3).minimumScaleFactor(0.75)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(AppLocale.pick("这样找：", "How to find it: ") + acupoint.findHow)
+                }
                 if let hint = hintLine {
                     Text(hint).font(.caption2).foregroundStyle(Ink.warn)
                         .lineLimit(2).minimumScaleFactor(0.8)
