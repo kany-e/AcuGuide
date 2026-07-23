@@ -1,0 +1,285 @@
+# MERGE GATE — the required check for anything landing on main.
+#
+# The working agreement is: every fix goes on its own branch and only merges after a thorough stress
+# test passes, so main is always both up to date AND known-good. This workflow is that gate.
+#
+# It exists because "it builds on my machine" has already failed this repo once: the test target did
+# not compile on the runner's Xcode 16.x while building clean locally on Xcode 26, and main sat red
+# for five days without anyone noticing. So the gate deliberately re-checks things the local
+# `make test` cannot: a different toolchain, a clean checkout, a device build, and repeated runs.
+#
+# Layout — cheap checks first so an obvious mistake fails in ~30s instead of ~15min:
+#   1. integrity      no Xcode needed: generation reproducibility, safety copy, voice clips, hygiene
+#   2. device-build   catches device-only compile errors the simulator hides
+#   3. stress         build once, then run the suite repeatedly to catch flakes and order dependence
+#   4. merge-gate     the single required status check; fails if ANY of the above failed
+name: merge-gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch supersedes the old run.
+concurrency:
+  group: merge-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. Static integrity ────────────────────────────────────────────────────────────────────────
+  # Everything here is a file check. No Xcode, no simulator — this job should finish in well under a
+  # minute and catch the mistakes that are embarrassing rather than subtle.
+  integrity:
+    name: Integrity (generation · safety · voice · hygiene)
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      # The .xcodeproj is generated and gitignored. If `xcodegen generate` dirties a TRACKED file,
+      # someone edited generated output by hand, or committed the project.
+      - name: Project generation is reproducible
+        run: |
+          xcodegen generate
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::xcodegen generate dirtied the working tree — the .xcodeproj or Info.plist"
+            echo "::error::is probably committed instead of gitignored. Offending paths:"
+            git status --porcelain
+            exit 1
+          fi
+          echo "xcodegen is reproducible and touches nothing tracked"
+
+      - name: Generated artefacts stay ignored
+        run: |
+          fail=0
+          for p in AcuGuide.xcodeproj/project.pbxproj AcuGuide/Info.plist build/x Secrets.xcconfig; do
+            if git check-ignore -q "$p"; then
+              echo "  ignored OK: $p"
+            else
+              echo "::error::$p is NOT gitignored — generated/secret output must never be committed"
+              fail=1
+            fi
+          done
+          # The tracked archive/ must NOT be swallowed by the _archive/ rule.
+          if git check-ignore -q archive/README-web-apps.md; then
+            echo "::error::archive/ is being ignored — its contents would silently stop being tracked"
+            fail=1
+          fi
+          exit $fail
+
+      # NON-NEGOTIABLE. AcuGuideTests already scans the datasets and the spoken script; this is a
+      # second net over the raw sources so a new VIEW-LOCAL literal (which the runtime scan cannot
+      # enumerate) cannot slip a claim through. The script documents each exclusion it makes and is
+      # runnable locally: `python3 scripts/safety_scan.py`.
+      - name: Safety copy contains no medical claims
+        run: python3 scripts/safety_scan.py
+
+      # LI4 (Hegu) is pregnancy-contraindicated and excluded from the app ENTIRELY — that exclusion is
+      # why the app can skip pregnancy screening, so it is load-bearing, not cosmetic.
+      - name: LI4 stays excluded from the shipped atlas
+        run: |
+          if grep -nE 'Acupoint\(\s*id:\s*"LI4"' AcuGuide/Acupoints.swift; then
+            echo "::error::LI4 is pregnancy-contraindicated and must not be a shipped acupoint."
+            echo "::error::The app skips pregnancy screening BECAUSE this point cannot appear."
+            exit 1
+          fi
+          grep -q 'excludedPointsEn' AcuGuide/ChatLLM.swift || {
+            echo "::error::the excluded-point filter on model output has gone missing"; exit 1; }
+          echo "LI4 excluded from the atlas and still filtered out of generated replies"
+
+      # The spoken script ships as fixed AUDIO. The unit tests check drift from the app side; this
+      # checks the shipped files themselves, which is what actually goes in the IPA.
+      - name: Voice clips match the render manifest
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          man = json.load(open('tools/voice/voice_manifest.json'))
+          keys = {e['key'] for e in man}
+          disk = {f[:-4] for f in os.listdir('AcuGuide/VoiceClips') if f.endswith('.m4a')}
+          missing, orphan = keys - disk, disk - keys
+          print(f"manifest {len(keys)} · on disk {len(disk)} · missing {len(missing)} · orphan {len(orphan)}")
+          if missing:
+              print(f"::error::{len(missing)} manifest line(s) have no clip: {sorted(missing)[:5]}")
+          if orphan:
+              print(f"::error::{len(orphan)} clip(s) no line can reach: {sorted(orphan)[:5]}")
+          # Punctuation regression: an ASCII '. ' inside a Chinese line gives the phonemizer no
+          # sentence boundary and the read-aloud comes out as one run-on (fixed in f79ac30).
+          bad = [e for e in man if e['locale'] == 'zh-CN' and '. ' in e['text']]
+          dbl = [e for e in man if '..' in e['text'] or '。.' in e['text']]
+          if bad:
+              print(f"::error::{len(bad)} Chinese line(s) joined with an ASCII '. ' — no 。 sentence boundary")
+          if dbl:
+              print(f"::error::{len(dbl)} line(s) carry a doubled sentence stop")
+          empty = [f for f in os.listdir('AcuGuide/VoiceClips')
+                   if f.endswith('.m4a') and os.path.getsize(f'AcuGuide/VoiceClips/{f}') < 2048]
+          if empty:
+              print(f"::error::{len(empty)} clip(s) are suspiciously small (<2 KB): {empty[:5]}")
+          sys.exit(1 if (missing or orphan or bad or dbl or empty) else 0)
+          PY
+
+      - name: Repository hygiene
+        run: |
+          fail=0
+          if grep -rn "/Users/" AcuGuide AcuGuideTests --include='*.swift' | grep -v '^\s*//'; then
+            echo "::error::hardcoded absolute path in shipped sources"; fail=1
+          fi
+          # Nothing that looks like a shipped credential. The app is deliberately offline.
+          if grep -rniE '(api[_-]?key|secret|bearer|authorization:)\s*=\s*"[A-Za-z0-9_-]{16,}"' \
+               AcuGuide --include='*.swift'; then
+            echo "::error::possible committed credential"; fail=1
+          fi
+          if grep -rn "URLSession\|URLRequest" AcuGuide --include='*.swift' | grep -v '^\s*//'; then
+            echo "::warning::network code found — this app advertises itself as fully on-device"
+          fi
+          exit $fail
+
+  # ── 2. Device build ────────────────────────────────────────────────────────────────────────────
+  # The simulator is x86/arm64-sim and forgiving. A real device build catches availability mistakes
+  # and arch-specific breakage before TestFlight does.
+  device-build:
+    name: Device build (generic iOS, unsigned)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build for a generic iOS device
+        run: |
+          set -o pipefail
+          xcodebuild build -scheme AcuGuide \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tail -40
+      - name: Report compiler warnings
+        # Informational: warnings are surfaced in the summary but do not fail the gate, so the gate
+        # stays trustworthy rather than flaky.
+        run: |
+          set -o pipefail
+          n=$(xcodebuild build -scheme AcuGuide -destination 'generic/platform=iOS' \
+                CODE_SIGNING_ALLOWED=NO 2>&1 | grep -cE "warning: " || true)
+          echo "compiler warnings: $n" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 3. Stress ──────────────────────────────────────────────────────────────────────────────────
+  # Builds the test bundle ONCE, then re-runs it several ways. Repeats are nearly free after
+  # build-for-testing, which is what makes a genuinely "thorough" stress pass affordable.
+  stress:
+    name: Stress (full suite · repeats · flake hunt)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+
+      # Runner images drift; never hardcode a device name.
+      - name: Pick a simulator
+        id: sim
+        run: |
+          DEST=$(xcrun simctl list devices available | grep -m1 -oE "iPhone [0-9]+[^(]*" | head -1 | xargs)
+          if [ -z "$DEST" ]; then
+            echo "::error::no iPhone simulator available on this runner"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "dest=$DEST" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $DEST"
+
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing -scheme AcuGuide \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.dest }}" \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tail -30
+
+      # Pass 1 — the whole suite. This is the same gate as local `make test`.
+      - name: Full suite
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -scheme AcuGuide \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.dest }}" \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee full.log | tail -25
+          grep -E "Executed [0-9]+ tests" full.log | tail -1 >> "$GITHUB_STEP_SUMMARY"
+
+      # Pass 2 — safety invariants, called out separately so a failure here is unmistakable in the
+      # UI rather than buried among 115 results. These are the rules that must never regress.
+      - name: Safety invariants
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -scheme AcuGuide \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.dest }}" \
+            -only-testing:AcuGuideTests/SafetyInvariantTests \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tail -20
+
+      # Pass 3 — the torture suite, repeated. -run-tests-until-failure stops at the first flake, so a
+      # test that passes 4 times in 5 is caught here instead of at random on someone's PR.
+      - name: Stress suite x5 (stop on first flake)
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -scheme AcuGuide \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.dest }}" \
+            -only-testing:AcuGuideTests/StressTests \
+            -test-iterations 5 -run-tests-until-failure \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tail -20
+
+      # Pass 4 — the performance budget. The atlas regressed to ~5,700 draw calls and ~2.1M triangles
+      # once already and it was only caught by a user saying the app felt laggy.
+      - name: Performance budget
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -scheme AcuGuide \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.dest }}" \
+            -only-testing:AcuGuideTests/AtlasPerformanceTests \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tail -20
+
+      # Pass 5 — the voice drift guards, both directions.
+      - name: Voice drift guards
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -scheme AcuGuide \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.dest }}" \
+            -only-testing:AcuGuideTests/VoiceScriptTests \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tail -20
+
+      # Pass 6 — the whole suite a second time on the SAME booted simulator. The app persists to
+      # UserDefaults (PracticeStore, custom routines, calibration, settings), so a test that leaks
+      # state passes on a clean device and fails on the second run. That is exactly the bug a user
+      # hits on day two and CI would otherwise never see.
+      - name: Full suite again (state-leak / order dependence)
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -scheme AcuGuide \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.dest }}" \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee second.log | tail -25
+          grep -E "Executed [0-9]+ tests" second.log | tail -1 >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 4. The gate ────────────────────────────────────────────────────────────────────────────────
+  # Make THIS the required status check in branch protection. It is one name that will not change as
+  # jobs are added above, and `if: always()` means a skipped or cancelled dependency still fails it
+  # rather than quietly passing.
+  merge-gate:
+    name: merge-gate
+    runs-on: ubuntu-latest
+    needs: [integrity, device-build, stress]
+    if: always()
+    steps:
+      - name: Verify every gate passed
+        run: |
+          echo "integrity    ${{ needs.integrity.result }}"
+          echo "device-build ${{ needs.device-build.result }}"
+          echo "stress       ${{ needs.stress.result }}"
+          if [ "${{ needs.integrity.result }}" != "success" ] \
+          || [ "${{ needs.device-build.result }}" != "success" ] \
+          || [ "${{ needs.stress.result }}" != "success" ]; then
+            echo "::error::merge gate FAILED — do not merge to main"
+            exit 1
+          fi
+          echo "All gates green — safe to merge." >> "$GITHUB_STEP_SUMMARY"
