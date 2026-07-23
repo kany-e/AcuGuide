@@ -8,6 +8,11 @@ import SwiftUI
 // each could be deleted and the whole suite would still pass. This file pins them.
 final class SafetyInvariantTests: XCTestCase {
 
+    // The crisis/excluded-point tests flip AppSettings.shared.lang; reset it so locale never leaks
+    // into a later test (the suite runs on a shared singleton, and the merge gate runs it twice).
+    override func setUp() { super.setUp(); AppSettings.shared.lang = .en }
+    override func tearDown() { AppSettings.shared.lang = .en; super.tearDown() }
+
     // MARK: - "Felt worse" must never offer to continue
 
     // Enforcement used to be an inline string compare inside RecapView's body, unreachable by any
@@ -118,6 +123,66 @@ final class SafetyInvariantTests: XCTestCase {
         XCTAssertTrue(offenders.isEmpty,
                       "spoken script contains forbidden medical-claim language "
                       + "(and it is baked into the rendered audio): " + offenders.prefix(5).joined(separator: " | "))
+    }
+
+    // MARK: - Self-harm / crisis routing must win over acupressure
+
+    // THE REPORTED BUG: "anxious" matched a symptom group and offered HT7/PC8 to someone in a
+    // mental-health crisis. Crisis must be caught first, route to help, and suggest NO point.
+    func testSelfHarmMessageRoutesToCrisisNotAcupressure() async {
+        AppSettings.shared.lang = .en
+        let mock = MockChatGen(reply: "here are some points")
+        for q in ["I'm anxious and want to hurt myself",
+                  "I feel like I want to die",
+                  "I've been thinking about suicide",
+                  "there's no reason to live anymore",
+                  "I can't go on"] {
+            let a = await ChatService(generator: mock).reply(to: q, history: [])
+            XCTAssertTrue(a.suggestions.isEmpty,
+                          "a crisis message must never attach a practice point — got \(a.suggestions.map(\.id)) for: \(q)")
+            let low = a.text.lowercased()
+            XCTAssertTrue(low.contains("crisis") || low.contains("988") || low.contains("emergency"),
+                          "a crisis message must route to real help — got: \(a.text)")
+            XCTAssertFalse(low.contains("press"), "must not suggest pressing anything: \(a.text)")
+        }
+        XCTAssertEqual(mock.calls, 0, "crisis input must never reach the model")
+    }
+
+    func testChineseSelfHarmMessageRoutesToCrisis() async {
+        AppSettings.shared.lang = .zh
+        let mock = MockChatGen(reply: "不应触及")
+        let a = await ChatService(generator: mock).reply(to: "我很焦虑，想伤害自己", history: [])
+        XCTAssertTrue(a.suggestions.isEmpty, "crisis message must attach no point")
+        XCTAssertTrue(a.text.contains("紧急") || a.text.contains("热线"),
+                      "must route to help; got: \(a.text)")
+        XCTAssertEqual(mock.calls, 0, "crisis input must never reach the model")
+    }
+
+    // Over-triggering is the safe direction, but common idioms that merely USE these words must not
+    // fire — otherwise a normal headache question gets a crisis wall.
+    //
+    // A mock generator is injected so this is HERMETIC: "my alarm number is 988" matches no
+    // deterministic branch and would otherwise fall through to the real on-device FoundationModels
+    // generator, whose availability and output vary on the simulator — a nondeterministic path that
+    // flakes the suite (and therefore the merge gate's repeated stress runs).
+    func testIdiomsDoNotFalseTriggerCrisis() async {
+        AppSettings.shared.lang = .en
+        let mock = MockChatGen(reply: "TE3 is on the back of the hand — gentle self-care.")
+        for q in ["this headache is killing me", "I'm dying to know where TE3 is",
+                  "my alarm number is 988"] {
+            let a = await ChatService(generator: mock).reply(to: q, history: [])
+            XCTAssertFalse(a.text.lowercased().contains("crisis service"),
+                           "'\(q)' is an idiom / benign, not a crisis: \(a.text)")
+        }
+    }
+
+    /// Deterministic stand-in for the on-device model, so crisis tests never touch FoundationModels.
+    final class MockChatGen: ChatGenerator {
+        var isAvailable = true
+        let reply: String
+        private(set) var calls = 0
+        init(reply: String) { self.reply = reply }
+        func generate(query: String, history: [ChatMessage]) async throws -> String { calls += 1; return reply }
     }
 
     // LI4 is excluded from the app entirely, so it must never be spoken either.

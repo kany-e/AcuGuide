@@ -48,7 +48,14 @@ struct CoachFAQ { let topic: String; let keywords: [String]; let aZh: String; le
 final class ChatService {
     // Tests pin the deterministic paths by disabling the default on-device generator (an injected
     // mock always wins). The live app constructs ChatService() → FoundationModels when available.
-    static var defaultGeneratorEnabled = true
+    //
+    // Default OFF under XCTest. Otherwise a bare `ChatService()` in a test reaches the real on-device
+    // model, whose availability and output vary between runs on the simulator — a NONDETERMINISTIC
+    // path that intermittently crashed/failed the suite (and would flake the merge gate's repeated
+    // runs). A test that actually wants to exercise the model injects a mock or flips this flag; the
+    // comment above always said tests "disable the default generator", but nothing ever did.
+    static var defaultGeneratorEnabled =
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
     private let generator: ChatGenerator?
 
     init(generator: ChatGenerator? = nil) {
@@ -62,6 +69,14 @@ final class ChatService {
     func reply(to user: String, history: [ChatMessage]) async -> CoachAnswer {
         let raw = user
         let q = user.lowercased()
+        // CRISIS FIRST — before red-flag, before symptom matching, before the model. Without this,
+        // "I'm anxious and want to hurt myself" matched the "anxious" symptom group and cheerfully
+        // returned "some people press HT7, PC8" — offering acupressure to someone in a mental-health
+        // crisis. This branch never suggests a point and never reaches the model; it routes to real
+        // help. The detector errs toward OVER-triggering on self-harm language on purpose: a false
+        // positive hands someone a crisis resource they didn't need; a false negative gives a
+        // suicidal person pressure points. Only the first of those is acceptable.
+        if mentionsCrisis(raw: raw, lowered: q) { return CoachAnswer(text: crisisReply(), suggestions: []) }
         if mentionsRedFlag(raw: raw, lowered: q) { return CoachAnswer(text: redFlagReply(), suggestions: []) }
         if let point = matchPoint(raw: raw, lowered: q) {
             return CoachAnswer(text: pointReply(point), suggestions: practiceable([point]))
@@ -153,6 +168,40 @@ final class ChatService {
         return AppLocale.pick(
             "作为温和的自我保养，有些人会按压：\(names)。点按下方按钮即可用相机练习。如有不适，或症状严重、持续，请停止并咨询专业人士。仅供养生自我保养参考。",
             "As gentle self-care, some people press: \(names). Tap a button below to practice it with the camera. Stop if it’s uncomfortable, and see a professional if symptoms are severe or persistent. Wellness self-care only.")
+    }
+
+    // Self-harm / suicidal-ideation screen. Runs before everything else. Whole-word or
+    // low-collision-phrase matching, deliberately biased toward catching (see reply()).
+    static func mentionsCrisisText(raw: String, lowered: String) -> Bool {
+        // Multi-word phrases. Chosen to avoid the common idioms that use these words harmlessly:
+        // "this headache is killing me", "I'm dying of a headache" — so NO bare "kill me" / "die".
+        let phrases = [
+            "kill myself", "killing myself", "take my own life", "taking my own life",
+            "end my life", "end my own life", "ending my life", "end it all",
+            "want to die", "wanna die", "don't want to live", "do not want to live",
+            "don't want to be alive", "no reason to live", "no point in living", "no point living",
+            "better off dead", "hurt myself", "hurting myself", "harm myself", "harming myself",
+            "self harm", "self-harm", "cut myself", "cutting myself", "can't go on", "cannot go on",
+        ]
+        if phrases.contains(where: { lowered.contains($0) }) { return true }
+        // Whole-word single cues (so "suicidal" prose still fires, without matching fragments).
+        if !ChatService.wordTokens(lowered).isDisjoint(with: ["suicide", "suicidal"]) { return true }
+        // Chinese cues — substring on raw. Idiomatic overlap (e.g. 痛得想死) is accepted: routing a
+        // distressed message to support is the safe failure direction.
+        let zh = ["自杀", "自残", "自伤", "轻生", "想死", "不想活", "活不下去", "活不下去了",
+                  "结束生命", "结束自己", "了结自己", "了结生命", "伤害自己", "想不开"]
+        return zh.contains { raw.contains($0) }
+    }
+    private func mentionsCrisis(raw: String, lowered: String) -> Bool {
+        Self.mentionsCrisisText(raw: raw, lowered: lowered)
+    }
+    // Compassionate hand-off to real help. Never names a point, never mentions acupressure. Gives a
+    // concrete resource with an explicit region label plus a universally-correct fallback, rather
+    // than a single number that would be wrong outside one country.
+    private func crisisReply() -> String {
+        AppLocale.pick(
+            "听起来你可能正经历很痛苦的时刻。我只是一个养生小助手，无法帮到这件事——但请立刻联系能帮到你的人：拨打当地的紧急电话或心理危机热线，或找一位你信任的人陪着你。你值得得到真正的支持与陪伴。",
+            "It sounds like you may be going through something very painful. I'm a wellness app, not a crisis service, and I can't help with this — but please reach out to someone who can, right now. You can call or text 988 (the Suicide & Crisis Lifeline in the US and Canada), or contact your local emergency number or a crisis line. You deserve to talk to a real person who can support you.")
     }
 
     // Red-flag screen → advise stopping / professional care; never "continue". Covers the web
