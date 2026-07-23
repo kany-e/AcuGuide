@@ -109,7 +109,7 @@
     <div class="metric"><div class="n">119</div><div class="l">iOS-port commits</div></div>
     <div class="metric"><div class="n">49<small>+9</small></div><div class="l">Swift modules · tests</div></div>
     <div class="metric"><div class="n">~13.5k</div><div class="l">Lines of Swift</div></div>
-    <div class="metric"><div class="n" style="color:var(--jade)">112/112</div><div class="l good">Tests passing (verified)</div></div>
+    <div class="metric"><div class="n" style="color:var(--jade)">115/115</div><div class="l good">Tests passing (verified)</div></div>
     <div class="metric"><div class="n" style="color:var(--jade)">R2–R14.23</div><div class="l good">All rounds shipped</div></div>
   </div>
 
@@ -223,6 +223,8 @@
     <div>
       <section class="card">
         <h2>Recent commits</h2>
+        <div class="commit"><span class="h">voice</span><span class="m">Voice fluency: spokenInfo joined every clause with an ASCII ". " in BOTH languages — 33/51 Chinese lines had no 。 sentence boundary (read as one run-on) and 16 clips carried a doubled stop; re-rendered all 102 clips</span><span class="d">07-23</span></div>
+        <div class="commit"><span class="h">59c22ee</span><span class="m">Atlas perf: channel draw calls 5,518→36 · triangles 2.10M→176k (joint beads were 2.0M) · invisible tap proxies no longer rendered · MSAA 4X→2X · display link 120Hz→30Hz; acupoint tags now tappable (were non-interactive AND offset ±58pt) · region labels 44×44 · named "Hands-free" mic</span><span class="d">07-23</span></div>
         <div class="commit"><span class="h">27bd9cb</span><span class="m">CI fix: test target now compiles on Xcode 16.x — NSObject.also(Self) helper replaced with a concrete-typed snapshotRenderer (CI had been red since 07-18)</span><span class="d">07-23</span></div>
         <div class="commit"><span class="h">edeeade</span><span class="m">Repo cleanup: iOS app promoted to the repo root · superseded web work moved to archive/ · fixture, CI and gitignore paths repointed · 102/102 verified</span><span class="d">07-22</span></div>
         <div class="commit"><span class="h">f46deaf</span><span class="m">Voice: pre-rendered neural speech — 102 bilingual clips (4.6 MB) replace the robotic system voice; AVSpeech stays as fallback</span><span class="d">07-22</span></div>
@@ -307,7 +309,7 @@
       <span><span class="sw" style="background:var(--blue)"></span> tests</span>
       <span><span class="sw" style="background:var(--jade)"></span> new this round</span>
     </div>
-    <div style="margin-top:10px">Generated from live git state on branch <b>IOS-APP</b> = <b>main</b> · AcuGuide repo · HEAD <b>8dd0e5a+</b> · the iOS app lives at the <b>REPO ROOT</b>; superseded web work is under <code>archive/</code> · metrics from live git (119 iOS commits · 49+9 Swift files · ~13.5k LOC app+tests) · tests <b>112/112</b> verified (xcodebuild test, iPhone 17 Pro sim, 2026-07-23) · <b>GitHub Actions ios-tests GREEN</b> on main and IOS-APP (was red since 07-18: the test target did not compile on the runner's Xcode 16.x) · device build (no signing) clean · GLTFKit2 pinned @ be89e83 · voice = 102 pre-rendered Kokoro clips shipped as a folder reference, AVSpeech is the fallback · meridian look + hand-detection feel still need an on-device eyeball · wellness self-care, not medical advice.</div>
+    <div style="margin-top:10px">Generated from live git state on branch <b>IOS-APP</b> = <b>main</b> · AcuGuide repo · HEAD <b>8dd0e5a+</b> · the iOS app lives at the <b>REPO ROOT</b>; superseded web work is under <code>archive/</code> · metrics from live git (119 iOS commits · 49+9 Swift files · ~13.5k LOC app+tests) · tests <b>115/115</b> verified (xcodebuild test, iPhone 17 Pro sim, 2026-07-23) · <b>GitHub Actions ios-tests GREEN</b> on main and IOS-APP (was red since 07-18: the test target did not compile on the runner's Xcode 16.x) · device build (no signing) clean · GLTFKit2 pinned @ be89e83 · voice = 102 pre-rendered Kokoro clips shipped as a folder reference, AVSpeech is the fallback · meridian look + hand-detection feel still need an on-device eyeball · wellness self-care, not medical advice.</div>
   </footer>
 
 </div>

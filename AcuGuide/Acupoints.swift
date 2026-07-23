@@ -99,13 +99,47 @@ struct Acupoint: Identifiable, Hashable {
     var findFeel: String { AppLocale.pick(Acupoint.findGuide[id]?.feelZh ?? "", Acupoint.findGuide[id]?.feelEn ?? "") }
 
     // Plain read-aloud of WHERE the point is + how to find it, for the atlas "read aloud" button.
+    //
+    // FLUENCY (user-reported: the voice "sounds connected, not fluent enough"). This is spoken by a
+    // pre-rendered neural clip, and the model's prosody is driven entirely by the punctuation it is
+    // handed. Two things were breaking it:
+    //   1. Every part was joined with an ASCII ". " in BOTH languages — but a bare ASCII period is
+    //      not a sentence boundary to a Chinese phonemizer, so 33 of the 51 Chinese lines were read
+    //      as one run-on with no sentence-level pause.
+    //   2. The source strings ALREADY end in a terminator, so joining produced doubled stops —
+    //      "…is made.. Make a loose fist" and "…凹沟）。. 手背朝上" — in 16 of the 102 clips.
+    // Strip the trailing terminator from each part, then join with the terminator that language
+    // actually uses. Changing this text changes the sha256 clip key, so it requires a re-render
+    // (tools/voice/render_voice.py); VoiceScriptTests fails loudly until that happens.
     var spokenInfo: String {
         var parts = [AppLocale.pick(zh, en), location]
         if hasFindGuide {
             parts.append(findHow)
             if !findFeel.isEmpty { parts.append(findFeel) }
         }
-        return parts.filter { !$0.isEmpty }.joined(separator: ". ")
+        let terminators = CharacterSet(charactersIn: ".。！？!?；;， ,、")
+        let cleaned = parts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { part -> String in
+                // Keep a question mark: "…摸到了吗？" is a real prompt and its intonation matters.
+                if part.hasSuffix("？") || part.hasSuffix("?") { return part }
+                var t = part
+                while let last = t.unicodeScalars.last, terminators.contains(last) { t.unicodeScalars.removeLast() }
+                return t
+            }
+            .filter { !$0.isEmpty }
+        guard !cleaned.isEmpty else { return "" }
+
+        // Chinese uses 。 with no trailing space; English uses ". ".
+        if AppLocale.isChinese {
+            return cleaned.enumerated().map { i, part in
+                part.hasSuffix("？") ? part : part + (i == cleaned.count - 1 ? "。" : "。")
+            }.joined()
+        }
+        return cleaned.enumerated().map { i, part in
+            part.hasSuffix("?") ? part : part + "."
+        }.joined(separator: " ")
     }
 
     static let all: [Acupoint] = [

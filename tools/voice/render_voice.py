@@ -54,13 +54,35 @@ def main():
         en_line = "That's the spot — settle in gently. Keep it steady, breathe slow."
         zh_line = "就是这里 — 轻轻稳住。跟着呼吸，慢慢画小圈。"
         pron = "Zhongzhu. On the back of the hand, in the groove behind the heads of the 4th and 5th metacarpals."
-        jobs = ([(f"EN-voice{n}_{nm}", en_line, s) for n, (s, nm) in enumerate([(0,"af_maple"),(1,"af_sol"),(2,"bf_vale")])]
-              + [(f"EN-pronunciation_{nm}", pron, s) for s, nm in [(0,"af_maple")]]
-              + [(f"ZH-voice{n}_{nm}", zh_line, s) for n, (s, nm) in enumerate([(3,"zf_001"),(4,"zf_002"),(9,"zf_008")])])
-        for tag, text, sid in jobs:
-            a = tts.generate(text, sid=sid, speed=SPEED)
+
+        # FLUENCY A/B. The user's report was that the voice "sounds connected, not fluent enough",
+        # and the cause turned out to be the punctuation handed to the model, not the model: every
+        # clause was joined with an ASCII ". " in BOTH languages, so a Chinese phonemizer saw no
+        # sentence boundary at all and read the whole read-aloud as one run-on — plus the source
+        # strings already ended in a terminator, so 16 clips carried a doubled stop. These pairs are
+        # the SAME sentence with the old and new punctuation, so the difference is audible directly.
+        # (Acupoint.spokenInfo now strips each part's terminator and rejoins with 。 or ". ".)
+        zh_old = "中渚. 在手背，第4、5掌骨小头后方的凹陷处（无名指与小指掌指关节后方的凹沟）。. 手背朝上。沿无名指与小指指节之间的缝向下滑，指节后方能摸到两根手骨之间的小凹陷。"
+        zh_new = "中渚。在手背，第4、5掌骨小头后方的凹陷处（无名指与小指掌指关节后方的凹沟）。手背朝上。沿无名指与小指指节之间的缝向下滑，指节后方能摸到两根手骨之间的小凹陷。"
+        en_old = "Zhongzhu. On the back of the hand, in the groove behind the heads of the 4th and 5th metacarpals (behind the ring- and little-finger knuckles).. Back of the hand up."
+        en_new = "Zhongzhu. On the back of the hand, in the groove behind the heads of the 4th and 5th metacarpals (behind the ring- and little-finger knuckles). Back of the hand up."
+
+        jobs = ([(f"EN-voice{n}_{nm}", en_line, s, SPEED) for n, (s, nm) in enumerate([(0,"af_maple"),(1,"af_sol"),(2,"bf_vale")])]
+              + [(f"EN-pronunciation_{nm}", pron, s, SPEED) for s, nm in [(0,"af_maple")]]
+              + [(f"ZH-voice{n}_{nm}", zh_line, s, SPEED) for n, (s, nm) in enumerate([(3,"zf_001"),(4,"zf_002"),(9,"zf_008")])]
+              # A/B the fix itself, in the shipping voice.
+              + [("FLUENCY-zh-1-BEFORE", zh_old, ZH_SID, SPEED),
+                 ("FLUENCY-zh-2-AFTER",  zh_new, ZH_SID, SPEED),
+                 ("FLUENCY-en-1-BEFORE", en_old, EN_SID, SPEED),
+                 ("FLUENCY-en-2-AFTER",  en_new, EN_SID, SPEED)]
+              # Pace: a coaching read usually wants to be slower than 1.0.
+              + [(f"PACE-zh-{sp}", zh_new, ZH_SID, sp) for sp in (0.85, 0.9, 1.0)]
+              + [(f"PACE-en-{sp}", en_new, EN_SID, sp) for sp in (0.85, 0.9, 1.0)])
+
+        for tag, text, sid, speed in jobs:
+            a = tts.generate(text, sid=sid, speed=speed)
             wav = f"{SAMPLES}/{tag}.wav"; write_wav(wav, a); to_m4a(wav, f"{SAMPLES}/{tag}.m4a"); os.remove(wav)
-            print(f"  sample {tag}: {len(a.samples)/a.sample_rate:.1f}s")
+            print(f"  sample {tag}: {len(a.samples)/a.sample_rate:.1f}s", flush=True)
         return
 
     t0 = time.time(); total_dur = 0.0
