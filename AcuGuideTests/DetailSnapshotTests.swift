@@ -80,9 +80,7 @@ final class DetailSnapshotTests: XCTestCase {
         }
         XCTAssertGreaterThanOrEqual(placed, 10, "the enlarged hand set should place ≥10 points on the mesh")
 
-        let img = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil).also {
-            $0.scene = scene; $0.pointOfView = cam
-        }.snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
+        let img = snapshotRenderer(scene, pointOfView: cam).snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
         let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("detail_hand.png")
         try img.pngData()!.write(to: out)
@@ -96,9 +94,7 @@ final class DetailSnapshotTests: XCTestCase {
         sideCam.position = SCNVector3(1.8, 0.3, 1.5)
         sideCam.look(at: SCNVector3(0, 0, 0))
         scene.rootNode.addChildNode(sideCam)
-        let sideImg = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil).also {
-            $0.scene = scene; $0.pointOfView = sideCam
-        }.snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
+        let sideImg = snapshotRenderer(scene, pointOfView: sideCam).snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
         let sideOut = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("detail_hand_side.png")
         try sideImg.pngData()!.write(to: sideOut)
@@ -112,9 +108,7 @@ final class DetailSnapshotTests: XCTestCase {
         backCam.position = SCNVector3(0, 0, -2.3)
         backCam.eulerAngles = SCNVector3(0, Float.pi, 0)
         scene.rootNode.addChildNode(backCam)
-        let palmImg = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil).also {
-            $0.scene = scene; $0.pointOfView = backCam
-        }.snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
+        let palmImg = snapshotRenderer(scene, pointOfView: backCam).snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
         let palmOut = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("detail_hand_palm.png")
         try palmImg.pngData()!.write(to: palmOut)
@@ -158,9 +152,7 @@ final class DetailSnapshotTests: XCTestCase {
                 scene.rootNode.addChildNode(m.node)
             }
 
-            let img = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil).also {
-                $0.scene = scene; $0.pointOfView = cam
-            }.snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
+            let img = snapshotRenderer(scene, pointOfView: cam).snapshot(atTime: 0, with: CGSize(width: 660, height: 820), antialiasingMode: .multisampling4X)
             let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("detail_\(id).png")
             try img.pngData()!.write(to: out)
@@ -169,7 +161,17 @@ final class DetailSnapshotTests: XCTestCase {
     }
 }
 
-private extension NSObject {
-    // Tiny configure-in-place helper so the renderer can be set up inline.
-    func also(_ body: (Self) -> Void) -> Self { body(self); return self }
+/// Builds a snapshot renderer for `scene` seen from `pointOfView`.
+///
+/// This replaces a `NSObject.also { $0.scene = … }` configure-in-place helper. That helper was
+/// declared `func also(_ body: (Self) -> Void) -> Self` in a non-final class extension, where `Self`
+/// stays an abstract placeholder rather than binding to `SCNRenderer`: Xcode 26 inferred it fine, but
+/// Xcode 16.x (what the CI runner ships) rejected `$0.scene` with "value of type 'Self' has no member
+/// 'scene'", so the test target failed to compile on CI while building clean locally. A concrete
+/// return type keeps it portable across toolchains.
+private func snapshotRenderer(_ scene: SCNScene, pointOfView: SCNNode) -> SCNRenderer {
+    let renderer = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil)
+    renderer.scene = scene
+    renderer.pointOfView = pointOfView
+    return renderer
 }
