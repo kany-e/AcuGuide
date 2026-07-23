@@ -1,7 +1,7 @@
 # AcuGuide — Native iOS (SwiftUI)
 
 A camera-guided **acupressure coach** for safe, non-diagnostic self-care, in an ink-and-gold
-palette: **a 3D body atlas**, an **AR coaching window** (Vision hand-pose → TE3 overlay), and a
+palette: **a 3D body atlas**, an **AR coaching window** (Vision hand-pose, 8 coached points), and a
 **themed offline AI chatbot**.
 
 > Status: **builds & runs.** The Xcode project is generated from `project.yml` (XcodeGen), with an
@@ -33,7 +33,7 @@ docs and the old web-era `README-web-apps.md`. **Nothing in `archive/` is part o
 | `AcuGuideApp.swift` | App entry. |
 | `RootView.swift` | Tab nav: **Atlas · Coach · Coach AI**; Atlas drills body → hand → back; launches the AR coach. |
 | `Theme.swift` | Ink-and-gold palette (1:1 with the archived web app's `styles.css` tokens) + panel/button styles. |
-| `Acupoints.swift` | Full bilingual atlas — 30 sourced points across hand, face, torso, arm and leg; TE3 is the only AR-coached one; LI4 excluded. |
+| `Acupoints.swift` | Full bilingual atlas — 30 sourced points across hand, face, torso, arm and leg; 8 are camera-coached; LI4 excluded. |
 | `Body3DView.swift` | SceneKit body — loads `model.glb` via **GLTFKit2** (sage material), capsule fallback; pulsing hand hotspot. |
 | `HandModel3DView.swift` | Detailed 3D hand drill-down (scribbletoad's CC-BY model) with raycast acupoint markers. |
 | `HandModel.swift` | Vision joints + geometry: `weightedTarget`, `handSize`, **calibrated dorsal/palmar test**. |
@@ -78,14 +78,14 @@ The project is **generated from `project.yml`** — no hand-assembly. You need
   a success pattern at COMPLETE; nothing during NO_HAND / WRONG_FACE.
 - **Atlas:** 30 points across hand, face, torso, arm and leg with bilingual labels, location,
   "how to find it" guidance and traditional-use text, each sourced and adversarially verified (see the
-  in-app Sources screen). **TE3 is the only AR-coached point**; LI4 is excluded entirely.
+  in-app Sources screen). **Eight points are camera-coached** (TE3, PC6, SJ5, PC8, HT7, SI3, TE4, PC7 — TE3 is the default demo point); the rest are atlas + guided-timer. LI4 is excluded entirely.
 
 ## Notes / things to tune on-device
 - **Mirror / face gate:** a calibration menu (slider icon) in the coach view flips the preview
   mirror and inverts the face gate at runtime, so no code edit is needed for field calibration.
 - **Vision orientation:** derived from the capture connection (portrait-locked), not hardcoded.
-- **Scope this build ships:** TE3 camera coaching (validated). Every other point is atlas-only
-  (no AR), matching the web app's honest scope — **no cadence/BPM**, position + hold + steadiness.
+- **Scope this build ships:** camera coaching for 8 hand/wrist points (TE3 is the default demo).
+  Every other point is atlas + guided timer — **no cadence/BPM**, position + hold + steadiness.
 
 ## Safety (immutable, same as web)
 No treat/cure/heal/diagnose copy anywhere; the safety gate before the camera is **not skippable**;
