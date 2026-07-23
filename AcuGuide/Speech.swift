@@ -9,7 +9,7 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     @Published var muted = AppSettings.shared.voiceMuted {
         didSet {
             AppSettings.shared.voiceMuted = muted
-            if muted { synth.stopSpeaking(at: .immediate) }
+            if muted { stopSpeaking() }
         }
     }
     // True while an utterance is rendering — the locate voice-confirm mic reads this (bridged in
@@ -18,6 +18,9 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     @Published private(set) var isSpeaking = false
 
     private let synth = AVSpeechSynthesizer()
+    // Pre-rendered neural clip for this line when one is bundled (see VoiceClips); AVSpeech is the
+    // fallback for anything unrendered, so the coach is never mute.
+    private let clip = ClipPlayer()
     private var lastSpokenPhase: CoachPhase? = nil
     private var lastSpokenLocate: LocateState? = nil
 
@@ -37,7 +40,7 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     func reset() {
         lastSpokenPhase = nil
         lastSpokenLocate = nil
-        synth.stopSpeaking(at: .immediate)
+        stopSpeaking()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -57,10 +60,10 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
         if state == .ready && voiceConfirmActive { return }
         lastSpokenLocate = state
         guard !muted,
-              let line = locatePhrase(for: state, requiresDorsal: requiresDorsal,
+              let line = Self.locatePhrase(for: state, requiresDorsal: requiresDorsal,
                                       selfCoaching: selfCoaching) else { return }
         // .ready is the behavior-changing line (the confirm just unlocked) — never drop it.
-        if synth.isSpeaking && state != .ready { return }
+        if speaking && state != .ready { return }
         speak(line)
     }
 
@@ -71,7 +74,7 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     func handover() {
         lastSpokenPhase = nil
         lastSpokenLocate = nil
-        synth.stopSpeaking(at: .immediate)
+        stopSpeaking()
     }
 
     // The one moment that must never pass silently: the user's spot was SAVED. Confirm and Skip
@@ -79,10 +82,17 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     func locateSaved() {
         handover()
         guard !muted else { return }
-        speak(AppLocale.pick("已记住你的位置 — 圆圈就在那里。", "Saved — the ring now sits on your spot."))
+        speak(Self.savedLine)
     }
 
-    private func locatePhrase(for state: LocateState, requiresDorsal: Bool,
+    // The saved-it line, hoisted out of locateSaved() so VoiceScript can enumerate it too.
+    static var savedLine: String {
+        AppLocale.pick("已记住你的位置 — 圆圈就在那里。", "Saved — the ring now sits on your spot.")
+    }
+
+    // `static` + internal so VoiceScript can enumerate every line for the pre-rendered clip manifest
+    // (the phrase tables stay the ONE source of truth — the render list can't drift from what's spoken).
+    static func locatePhrase(for state: LocateState, requiresDorsal: Bool,
                               selfCoaching: Bool) -> String? {
         switch state {
         // The shared get-in-view / flip-the-hand instructions delegate to the coach phrases —
@@ -107,18 +117,18 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     func update(phase: CoachPhase, requiresDorsal: Bool, selfCoaching: Bool = true) {
         guard phase != lastSpokenPhase else { return }
         lastSpokenPhase = phase
-        guard !muted, let line = phrase(for: phase, requiresDorsal: requiresDorsal,
+        guard !muted, let line = Self.phrase(for: phase, requiresDorsal: requiresDorsal,
                                         selfCoaching: selfCoaching) else { return }
         // Don't clip an in-progress cue for a transient phase oscillation (e.g. a NO_HAND ↔
         // WRONG_FACE flicker at the frame edge chopping each utterance mid-word). Let the current
         // one finish — EXCEPT for the two behavior-changing instructions, which must never be
         // dropped: COMPLETE (the finish cue) and RESTING ("release" — without preemption a round
         // completing mid-utterance left eyes-free users pressing through the whole rest gap).
-        if synth.isSpeaking && phase != .complete && phase != .resting { return }
+        if speaking && phase != .complete && phase != .resting { return }
         speak(line)
     }
 
-    private func phrase(for phase: CoachPhase, requiresDorsal: Bool,
+    static func phrase(for phase: CoachPhase, requiresDorsal: Bool,
                         selfCoaching: Bool = true) -> String? {
         switch phase {
         case .noHand:           return selfCoaching
@@ -142,9 +152,25 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
         }
     }
 
-    private func speak(_ text: String) {
+    /// Anything currently coming out of the speaker — either backend.
+    private var speaking: Bool { synth.isSpeaking || clip.isPlaying }
+
+    private func stopSpeaking() {
         synth.stopSpeaking(at: .immediate)
+        clip.stop()
+    }
+
+    private func speak(_ text: String) {
+        stopSpeaking()
         try? AVAudioSession.sharedInstance().setActive(true)
+        // Pre-rendered neural clip when we have one (studio quality, no synthesis cost); otherwise
+        // fall back to the best installed system voice so a reworded/new line is still spoken.
+        if let url = VoiceClips.url(for: text) {
+            isSpeaking = true
+            let started = clip.play(url) { [weak self] in self?.isSpeaking = false }
+            if started { return }
+            isSpeaking = false
+        }
         synth.speak(SpeechVoice.utterance(text))
     }
 }
@@ -195,6 +221,7 @@ final class AtlasSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     static let shared = AtlasSpeaker()
     @Published private(set) var speaking = false
     private let synth = AVSpeechSynthesizer()
+    private let clip = ClipPlayer()   // pre-rendered neural clip when bundled; AVSpeech otherwise
     override init() { super.init(); synth.delegate = self; synth.usesApplicationAudioSession = true }
 
     func toggle(_ text: String) { speaking ? stop() : speak(text) }
@@ -203,9 +230,16 @@ final class AtlasSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers, .duckOthers])
         try? AVAudioSession.sharedInstance().setActive(true)
         synth.stopSpeaking(at: .immediate)
+        clip.stop()
+        if let url = VoiceClips.url(for: text) {
+            speaking = true
+            let started = clip.play(url) { [weak self] in self?.speaking = false; self?.restore() }
+            if started { return }
+            speaking = false
+        }
         synth.speak(SpeechVoice.utterance(text))
     }
-    func stop() { synth.stopSpeaking(at: .immediate) }
+    func stop() { synth.stopSpeaking(at: .immediate); clip.stop() }
 
     func speechSynthesizer(_ s: AVSpeechSynthesizer, didStart u: AVSpeechUtterance) { speaking = true }
     func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { speaking = false; restore() }

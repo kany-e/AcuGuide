@@ -2,7 +2,7 @@ import SwiftUI
 import Vision      // VNChirality — the locate window tracks the receiver's handedness per sample
 import QuartzCore  // CACurrentMediaTime — confirmLocate's default latch clock (same clock as the camera frames)
 
-enum CoachPhase { case noHand, wrongFace, searching, onTargetUnstable, holding, resting, paused, complete }
+enum CoachPhase: CaseIterable { case noHand, wrongFace, searching, onTargetUnstable, holding, resting, paused, complete }
 
 // ---------------------------------------------------------------------------
 // Tunable constants — mirror engine.js `CONST` and useCoachingState.ts. engine.js
@@ -97,7 +97,7 @@ enum CoachConst {
 enum CoachMode { case locate, coach }
 
 // What the locate step sees this frame — drives the locate card's cue + confirm button.
-enum LocateState { case noHand, wrongFace, noPress, offGuide, settling, ready }
+enum LocateState: CaseIterable { case noHand, wrongFace, noPress, offGuide, settling, ready }
 
 // The HIGH-RATE overlay stream (ring, press dot, labeled press, saved-spot dot, hold progress),
 // separated from CoachEngine so its per-frame writes invalidate ONLY the compact overlay/progress

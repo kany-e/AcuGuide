@@ -1,81 +1,95 @@
-# AcuGuide
+# AcuGuide — Native iOS (SwiftUI)
 
-A camera-guided **hand-acupressure coach** for safe, non-diagnostic self-care. It shows you
-*where* to press an acupoint, confirms your hand is in view and facing the right way, checks
-your finger is on the target region, and times a steady hold — framed as wellness coaching,
-never medical diagnosis or treatment.
+A camera-guided **acupressure coach** for safe, non-diagnostic self-care, in an ink-and-gold
+palette: **a 3D body atlas**, an **AR coaching window** (Vision hand-pose → TE3 overlay), and a
+**themed offline AI chatbot**.
 
-This repo currently holds **two live web apps** plus supporting docs and exploratory work.
-
-## The two live apps
-
-### 1. Camera coach — repo root (`src/`)
-React + Vite + TypeScript + Tailwind, with **MediaPipe Hands** for live hand tracking.
-This is the camera feedback loop: target overlay on the acupoint, on-point + steady-hold
-detection, a wrong-hand-face gate, a forced safety screen, and a recap.
-
-```bash
-npm install
-npm run dev      # HTTPS dev server (mkcert) — needed for camera access
-npm run build
-npx tsc --noEmit # type-check
-```
-
-### 2. Poetic Meridian Atlas — `MaiApp/`
-React + three.js (react-three-fiber). A bilingual (中文 / English) **3D meridian atlas**:
-a rotatable body with glowing channels, tap the hand to drop into a 2D acupoint view.
-Ink-and-gold aesthetic; self-contained with its own dependencies.
-
-```bash
-cd MaiApp
-npm install
-npm run dev
-```
-
-> The camera coaching (app 1) is being prepared to merge into the atlas (app 2); they are
-> still separate today.
-
-## Honest scope (what the coach actually does)
-We ship only what we validated. The camera coach gives **position + steady-hold** feedback on
-**TE3 (中渚)** — whether the pressing finger is on the point and held steadily — plus a
-hand-face gate. We **deliberately dropped press-rhythm / cadence**: our own testing showed the
-correct sustained-press technique has no reliably measurable rhythm, so we don't display a
-number we can't stand behind. The app makes **no medical or efficacy claims**.
-
-## Safety rules (non-negotiable)
-- No "treat / cure / heal / diagnose" language anywhere.
-- A safety screen with red-flag stop symptoms is **shown before the camera and cannot be skipped**.
-- "Felt worse" after a routine → advise stopping, never "continue".
-- The one pregnancy-contraindicated point (LI4) is excluded entirely — no risky screening.
-
-## Privacy & footprint
-All camera and hand-tracking runs **on the user's device** (in-browser MediaPipe) — video is
-never uploaded or stored, and there are no accounts or personal-data collection. We use a
-lightweight **pretrained** vision model + rule-based logic (no custom model training), keeping
-the compute footprint small.
+> Status: **builds & runs.** The Xcode project is generated from `project.yml` (XcodeGen), with an
+> asset catalog, camera usage string, and a wired unit-test target. `xcodebuild build` and
+> `xcodebuild test` both pass.
 
 ## Repository layout
+The iOS app **is** this repository — it lives at the root.
+
 ```
-AcuGuide/
-├── src/, index.html, package.json, vite.config.ts, …   # App 1: camera coach (React + MediaPipe)
-├── MaiApp/                                              # App 2: 3D meridian atlas (React + three.js)
-├── product/                                             # pitch, Devpost draft, demo script, safety copy
-├── hackathon/, "hackathon - md/"                        # planning & requirements docs
-├── claude-deliverables/                                 # CV research, validation reports, build specs
-├── underdevelopment/                                    # not in the live build (see below)
-│   ├── MaiApp-iOS/                                      #   native SwiftUI port (post-hackathon)
-│   └── demo-app/                                        #   early vanilla-JS prototype (superseded)
-├── _archive/                                            # analysis pipeline, training videos, labeled data
-├── CLAUDE.md                                            # repo working notes / key technical decisions
-└── README.md
+AcuGuide/              # app sources (SwiftUI, Vision, SceneKit)
+AcuGuideTests/         # unit tests
+project.yml            # XcodeGen spec — the project is generated, never hand-assembled
+Makefile               # make project / build / test
+claude-deliverables/   # CV research, acupoint sources, and the replay fixtures the tests bundle
+docs/                  # privacy policy, icon drafts
+archive/               # superseded work, kept for reference — nothing here is built (see below)
 ```
 
-- **underdevelopment/** — code not part of the current live demo: the native iOS (Swift/ARKit)
-  starter, and the original vanilla-JS prototype that the React apps replaced.
-- **_archive/** — the Python CV analysis pipeline, raw training videos, and labeled JSON used to
-  validate the coaching logic. The live apps do not depend on anything here (it's gitignored).
+`archive/` holds the pre-iOS work: `web-camera-coach/` (the React + MediaPipe browser prototype
+and its build config), `MaiApp/` (the three.js 诗词山河 meridian atlas the visual design came from),
+`demo-app/` (the original vanilla-JS prototype), plus the `hackathon-md/` and `product/` planning
+docs and the old web-era `README-web-apps.md`. **Nothing in `archive/` is part of the build.**
 
-## Docs
-- Pitch / demo script / Devpost / judge Q&A — `product/`
-- Planning, requirements, team roles — `hackathon/`, `hackathon - md/`
-- CV validation, calibration reports, and build prompts — `claude-deliverables/`
+## Files (all under `AcuGuide/`)
+| File | Role |
+|---|---|
+| `AcuGuideApp.swift` | App entry. |
+| `RootView.swift` | Tab nav: **Atlas · Coach · Coach AI**; Atlas drills body → hand → back; launches the AR coach. |
+| `Theme.swift` | Ink-and-gold palette (1:1 with the archived web app's `styles.css` tokens) + panel/button styles. |
+| `Acupoints.swift` | Full bilingual hand atlas (TE3 + PC6/SJ5/PC8/HT7/SI3; TE3 only AR; no LI4). |
+| `Body3DView.swift` | SceneKit body — loads `model.glb` via **GLTFKit2** (sage material), capsule fallback; pulsing hand hotspot. |
+| `HandModel3DView.swift` | Detailed 3D hand drill-down (scribbletoad's CC-BY model) with raycast acupoint markers. |
+| `HandModel.swift` | Vision joints + geometry: `weightedTarget`, `handSize`, **calibrated dorsal/palmar test**. |
+| `Coach.swift` | `CoachEngine` — position + hold + steadiness state machine (no cadence; correct technique). |
+| `CameraCoach.swift` | AVCapture + `VNDetectHumanHandPoseRequest` → drives `CoachEngine`; camera preview. |
+| `ARCoachView.swift` | Safety gate (forced) → live overlay (ring/finger/feedback) → recap. |
+| `ChatView.swift` | Themed bilingual coach chat + `ChatService` (plug in your LLM key). |
+
+## Setup (Xcode, on your Mac)
+The project is **generated from `project.yml`** — no hand-assembly. You need
+[XcodeGen](https://github.com/yonaskolb/XcodeGen): `brew install xcodegen`.
+
+1. **Generate + open:**
+   ```bash
+   # from the repository root
+   make project          # = xcodegen generate  → AcuGuide.xcodeproj (git-ignored)
+   open AcuGuide.xcodeproj
+   ```
+   Bundle id `app.acuguide.ios`, deployment target **iOS 16.0**, SwiftUI lifecycle,
+   portrait-locked. The camera usage string and `AccentColor`/`AppIcon` assets are baked in.
+2. **Build / test from the CLI** (no Xcode UI needed):
+   ```bash
+   make build            # xcodebuild build for a generic iOS device (signing off)
+   make test             # xcodebuild test on the iPhone 17 simulator
+   ```
+3. **Signing:** set your team on the `AcuGuide` target to run on a physical device.
+4. **3D model:** loaded at runtime from the bundled `AcuGuide/Resources/model.glb` via the
+   **GLTFKit2** Swift package — no usdz conversion. (Same asset as the archived web atlas,
+   `archive/MaiApp/model.glb`.) `make project` resolves the package (network needed once). Capsule shows only if the
+   asset is missing. The body auto-rotates and pauses while you drag.
+5. **Chatbot:** fully **offline** — a local bilingual wellness helper over the acupoint atlas. No
+   API key, no network, no accounts, nothing to secure. Red-flag symptoms → stop-and-seek-care.
+6. **Run on a real device** (camera + Vision hand-pose don't work in the Simulator).
+
+## Native features (Phase 2)
+- **Voice cues** (`AVSpeechSynthesizer`) on phase change only; bilingual by device locale; mute
+  toggle (speaker button); `.ambient` audio session (respects the silent switch).
+- **Haptics** (`CoreHaptics`, `UIFeedbackGenerator` fallback): a tick on first entering the target,
+  a success pattern at COMPLETE; nothing during NO_HAND / WRONG_FACE.
+- **Atlas:** TE3 + PC6 / SJ5 / PC8 / HT7 / SI3 with bilingual labels, location, and traditional-use
+  text carried over from the archived web atlas. **TE3 is the only AR-coached point**; LI4 is excluded.
+
+## Notes / things to tune on-device
+- **Mirror / face gate:** a calibration menu (slider icon) in the coach view flips the preview
+  mirror and inverts the face gate at runtime, so no code edit is needed for field calibration.
+- **Vision orientation:** derived from the capture connection (portrait-locked), not hardcoded.
+- **Scope this build ships:** TE3 camera coaching (validated). Every other point is atlas-only
+  (no AR), matching the web app's honest scope — **no cadence/BPM**, position + hold + steadiness.
+
+## Safety (immutable, same as web)
+No treat/cure/heal/diagnose copy anywhere; the safety gate before the camera is **not skippable**;
+"Felt worse" → stop guidance; pregnancy → "check with a professional" (no contraindicated points used).
+
+## Third-party assets / credits
+- **`AcuGuide/Resources/hand_low_poly.glb`** — "Hand Low Poly" by **scribbletoad**, licensed
+  **CC-BY 4.0** (https://creativecommons.org/licenses/by/4.0/), from Sketchfab. Used for the
+  detailed 3D hand in the hand drill-down. Attribution is also shown in-app on that screen.
+  Required attribution: *"Hand Low Poly" by scribbletoad — CC-BY 4.0.*
+- **`AcuGuide/Resources/model.glb`** — body model (same asset as `archive/MaiApp/`).
+- Bundled fonts (`AcuGuide/Fonts/`): **Ma Shan Zheng** and **Cormorant Garamond**, both SIL OFL.

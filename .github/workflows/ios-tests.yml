@@ -6,17 +6,27 @@ name: ios-tests
 
 on:
   push:
-    paths: ["underdevelopment/MaiApp-iOS/**", ".github/workflows/ios-tests.yml"]
+    paths:
+      - "AcuGuide/**"
+      - "AcuGuideTests/**"
+      - "project.yml"
+      - "Makefile"
+      # The test target bundles these fixtures as resources (see project.yml).
+      - "claude-deliverables/fixtures/**"
+      - ".github/workflows/ios-tests.yml"
   pull_request:
-    paths: ["underdevelopment/MaiApp-iOS/**"]
+    paths:
+      - "AcuGuide/**"
+      - "AcuGuideTests/**"
+      - "project.yml"
+      - "Makefile"
+      - "claude-deliverables/fixtures/**"
+      - ".github/workflows/ios-tests.yml"
 
 jobs:
   test:
     runs-on: macos-15
     timeout-minutes: 45
-    defaults:
-      run:
-        working-directory: underdevelopment/MaiApp-iOS
     steps:
       - uses: actions/checkout@v4
       - name: Install xcodegen
