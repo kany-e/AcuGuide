@@ -3,6 +3,79 @@ import SceneKit
 import GLTFKit2
 @testable import AcuGuide
 
+// The occluded-tip reconstruction must not collapse onto the knuckle when the finger is
+// foreshortened, and must never reach past where a fingertip physically is.
+//
+// User report: "the massage finger detection does not detect the finger tip, but around the FIRST
+// KNUCKLE of the finger." Mechanism: (DIP − PIP) is the MIDDLE phalanx and its length here is an
+// image PROJECTION. In the real press pose that phalanx is heavily foreshortened, so the old
+// `DIP + 0.6·(DIP − PIP)` produced a near-zero step and the estimate landed on the DIP itself.
+final class PressTipGeometryTests: XCTestCase {
+
+    /// A hand with a realistic handSize whose middle phalanx is almost edge-on to the camera.
+    private func foreshortenedHand(phalanxLength: CGFloat) -> Hand {
+        // wrist → middleMCP = 0.30 (the handSize unit). Index DIP sits above it; PIP is only
+        // `phalanxLength` away in projection because the finger points away from the lens.
+        let dip = CGPoint(x: 0.50, y: 0.40)
+        return Hand(points: [.wrist: CGPoint(x: 0.50, y: 0.70),
+                             .middleMCP: CGPoint(x: 0.50, y: 0.40),
+                             .indexDIP: dip,
+                             .indexPIP: CGPoint(x: 0.50, y: 0.40 + phalanxLength)],
+                    chirality: .right,
+                    confidence: [.indexDIP: 0.9, .indexPIP: 0.9])
+    }
+
+    func testForeshortenedFingerDoesNotCollapseOntoTheKnuckle() throws {
+        // 0.004 of projected phalanx: what a nearly edge-on finger gives. Old formula step = 0.0024.
+        let hand = foreshortenedHand(phalanxLength: 0.004)
+        let hs = hand.handSize
+        XCTAssertEqual(hs, 0.30, accuracy: 1e-9, "handSize must be the wrist→middleMCP unit")
+
+        let tip = try XCTUnwrap(hand.pressTip(.indexTip)).point
+        let dip = try XCTUnwrap(hand.p(.indexDIP))
+        let step = hypot(tip.x - dip.x, tip.y - dip.y)
+
+        XCTAssertGreaterThanOrEqual(step, HandGeom.tipFloor * hs - 1e-9,
+                                    "a foreshortened phalanx must still project a real fingertip's "
+                                    + "worth past the DIP — collapsing here IS the reported knuckle bug")
+        // And it must clear the tightest hit tolerance in the atlas (0.12·handSize), or the press
+        // cannot register even when the real nail is on the point.
+        XCTAssertGreaterThan(step, 0.12 * hs,
+                             "a tip parked inside the enter radius of the DIP breaks engagement too")
+    }
+
+    func testReconstructionCanNeverOvershootTheNail() throws {
+        // A long, fully in-plane phalanx: the projection is at its maximum. Overshooting the nail is
+        // the previously shipped-and-reverted regression, so the cap has to hold here.
+        let hand = foreshortenedHand(phalanxLength: 0.5)
+        let hs = hand.handSize
+        let tip = try XCTUnwrap(hand.pressTip(.indexTip)).point
+        let dip = try XCTUnwrap(hand.p(.indexDIP))
+        let step = hypot(tip.x - dip.x, tip.y - dip.y)
+
+        XCTAssertLessThanOrEqual(step, HandGeom.tipReach * hs + 1e-9,
+                                 "the rebuilt tip must never sit further from the DIP than a real "
+                                 + "fingertip does — that overshoot was a user-confirmed regression")
+    }
+
+    /// The direction must still come from the phalanx: only the DISTANCE is clamped.
+    func testReconstructionKeepsThePhalanxDirection() throws {
+        let hand = foreshortenedHand(phalanxLength: 0.01)
+        let tip = try XCTUnwrap(hand.pressTip(.indexTip)).point
+        let dip = try XCTUnwrap(hand.p(.indexDIP))
+        // PIP is directly BELOW the DIP here, so the tip must extend directly ABOVE it.
+        XCTAssertEqual(tip.x, dip.x, accuracy: 1e-9, "must not drift sideways off the finger axis")
+        XCTAssertLessThan(tip.y, dip.y, "must extend away from the PIP, toward the fingertip")
+    }
+
+    /// A reconstruction is still an unmeasured guess and must not be able to START an engagement.
+    func testReconstructionStillReportsZeroConfidence() throws {
+        let m = try XCTUnwrap(foreshortenedHand(phalanxLength: 0.01).pressTip(.indexTip))
+        XCTAssertEqual(m.confidence, 0,
+                       "clamping the geometry must not promote a guess into a measurement")
+    }
+}
+
 // Pins the draw-call/geometry budget of the 3D atlas.
 //
 // The user reported the atlas as "very laggy, even on my new phone when you zoom in". The cause was

@@ -39,6 +39,20 @@ enum HandJoint: Hashable {
     }
 }
 
+// Hand proportions used to bound the occluded-tip reconstruction, expressed as fractions of
+// `Hand.handSize` (wrist → middleMCP) so they hold at any distance, hand size or camera angle.
+//
+// These are ANATOMY, not tuning dials. The index DIP→fingertip distance is ~25 mm against a
+// ~95 mm wrist→middleMCP palm, i.e. ~0.26. `tipReach` is that distance: the reconstruction is
+// capped there so it can never place the tip beyond where a fingertip physically is. `tipFloor`
+// is deliberately well below it — when the finger is foreshortened we would rather land short of
+// the nail than past it, because overshooting is the failure mode this code has already shipped
+// and reverted once.
+enum HandGeom {
+    static let tipFloor: CGFloat = 0.16   // minimum DIP→tip step; stops the collapse onto the knuckle
+    static let tipReach: CGFloat = 0.26   // anatomical DIP→tip; hard ceiling, prevents nail overshoot
+}
+
 // One detected hand. Points are normalized 0...1 in TOP-LEFT origin (already flipped
 // from Vision's bottom-left), so they map directly onto the SwiftUI overlay.
 struct Hand {
@@ -73,9 +87,36 @@ struct Hand {
     func pressTip(_ finger: HandJoint) -> (point: CGPoint, confidence: Float)? {
         if let tip = p(finger) { return (tip, confidence[finger] ?? 1) }   // fixtures: no dict → reliable
         guard finger == .indexTip, let dip = p(.indexDIP), let pip = p(.indexPIP) else { return nil }
-        // k = 0.6 (was 0.9): a pressing finger is BENT at the DIP, so the tip curls short of a straight
-        // extension of the distal segment — a smaller step lands nearer the actual (occluded) fingertip.
-        return (CGPoint(x: dip.x + 0.6 * (dip.x - pip.x), y: dip.y + 0.6 * (dip.y - pip.y)), 0)
+
+        // RECONSTRUCTION, and only ever when Vision reported no tip at all. (Preferring a rebuild
+        // while a tip IS present was shipped in R11.1 and reverted for overshooting the nail — see
+        // the note above. Do not reintroduce it, in any confidence-gated form.)
+        //
+        // The bug this solves (user: "it detects around the first knuckle, not the finger tip"):
+        // (DIP − PIP) is the MIDDLE phalanx, and its length here is an IMAGE PROJECTION. In the real
+        // press pose — phone looking down, pressing finger angled away, tip buried in skin — that
+        // phalanx is heavily foreshortened, so |DIP − PIP| shrinks toward zero and `k · that` is a
+        // near-zero step. The estimate therefore collapsed ONTO the DIP: exactly "the first knuckle".
+        // It also broke engagement, not just the visuals — a dot parked on the DIP sits outside the
+        // 0.12–0.24·handSize hit tolerance even when the real nail is dead on the point.
+        //
+        // Fix: keep the DIRECTION from the projected phalanx, but stop letting its projected LENGTH
+        // set the distance. Clamp the step into scale-invariant hand-size units:
+        //   floor — a foreshortened phalanx still projects a real fingertip's worth past the DIP.
+        //   cap   — bounded by the ANATOMICAL DIP→tip distance, so the rebuilt tip can never land
+        //           beyond where a fingertip physically is. Overshooting the nail was the previous
+        //           user-confirmed regression; this makes it impossible by construction rather than
+        //           by picking a luckier constant.
+        let v = CGPoint(x: dip.x - pip.x, y: dip.y - pip.y)
+        let len = hypot(v.x, v.y)
+        guard len > 1e-6 else { return nil }
+        let projected = 0.6 * len
+        let hs = handSize
+        // handSize needs wrist + middleMCP. Fixtures that model only the index finger have none, so
+        // fall back to the pure projection there — the clamp is a device-pose correction, and a
+        // synthetic hand has no foreshortening to correct.
+        let step = hs > 0 ? min(max(projected, HandGeom.tipFloor * hs), HandGeom.tipReach * hs) : projected
+        return (CGPoint(x: dip.x + v.x / len * step, y: dip.y + v.y / len * step), 0)
     }
 
     // Scale unit, invariant-ish to finger spread (wrist -> middle MCP).
