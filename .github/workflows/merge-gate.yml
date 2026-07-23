@@ -16,9 +16,11 @@
 name: merge-gate
 
 on:
-  pull_request:
-    branches: [main]
+  # EVERY branch, not just main. The working agreement is that a branch must pass the stress test
+  # BEFORE it is merged, so the gate has to run while the work is still on its own branch --
+  # waiting for the PR would mean the answer arrives after the decision.
   push:
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
