@@ -23,6 +23,12 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(seenOnboarding, forKey: Self.onboardingKey) }
     }
 
+    // Physical-setup card before the FIRST camera session (prop the phone, both hands are busy).
+    // Setup knowledge, not a warning — shown once, then never again. Settings can reset it.
+    @Published var seenCameraSetup: Bool {
+        didSet { UserDefaults.standard.set(seenCameraSetup, forKey: Self.cameraSetupKey) }
+    }
+
     // Spoken coach cues muted — persisted so the choice survives sessions (was per-session state).
     @Published var voiceMuted: Bool {
         didSet { UserDefaults.standard.set(voiceMuted, forKey: Self.voiceKey) }
@@ -39,6 +45,7 @@ final class AppSettings: ObservableObject {
     private static let key = "appLang"
     private static let llmKey = "llmChat"
     private static let onboardingKey = "seenOnboarding"
+    private static let cameraSetupKey = "seenCameraSetup"
     private static let voiceKey = "voiceMuted"
     private static let reminderOnKey = "reminderOn"
     private static let reminderMinKey = "reminderMinutes"
@@ -53,6 +60,7 @@ final class AppSettings: ObservableObject {
         }
         llmChat = UserDefaults.standard.object(forKey: Self.llmKey) as? Bool ?? true
         seenOnboarding = UserDefaults.standard.bool(forKey: Self.onboardingKey)
+        seenCameraSetup = UserDefaults.standard.bool(forKey: Self.cameraSetupKey)
         voiceMuted = UserDefaults.standard.bool(forKey: Self.voiceKey)
         reminderOn = UserDefaults.standard.bool(forKey: Self.reminderOnKey)
         reminderMinutes = UserDefaults.standard.object(forKey: Self.reminderMinKey) as? Int ?? 20 * 60
