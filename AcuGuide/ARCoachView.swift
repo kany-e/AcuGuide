@@ -520,24 +520,37 @@ private struct HoldProgressRing: View {
 struct SafetyGate: View {
     let onAcknowledge: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(AppLocale.pick("开始之前", "Before you begin")).font(.title2).foregroundStyle(Ink.gold)
-            Text(AppLocale.pick("这是养生自我保养，并非医疗工具。如出现以下情况，请停止并就医：",
-                                "This is wellness self-care, not a medical tool. Stop and seek care if you notice:"))
-                .foregroundStyle(Ink.text)
-            ForEach([AppLocale.pick("突发剧烈疼痛", "sudden severe pain"),
-                     AppLocale.pick("麻木或无力", "numbness or weakness"),
-                     AppLocale.pick("头晕", "dizziness"),
-                     AppLocale.pick("症状加重", "worsening symptoms")], id: \.self) {
-                Label($0, systemImage: "exclamationmark.triangle").foregroundStyle(Ink.text).font(.subheadline)
+        // The warning content SCROLLS; the acknowledge button is PINNED below it. This gate is
+        // forced (its only exit is the button), so at large Dynamic Type sizes the old fixed VStack
+        // pushed "I understand" off the bottom of the screen with no way to reach it — a forced gate
+        // that becomes UNPASSABLE. Pinning the button keeps the single exit visible at every text
+        // size; scrolling keeps the red-flag list fully readable rather than truncated.
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(AppLocale.pick("开始之前", "Before you begin")).font(.title2).foregroundStyle(Ink.gold)
+                    Text(AppLocale.pick("这是养生自我保养，并非医疗工具。如出现以下情况，请停止并就医：",
+                                        "This is wellness self-care, not a medical tool. Stop and seek care if you notice:"))
+                        .foregroundStyle(Ink.text)
+                    ForEach([AppLocale.pick("突发剧烈疼痛", "sudden severe pain"),
+                             AppLocale.pick("麻木或无力", "numbness or weakness"),
+                             AppLocale.pick("头晕", "dizziness"),
+                             AppLocale.pick("症状加重", "worsening symptoms")], id: \.self) {
+                        Label($0, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(Ink.text).font(.subheadline)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text(AppLocale.pick("如果你怀孕或有健康状况，请先咨询专业人士。",
+                                        "If you are pregnant or have a medical condition, check with a professional first."))
+                        .font(.footnote).foregroundStyle(Ink.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(28)
             }
-            Text(AppLocale.pick("如果你怀孕或有健康状况，请先咨询专业人士。",
-                                "If you are pregnant or have a medical condition, check with a professional first."))
-                .font(.footnote).foregroundStyle(Ink.textDim)
-            Spacer().frame(height: 8)
             Button(AppLocale.pick("我明白了", "I understand"), action: onAcknowledge)
                 .buttonStyle(GoldButtonStyle()).frame(maxWidth: .infinity)
+                .padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 20)
         }
-        .padding(28)
     }
 }
