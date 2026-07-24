@@ -72,6 +72,10 @@ struct ARCoachView: View {
                 CameraGate(onAuthorized: { camera.start() }, onUseTimer: onUseTimer) { coachLayer }
             }
         }
+        // Same reason as the timer session: the user is holding a point with both hands and not
+        // touching the screen. Released automatically in the recap, on pause, and on disappear.
+        .keepScreenAwake(while: acknowledged && engine.phase != .complete && !endedEarly
+                                && feeling == nil && !userPaused)
         // Drive voice + haptics off phase TRANSITIONS only (debounced by the engine), and stop the
         // camera as soon as the routine completes so nothing keeps running behind the recap.
         .onChange(of: engine.phase) { handlePhaseChange(to: $0) }

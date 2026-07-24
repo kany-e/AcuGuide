@@ -170,6 +170,11 @@ struct TimerSessionView: View {
         .onChange(of: showEndConfirm) { up in
             if up { session.pause(.dialog) } else { session.resume(.dialog) }
         }
+        // A paced round is 30s of holding still with nothing touching the screen — precisely what
+        // iOS calls idle. Without this the phone dims and locks mid-round, and the user cannot tap
+        // to wake without letting go of the point they are being coached to hold.
+        .keepScreenAwake(while: acknowledged && !session.sessionComplete && !endedEarly
+                                && feeling == nil && session.pauseReasons.isEmpty)
         .onDisappear { session.end(); voice.reset() }
     }
 
