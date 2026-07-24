@@ -56,6 +56,11 @@ targets:
         NSMicrophoneUsageDescription: "AcuGuide can listen for a short voice command so you can confirm a pressure point without lifting your hands."
         NSSpeechRecognitionUsageDescription: "AcuGuide recognizes a few short spoken commands to confirm a pressure point hands-free. It uses on-device recognition when your device supports it, and Apple's speech service otherwise."
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # The whole UI is bilingual at runtime (AppLocale.pick), but the bundle declared English
+        # only, so the App Store listed the app as English-only and Chinese-language search never
+        # surfaced it. CFBundleLocalizations is the store-facing (and system-facing) declaration of
+        # supported languages; the strings switch at runtime, so no .lproj resources are needed.
+        CFBundleLocalizations: [en, zh-Hans]
         UILaunchScreen: {}
         UIAppFonts:
           - MaShanZheng-Regular.ttf
