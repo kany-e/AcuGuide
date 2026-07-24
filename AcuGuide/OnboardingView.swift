@@ -22,9 +22,12 @@ struct OnboardingView: View {
                     pageView(
                         icon: "camera.viewfinder",
                         title: AppLocale.pick("\(CoachPersona.name) 陪你按", "\(CoachPersona.name) coaches your press"),
+                        // Promises the one thing no chart, video or timer app can do: the app marks
+                        // the point, YOU fine-tune it by feel, and it remembers where that point is
+                        // on your hand. (This is also the sentence the store listing leads with.)
                         text: AppLocale.pick(
-                            "选择一个手部穴位，\(CoachPersona.name) 会在你的手上标出位置，陪你一轮一轮按 — 按 30 秒、松开呼吸、再来一轮。想停随时停。",
-                            "Pick a hand point and \(CoachPersona.name) marks it on your hand, then keeps you company through the rounds — 30 seconds on, release and breathe, repeat. End whenever you like."))
+                            "\(CoachPersona.name) 在你的手上标出穴位，你按感觉微调到最准的位置 — 它会记住这个属于你的位置，以后每次都用它，并陪你一轮一轮按。想停随时停。",
+                            "\(CoachPersona.name) marks the point on your hand, you fine-tune it by feel — and it remembers where that point is on YOUR hand for every session after. Then it keeps you company through the rounds. End whenever you like."))
                         .tag(1)
                     pageView(
                         icon: "lock.shield",
