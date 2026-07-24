@@ -124,6 +124,36 @@ jobs:
           sys.exit(1 if (missing or orphan or bad or dbl or empty) else 0)
           PY
 
+      # Apple rejects an App Store build with no privacy manifest, and the manifest must stay honest:
+      # this app collects nothing and its only required-reason API is UserDefaults. A new network
+      # call, SDK, or required-reason API without a manifest update is a submission-time failure — so
+      # catch it here instead.
+      - name: Privacy manifest is present and honest
+        run: |
+          python3 - <<'PY'
+          import plistlib, sys
+          p = "AcuGuide/PrivacyInfo.xcprivacy"
+          try:
+              d = plistlib.load(open(p, "rb"))
+          except Exception as e:
+              print(f"::error::{p} missing or invalid: {e}"); sys.exit(1)
+          errs = []
+          if d.get("NSPrivacyTracking") is not False:
+              errs.append("NSPrivacyTracking must be false (the app does not track)")
+          if d.get("NSPrivacyTrackingDomains"):
+              errs.append("NSPrivacyTrackingDomains must be empty")
+          if d.get("NSPrivacyCollectedDataTypes"):
+              errs.append("NSPrivacyCollectedDataTypes must be empty (the app collects nothing)")
+          apis = d.get("NSPrivacyAccessedAPITypes", [])
+          cats = {a.get("NSPrivacyAccessedAPIType") for a in apis}
+          if "NSPrivacyAccessedAPICategoryUserDefaults" not in cats:
+              errs.append("UserDefaults must be declared (AppSettings/PracticeStore/... use it)")
+          for e in errs:
+              print(f"::error::privacy manifest: {e}")
+          sys.exit(1 if errs else 0)
+          PY
+          echo "privacy manifest present and consistent with an offline, no-collection app"
+
       - name: Repository hygiene
         run: |
           fail=0

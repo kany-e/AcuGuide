@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Apple privacy manifest. Required for App Store submission (a build without one is rejected before
+  review). This app is deliberately offline: no network calls, no accounts, no analytics, no SDKs.
+    - Collects NO data              → NSPrivacyCollectedDataTypes empty.
+    - Does NOT track                → NSPrivacyTracking false, no tracking domains.
+    - One required-reason API: UserDefaults, used only for the app's OWN settings, practice history,
+      custom routines and per-point calibration (AppSettings / PracticeStore / CustomRoutines /
+      PointCalibration). Reason CA92.1 = access to defaults readable/writable only by this app.
+  If networking, an SDK, or another required-reason API is ever added, this file must be updated.
+-->
+<plist version="1.0">
+<dict>
+    <key>NSPrivacyTracking</key>
+    <false/>
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>CA92.1</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
