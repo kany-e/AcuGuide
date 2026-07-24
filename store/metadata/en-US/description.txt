@@ -1,0 +1,12 @@
+AcuGuide is a camera-guided acupressure coach for calm, everyday self-care.
+
+Point your camera at your hand and AcuGuide watches your fingertip — it shows where an acupoint is, checks that your finger is on it, and times a steady hold. No more guessing whether you found the spot.
+
+• 3D body atlas — 30 sourced acupoints across hand, face, torso, arm and leg, set among the classical meridians in an ink-and-gold design.
+• Camera coach — eight hand and wrist points your camera can actually check, with a white dot that tracks your fingertip and a ring that times the hold.
+• Fully bilingual — 中文 and English throughout, with natural pre-rendered voice guidance.
+• Cited, not hand-wavy — point locations follow the WHO Standard Acupuncture Point Locations (2008), and an in-app Sources & Evidence screen is honest about what is and isn't established.
+• Private by design — the camera and the AI coach run on your device. No accounts, no analytics.
+• Honest scope — a wellness and relaxation practice, not a medical tool. A safety screen appears before every camera session, "felt worse" always routes to stop-and-rest guidance, and pregnancy-cautioned points are left out of the app entirely.
+
+AcuGuide makes no medical claims. For any medical concern, please talk to a qualified professional.
