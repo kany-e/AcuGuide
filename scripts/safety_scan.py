@@ -42,9 +42,24 @@ for p in sorted(pathlib.Path("AcuGuide").rglob("*.swift")):
                 if t in probe:
                     bad.append(f"{p}:{n}  [{t}]  {lit[:90]}")
 
+# App Store metadata is user-facing copy the reviewer reads, but it lives outside the Swift sources
+# and the runtime scan can never see it. Scan the whole text of each file (no literal extraction —
+# these files ARE the copy). This is the one surface where a claim would reach a reviewer directly.
+for p in sorted(pathlib.Path("store").rglob("*.txt")) if pathlib.Path("store").exists() else []:
+    text = p.read_text(encoding="utf-8")
+    for n, line in enumerate(text.splitlines(), 1):
+        probe = ALLOW.sub("", line)
+        low = probe.lower()
+        for t in EN:
+            if t in low:
+                bad.append(f"{p}:{n}  [{t}]  {line.strip()[:90]}")
+        for t in ZH:
+            if t in probe:
+                bad.append(f"{p}:{n}  [{t}]  {line.strip()[:90]}")
+
 if bad:
     print(f"::error::{len(bad)} medical-claim string(s) in shipped copy:")
     for b in bad[:20]:
         print("  " + b)
     sys.exit(1)
-print(f"clean: no treat/cure/heal/diagnose language in user-facing string literals")
+print(f"clean: no treat/cure/heal/diagnose language in app copy or store metadata")
