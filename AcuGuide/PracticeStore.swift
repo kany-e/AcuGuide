@@ -149,6 +149,16 @@ final class PracticeStore: ObservableObject {
         return String(decoding: data, as: UTF8.self)
     }
 
+    // Erase every stored practice record. The privacy copy promises this history "lives only on your
+    // phone and is deleted with the app" — but deleting the app was the ONLY way to act on that.
+    // A user who wants the record gone should not have to uninstall to get it, and a data-deletion
+    // path is table stakes for a health-adjacent app under GDPR-style expectations.
+    func deleteAllRecords() {
+        records = []
+        invalidateInsights()
+        defaults.removeObject(forKey: Self.key)
+    }
+
     private func persist() {
         if let data = try? JSONEncoder().encode(Envelope(v: Self.schemaVersion, records: records)) {
             defaults.set(data, forKey: Self.key)
