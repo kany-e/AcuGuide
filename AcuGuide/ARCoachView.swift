@@ -63,6 +63,18 @@ struct ARCoachView: View {
                 // Recap check comes BEFORE the camera so a finished/ended session can never be
                 // masked by it.
                 recap.onAppear(perform: savePractice)
+            } else if !settings.seenCameraSetup {
+                // First camera session ever: the physical setup card. Sits AFTER the recap check
+                // on purpose — the invariant above (a finished session is never masked) outranks
+                // it, and it can't actually trigger there since reaching a recap means the card
+                // was already passed.
+                // It also sits BEFORE CameraGate rather than inside it: the whole point is to get
+                // the phone propped up before the camera is live, and CameraGate starts capture as
+                // soon as its content appears, so hosting the card inside it would run the capture
+                // session behind a screen that shows no camera. The cost is that someone who then
+                // DENIES the camera has spent their one-time card on a session they can't run —
+                // Settings can bring it back, which is part of why that reset exists.
+                CameraSetupCard { settings.seenCameraSetup = true }
             } else {
                 // Permission gate AFTER the safety gate: the system prompt arrives in context, a
                 // denial gets an open-Settings hand-off instead of a black screen, and the capture

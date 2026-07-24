@@ -8,6 +8,7 @@ struct SettingsSheet: View {
     @State private var confirmDeleteHistory = false
     @Environment(\.dismiss) private var dismiss
     @State private var reminderDenied = false
+    @State private var setupTipsReset = false
 
     // Bridge reminderMinutes (minutes past midnight) ⇄ the hour-and-minute DatePicker.
     private var reminderTime: Binding<Date> {
@@ -75,6 +76,31 @@ struct SettingsSheet: View {
                             Text(AppLocale.pick("请在系统设置中允许 AcuGuide 发送通知。",
                                                 "Allow notifications for AcuGuide in system Settings."))
                                 .font(.footnote).foregroundStyle(Ink.terracotta)
+                        }
+                    }
+                    // Nothing shown once should be unrecoverable — the setup card teaches the
+                    // physical arrangement (prop the phone, both hands busy), which is exactly
+                    // what someone wants back when a later session isn't working.
+                    // `|| setupTipsReset` keeps the section on screen after the tap: the button's
+                    // own action clears seenCameraSetup, so gating on that alone would delete the
+                    // row and its confirmation in the same frame — the user taps and sees nothing.
+                    if settings.seenCameraSetup || setupTipsReset {
+                        Section(AppLocale.pick("相机引导", "Camera coach")) {
+                            if setupTipsReset {
+                                Label(AppLocale.pick("下次打开相机引导时会再显示摆放提示。",
+                                                     "Setup tips will show next time you open the camera coach."),
+                                      systemImage: "checkmark.circle")
+                                    .font(.footnote).foregroundStyle(Ink.textDim)
+                            } else {
+                                Button {
+                                    settings.seenCameraSetup = false
+                                    setupTipsReset = true
+                                } label: {
+                                    Label(AppLocale.pick("再看一次摆放提示", "Show setup tips again"),
+                                          systemImage: "iphone.gen3.landscape")
+                                }
+                                .tint(Ink.gold)
+                            }
                         }
                     }
                     Section(AppLocale.pick("参考", "Reference")) {
