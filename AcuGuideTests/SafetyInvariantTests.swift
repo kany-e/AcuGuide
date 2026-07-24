@@ -201,3 +201,42 @@ final class SafetyInvariantTests: XCTestCase {
                       "an excluded point is spoken aloud: " + offenders.prefix(5).joined(separator: " | "))
     }
 }
+
+// MARK: - Atlas content counts, pinned
+
+// The numbers in the README and the App Store listing must match the shipped data. They already
+// drifted once: a count derived from a regex that only matched [A-Za-z0-9]+ silently dropped the
+// three hyphenated extra points (EX-HN1/3/5) and produced "30" where the truth is 33 — and that
+// wrong number reached the store description before it was caught.
+final class AtlasContentCountTests: XCTestCase {
+
+    func testShippedPointCountIsWhatWeMarket() {
+        XCTAssertEqual(Acupoint.all.count, 33,
+                       "the atlas point count changed — update README.md, docs/release-checklist.md "
+                       + "and store/metadata/*/description.txt to match, or the listing lies")
+        XCTAssertEqual(Set(Acupoint.all.map(\.id)).count, Acupoint.all.count, "point ids must be unique")
+    }
+
+    // Every point needs plain-language guidance: the clinical WHO string says things like "4 cun
+    // above the navel", and "cun" is never defined anywhere in the app.
+    func testEveryPointHasAPlainLanguageFindGuide() {
+        let missing = Acupoint.all.filter { !$0.hasFindGuide }.map(\.id)
+        XCTAssertTrue(missing.isEmpty,
+                      "these points have no plain-language how-to-find: \(missing) — they would show "
+                      + "only the clinical location, which a self-locating user cannot act on")
+    }
+
+    // The read-aloud is for locating by ear. It must lead with the plain guide and must never speak
+    // a source citation.
+    func testSpokenInfoLeadsWithPlainGuidanceAndSpeaksNoCitations() {
+        for pt in Acupoint.all {
+            let spoken = pt.spokenInfo
+            XCTAssertFalse(spoken.contains("WHO"), "\(pt.id) reads a citation aloud: \(spoken.prefix(90))")
+            XCTAssertFalse(spoken.contains("Standard 2008"), "\(pt.id) reads a citation aloud")
+            if pt.hasFindGuide {
+                XCTAssertTrue(spoken.contains(pt.findHow.prefix(20)),
+                              "\(pt.id) must speak its plain guide, not just the clinical location")
+            }
+        }
+    }
+}

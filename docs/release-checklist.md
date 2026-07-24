@@ -8,7 +8,7 @@ old docs — see the note at the bottom.
 
 | Thing | Verified value | Source |
 |---|---|---|
-| Sourced acupoints | **30** | `Acupoint.all` |
+| Sourced acupoints | **33** | `Acupoint.all` (includes the 3 hyphenated extra points EX-HN1/3/5 — a regex that only matched `[A-Za-z0-9]+` silently dropped them and produced a wrong count of 30) |
 | Camera-coached points | **8** — TE3, PC6, SJ5, PC8, HT7, SI3, TE4, PC7 | non-nil `mediapipeTarget`, test-pinned |
 | Meridian channels drawn | **10** | `Meridian.all` — see the ⚠️ below |
 | Bundled routines | **6** | `Routine.all` |
