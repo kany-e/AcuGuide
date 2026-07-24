@@ -111,12 +111,36 @@ struct Acupoint: Identifiable, Hashable {
     // Strip the trailing terminator from each part, then join with the terminator that language
     // actually uses. Changing this text changes the sha256 clip key, so it requires a re-render
     // (tools/voice/render_voice.py); VoiceScriptTests fails loudly until that happens.
+    // Removes a trailing/inline source citation like "(WHO Standard 2008)" or "（WHO 标准）" from a
+    // string bound for SPEECH. Screen copy keeps it — the provenance is part of why this app is
+    // trustworthy — but a synthesised voice reading "open paren W H O Standard two thousand eight"
+    // mid-instruction is pure noise.
+    static func withoutCitations(_ text: String) -> String {
+        var out = text
+        for pattern in ["\\s*\\([^()]*(?:WHO|Standard)[^()]*\\)", "\\s*（[^（）]*(?:WHO|标准)[^（）]*）"] {
+            out = out.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        return out.trimmingCharacters(in: .whitespaces)
+    }
+
     var spokenInfo: String {
-        var parts = [AppLocale.pick(zh, en), location]
+        // PLAIN LANGUAGE FIRST. The read-aloud is for someone locating a point by ear with their
+        // hands busy, so it leads with the "how to find it" guide. The clinical WHO string stays on
+        // SCREEN (where its precision and provenance belong) but is not spoken: it is the jargon the
+        // guide exists to replace, and reading it first meant the ear got "3 cun below Dubi (ST35)"
+        // and a literal "WHO Standard 2008" before reaching anything actionable.
+        // The `else` is defensive — every shipped point now has a guide, but a new point added
+        // without one must still be speakable.
+        var parts = [AppLocale.pick(zh, en)]
         if hasFindGuide {
             parts.append(findHow)
             if !findFeel.isEmpty { parts.append(findFeel) }
+        } else {
+            parts.append(location)
         }
+        // Citation parentheticals are screen provenance, never speech — "(WHO Standard 2008)" read
+        // aloud is noise in the middle of an instruction.
+        parts = parts.map { Acupoint.withoutCitations($0) }
         let terminators = CharacterSet(charactersIn: ".。！？!?；;， ,、")
         let cleaned = parts
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -679,6 +703,18 @@ struct Acupoint: Identifiable, Hashable {
     // sourced from the same WHO 2008 + iaomai.app locations as `location`, rewritten for a beginner.
     // Each entry: how to find it, then the sensation that confirms it. Wellness self-care only.
     static let findGuide: [String: (findEn: String, feelEn: String, findZh: String, feelZh: String)] = [
+        "EX-HN1": ("Find the crown point first (where lines up from both ear tips meet), then feel one thumb-width forward, back, left and right of it — four spots in a small ring. Rest a fingertip lightly on each in turn.",
+                "Four soft spots in a ring around the crown?",
+                "先找到头顶正中的百会（两耳尖向上连线的交点），再在它的前、后、左、右各约一拇指宽处各取一点，共四处。用指尖依次轻轻停放。",
+                "头顶百会周围一圈的四个柔软点，摸到了吗？"),
+        "EX-HN3": ("Run a fingertip along your brow to the inner end of each eyebrow — the point is the flat spot midway between them, on the bone just above the bridge of the nose.",
+                "The flat spot on the bone between your eyebrows?",
+                "沿眉毛摸到两眉头的内侧端，穴位就在两者正中间、鼻梁上方的骨面上。",
+                "两眉之间鼻根上方那个平坦的骨面点？"),
+        "EX-HN5": ("Find the outer end of your eyebrow and the outer corner of your eye; go to the midpoint between them, then slide back toward your ear about a thumb-width into the soft hollow of the temple.",
+                "The soft hollow at the temple, a thumb-width back?",
+                "找到眉梢与外眼角，取两者连线的中点，再向耳朵方向滑约一拇指宽，落进太阳穴的柔软凹陷。",
+                "太阳穴那个向后约一拇指宽的柔软凹陷？"),
         "TE2": ("Back of the hand up. Find the web between your ring and little fingers, then slide just behind it toward the wrist — you land in a soft dip where the two fingers part.",
                 "A soft, slightly tender dip just behind the web?",
                 "手背朝上。找到无名指与小指之间的指蹼，向手腕方向滑一点，落在两指分开处的柔软凹陷里。",

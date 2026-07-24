@@ -33,7 +33,7 @@ docs and the old web-era `README-web-apps.md`. **Nothing in `archive/` is part o
 | `AcuGuideApp.swift` | App entry. |
 | `RootView.swift` | Tab nav: **Atlas · Coach · Coach AI**; Atlas drills body → hand → back; launches the AR coach. |
 | `Theme.swift` | Ink-and-gold palette (1:1 with the archived web app's `styles.css` tokens) + panel/button styles. |
-| `Acupoints.swift` | Full bilingual atlas — 30 sourced points across hand, face, torso, arm and leg; 8 are camera-coached; LI4 excluded. |
+| `Acupoints.swift` | Full bilingual atlas — 33 sourced points across hand, face, head, torso, arm and leg; 8 are camera-coached; LI4 excluded. |
 | `Body3DView.swift` | SceneKit body — loads `model.glb` via **GLTFKit2** (sage material), capsule fallback; pulsing hand hotspot. |
 | `HandModel3DView.swift` | Detailed 3D hand drill-down (scribbletoad's CC-BY model) with raycast acupoint markers. |
 | `HandModel.swift` | Vision joints + geometry: `weightedTarget`, `handSize`, **calibrated dorsal/palmar test**. |
@@ -76,7 +76,7 @@ The project is **generated from `project.yml`** — no hand-assembly. You need
   `.ambient` audio session for coach cues (respects the silent switch), `.playback` for read-aloud.
 - **Haptics** (`CoreHaptics`, `UIFeedbackGenerator` fallback): a tick on first entering the target,
   a success pattern at COMPLETE; nothing during NO_HAND / WRONG_FACE.
-- **Atlas:** 30 points across hand, face, torso, arm and leg with bilingual labels, location,
+- **Atlas:** 33 points across hand, face, head, torso, arm and leg with bilingual labels, location,
   "how to find it" guidance and traditional-use text, each sourced and adversarially verified (see the
   in-app Sources screen). **Eight points are camera-coached** (TE3, PC6, SJ5, PC8, HT7, SI3, TE4, PC7 — TE3 is the default demo point); the rest are atlas + guided-timer. LI4 is excluded entirely.
 

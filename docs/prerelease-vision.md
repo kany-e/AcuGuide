@@ -72,7 +72,7 @@ right trade: studio-quality speech for a rounding error in download size.
   `acupoint.location`. The bundled "Evening grounding" routine takes a user straight into pressing
   LR3 without ever showing LR3's own caution — *"Don't press hard on the pulsing artery in the
   groove."* The string exists and already passes the forbidden-term scan; it is simply not rendered.
-- **22 of 30 points have no plain-language "how to find it".** `findGuide` covers exactly the 8
+- **25 of 33 points had no plain-language "how to find it"** (now fixed — all 33 have one). `findGuide` covers exactly the 8
   camera-coached points — i.e. precisely the ones that already *show* you. The 22 that need
   self-location get the clinical WHO string instead: *"4 cun above the navel"*. "cun" appears in 13
   user-facing strings and **is never defined anywhere in the app**.
@@ -95,7 +95,7 @@ A subscription is a promise of continuing service, and this architecture has no 
 and no recurring cost — there is nothing to fund and nothing that would justify recurring payment to
 a sceptical reviewer. A one-time unlock matches what the app actually is.
 
-**Free forever** — the 3D atlas and all 30 points with locations, cautions and traditional-use text;
+**Free forever** — the 3D atlas and all 33 points with locations, cautions and traditional-use text;
 Sources, Credits and Privacy; the forced safety gate and the "uncomfortable → stop" branch; the
 camera coach for all 8 coached points; timer practice for every point; the 6 bundled routines; one
 custom routine; one daily reminder; the whole deterministic chat including red-flag screening;
