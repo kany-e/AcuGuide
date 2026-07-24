@@ -168,6 +168,17 @@ jobs:
           if grep -rn "URLSession\|URLRequest" AcuGuide --include='*.swift' | grep -v '^\s*//'; then
             echo "::warning::network code found — this app advertises itself as fully on-device"
           fi
+          # CLAUDE.md calls `make test` the gate, but CI drives xcodebuild directly — so a Makefile
+          # that no longer parses stayed broken and invisible for a whole working session. `make -n`
+          # expands every variable and prints the recipe WITHOUT running anything, which is exactly
+          # the check that was missing (the original breakage was a deferred $(shell) expansion that
+          # only blew up once `make test` actually needed $(SIM)).
+          if ! make -n test >/dev/null; then
+            echo "::error::\`make test\` does not parse — the documented local gate is broken"; fail=1
+          fi
+          if [ ! -x scripts/pick_simulator.sh ]; then
+            echo "::error::scripts/pick_simulator.sh must be executable (make test and CI both run it)"; fail=1
+          fi
           exit $fail
 
   # ── 2. Device build ────────────────────────────────────────────────────────────────────────────
@@ -216,7 +227,9 @@ jobs:
       - name: Pick a simulator
         id: sim
         run: |
-          DEST=$(xcrun simctl list devices available | grep -m1 -oE "iPhone [0-9]+[^(]*" | head -1 | xargs)
+          # Same script `make test` uses, so CI and local runs pick a simulator the same way —
+          # and so the script itself is exercised by the gate.
+          DEST=$(scripts/pick_simulator.sh)
           if [ -z "$DEST" ]; then
             echo "::error::no iPhone simulator available on this runner"
             xcrun simctl list devices available
