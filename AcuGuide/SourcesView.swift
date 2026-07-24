@@ -121,6 +121,15 @@ struct SourcesView: View {
                             "以下为 OCOM 的 AcuTrials 数据库中针对每类养生需求所收录的随机对照试验与系统综述数量，并各列一篇代表性综述。研究文献确实存在，但个体反应因人而异，并不等于确定有效。",
                             "Below is how many randomized trials and systematic reviews OCOM's AcuTrials database indexes for each wellness concern, with one flagship review each. A research literature exists, but individual results vary — this is not assured relief."))
                             .font(.footnote).foregroundStyle(Ink.textDim)
+                        // The counts come from an ACUPUNCTURE trials database, and this is an
+                        // acupressure app. Presenting them without that distinction would borrow
+                        // the credibility of a different modality — the exact overstatement this
+                        // screen exists to avoid.
+                        Text(AppLocale.pick(
+                            "重要区别：这些文献大多研究的是针刺（用针），而非指尖按压。两者相关但并不相同，指压本身的研究要少得多。请把数字理解为「这一类需求已有人研究」，而不是指尖按压效果的证据。",
+                            "An important distinction: most of this literature studies acupuncture — needling — rather than fingertip acupressure. They are related but not the same, and acupressure itself has far less research behind it. Read these counts as \"this concern has been studied\", not as evidence for what a fingertip does."))
+                            .font(.footnote).foregroundStyle(Ink.terracotta)
+                            .fixedSize(horizontal: false, vertical: true)
                         ForEach(Evidence.entries) { e in evidenceCard(e) }
                     }
                     section(AppLocale.pick("穴位定位的依据", "Where the point locations come from")) {
