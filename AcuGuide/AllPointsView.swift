@@ -6,6 +6,7 @@ import SwiftUI
 // closure carries the chosen rounds and whether the user asked for the no-camera timer session.
 struct AllPointsView: View {
     var onPractice: (_ point: Acupoint, _ rounds: Int, _ timerOnly: Bool) -> Void
+    var onLocate: ((Acupoint) -> Void)? = nil     // forwarded to the point card's "Find my spot"
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var favorites = Favorites.shared
@@ -63,7 +64,7 @@ struct AllPointsView: View {
 
     private func pointLink(_ pt: Acupoint) -> some View {
         NavigationLink {
-            PointInfoView(point: pt, onPractice: onPractice)
+            PointInfoView(point: pt, onPractice: onPractice, onLocate: onLocate)
         } label: {
             AcupointListRow(pt: pt, showsStar: true)
                 .accessibilityLabel("\(pt.id), \(AppLocale.pick(pt.zh, pt.en)), \(pt.meridianEn)"
@@ -114,9 +115,14 @@ struct AcupointListRow: View {
 struct PointInfoView: View {
     let point: Acupoint
     var onPractice: (_ point: Acupoint, _ rounds: Int, _ timerOnly: Bool) -> Void
+    // Optional so existing call sites are untouched; when provided, the point card offers
+    // "Find my spot" — the entry to per-user calibration, which used to be reachable only by
+    // starting a full session and tapping an unlabeled glyph in the camera overlay bar.
+    var onLocate: ((Acupoint) -> Void)? = nil
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var favorites = Favorites.shared
     @ObservedObject private var speaker = AtlasSpeaker.shared
+    @ObservedObject private var calibration = PointCalibration.shared
     @State private var rounds = CoachConst.sessionRounds
 
     var body: some View {
@@ -173,6 +179,25 @@ struct PointInfoView: View {
                         }
                         .font(.subheadline).foregroundStyle(Ink.gold)
                         .frame(maxWidth: .infinity)
+                    }
+                    // FIND MY SPOT — the app's one genuinely uncopyable capability. Everyone's hand
+                    // is slightly different, so the computed ring is a starting point; confirming
+                    // where YOU feel the point stores a correction that re-applies at any hand pose.
+                    // Only offered for camera-coached points with a find-by-feel guide (the locate
+                    // step needs both a live ring and written guidance).
+                    if let onLocate, point.mediapipeTarget != nil, point.hasFindGuide {
+                        let saved = calibration.hasCalibration(point.id)
+                        Button(saved ? AppLocale.pick("重新找我的位置", "Re-find my spot")
+                                     : AppLocale.pick("找到我的位置", "Find my spot")) { onLocate(point) }
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.gold)
+                            .frame(maxWidth: .infinity).padding(.top, 2)
+                        Text(saved
+                             ? AppLocale.pick("这个穴位已按你的手校准过 — 每次练习都会用你保存的位置。",
+                                              "Tuned to your hand — every session uses the spot you saved.")
+                             : AppLocale.pick("用相机按感觉微调位置，之后每次练习都会记住它。",
+                                              "Fine-tune it by feel on camera once, and every session after remembers it."))
+                            .font(.caption2).foregroundStyle(saved ? Ink.jade : Ink.textDim)
+                            .multilineTextAlignment(.center).frame(maxWidth: .infinity)
                     }
                     WellnessFooter()
                 }

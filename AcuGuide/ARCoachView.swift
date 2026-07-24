@@ -28,7 +28,8 @@ struct ARCoachView: View {
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
          onNext: (label: String, action: () -> Void)? = nil,
          acknowledgedInitially: Bool = false,
-         onUseTimer: (() -> Void)? = nil) {
+         onUseTimer: (() -> Void)? = nil,
+         forceLocate: Bool = false) {
         self.acupoint = acupoint
         self.onNext = onNext
         self.onUseTimer = onUseTimer
@@ -41,13 +42,15 @@ struct ARCoachView: View {
         // but ONLY until the user has saved a spot. A returning calibrated user goes straight to
         // coaching (a transient "using your saved spot" chip + the re-find button in the top bar
         // replace the full teach card — it gated EVERY session and routine step; review-caught).
+        // forceLocate: entered from "Find my spot" — re-open the locate step even though a spot is
+        // already saved, so re-calibrating never requires deleting the old one first.
         let calibrated = PointCalibration.shared.hasCalibration(acupoint.id)
         let eng = CoachEngine(roundsTarget: roundsTarget,
-                              startLocating: acupoint.hasFindGuide && !calibrated)
+                              startLocating: acupoint.hasFindGuide && (forceLocate || !calibrated))
         _engine = StateObject(wrappedValue: eng)
         _camera = StateObject(wrappedValue: CameraCoach(engine: eng, acupoint: acupoint))
         _acknowledged = State(initialValue: acknowledgedInitially)
-        _savedChip = State(initialValue: calibrated && acupoint.hasFindGuide
+        _savedChip = State(initialValue: calibrated && acupoint.hasFindGuide && !forceLocate
             ? AppLocale.pick("已使用你保存的位置", "Using your saved spot") : nil)
     }
 

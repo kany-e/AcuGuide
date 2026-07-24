@@ -566,3 +566,45 @@ final class CoachEngineLocateTests: XCTestCase {
         XCTAssertNil(cal.offset(for: "TE3"))
     }
 }
+
+// MARK: - Calibration as a first-class, reachable feature
+
+// The per-user spot is the app's most defensible capability, but it used to be reachable only by
+// starting a full session and tapping an unlabeled glyph in the camera overlay. These pin the
+// entry points so a refactor cannot quietly make it unreachable again.
+final class CalibrationDiscoverabilityTests: XCTestCase {
+
+    /// "Find my spot" must be offered for exactly the points where the locate step can actually run:
+    /// camera-coached (there is a ring to correct) AND carrying a find-by-feel guide.
+    func testEveryCameraCoachedPointCanBeCalibrated() {
+        let coached = Acupoint.all.filter { $0.mediapipeTarget != nil }
+        XCTAssertFalse(coached.isEmpty, "the coached set must not be empty")
+        for pt in coached {
+            XCTAssertTrue(pt.hasFindGuide,
+                          "\(pt.id) is camera-coached but has no find guide, so the locate step "
+                          + "cannot teach it — Find my spot would be a dead button")
+        }
+    }
+
+    /// A locate launch is identity-distinct from a practice launch of the same point, or the
+    /// fullScreenCover would refuse to swap between them (Identifiable dedupe).
+    func testLocateLaunchHasItsOwnIdentity() throws {
+        let te3 = try XCTUnwrap(Acupoint.byId["TE3"])
+        let practice = PracticeLaunch.point(te3, rounds: 1, timerOnly: false)
+        let locate = PracticeLaunch.locate(te3)
+        XCTAssertNotEqual(practice.id, locate.id,
+                          "a locate launch must not collide with a practice launch of the same point")
+        XCTAssertEqual(locate.id, PracticeLaunch.locate(te3).id, "locate identity must be stable")
+    }
+
+    /// Saving and clearing a spot is what the "Your spots" list and its reset action depend on.
+    func testSavedSpotRoundTripsAndResets() {
+        let cal = PointCalibration.ephemeral()
+        defer { PointCalibration.purgeEphemeral() }
+        XCTAssertFalse(cal.hasCalibration("TE3"))
+        cal.set(PointCalibration.Offset(dx: 0.02, dy: -0.01), for: "TE3")
+        XCTAssertTrue(cal.hasCalibration("TE3"), "a saved spot must be listable in Your spots")
+        cal.clear("TE3")
+        XCTAssertFalse(cal.hasCalibration("TE3"), "reset-to-standard must remove the saved spot")
+    }
+}

@@ -6,10 +6,15 @@ import SwiftUI
 enum PracticeLaunch: Identifiable {
     case point(Acupoint, rounds: Int, timerOnly: Bool)
     case routine(Routine)
+    // Find-my-spot: opens the on-camera locate step directly, so calibrating a point never
+    // requires committing to a full coached session. Separate case rather than a flag on .point
+    // so every existing construction site stays untouched.
+    case locate(Acupoint)
     var id: String {
         switch self {
         case .point(let p, let r, let t): return "p:\(p.id):\(r):\(t)"
         case .routine(let r): return "r:\(r.id)"
+        case .locate(let p): return "l:\(p.id)"
         }
     }
 }
@@ -23,6 +28,7 @@ struct PracticeSessionView: View {
     let point: Acupoint
     let rounds: Int
     var timerOnly: Bool = false
+    var forceLocate: Bool = false      // re-open the locate step even for an already-calibrated point
     var onNext: (label: String, action: () -> Void)? = nil
     var acknowledgedInitially: Bool = false
     @State private var fellBackToTimer = false
@@ -31,7 +37,8 @@ struct PracticeSessionView: View {
         if point.mediapipeTarget != nil && !timerOnly && !fellBackToTimer {
             ARCoachView(acupoint: point, roundsTarget: rounds, onNext: onNext,
                         acknowledgedInitially: acknowledgedInitially,
-                        onUseTimer: { fellBackToTimer = true })
+                        onUseTimer: { fellBackToTimer = true },
+                        forceLocate: forceLocate)
         } else {
             TimerSessionView(acupoint: point, roundsTarget: rounds, onNext: onNext,
                              acknowledgedInitially: acknowledgedInitially || fellBackToTimer)
@@ -73,6 +80,9 @@ struct RootView: View {
                         PracticeSessionView(point: pt, rounds: rounds, timerOnly: timerOnly)
                     case .routine(let r):
                         RoutineRunView(routine: r) { launch = nil }
+                    case .locate(let pt):
+                        // One round: the point is to find and save the spot, not to run a session.
+                        PracticeSessionView(point: pt, rounds: 1, forceLocate: true)
                     }
                 }
                 .toolbar { ToolbarItem(placement: .topBarLeading) {
@@ -120,6 +130,8 @@ struct CoachHome: View {
     @ObservedObject private var practice = PracticeStore.shared
     @ObservedObject private var favorites = Favorites.shared
     @ObservedObject private var custom = CustomRoutineStore.shared
+    // Drives the "Your spots" section — observed so clearing a spot updates the list immediately.
+    @ObservedObject private var calibration = PointCalibration.shared
     @State private var routineSheet: Routine? = nil
     @State private var builderSheet: BuilderTarget? = nil
     @State private var showAllPoints = false
@@ -175,6 +187,14 @@ struct CoachHome: View {
                     if !practice.records.isEmpty {
                         insightsCard
                     }
+
+                    // YOUR SPOTS — the app's most defensible capability, finally visible as a
+                    // product concept. A saved spot is the delta between where the app computes a
+                    // point and where THIS user found it by feel, stored in a canonical hand frame
+                    // so it re-applies at any hand pose or distance. Until now the only sign it
+                    // existed was a chip that faded after 2.8 seconds, and the only way to redo one
+                    // was to start a full session and tap an unlabeled glyph in the overlay bar.
+                    yourSpotsSection
 
                     Text(AppLocale.pick("调理套组", "Routines"))
                         .font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
@@ -297,10 +317,15 @@ struct CoachHome: View {
             }
         }
         .sheet(isPresented: $showAllPoints, onDismiss: firePendingLaunch) {
-            AllPointsView { pt, rounds, timerOnly in
+            AllPointsView(onPractice: { pt, rounds, timerOnly in
                 pendingLaunch = .point(pt, rounds: rounds, timerOnly: timerOnly)
                 showAllPoints = false
-            }
+            }, onLocate: { pt in
+                // Same deferred-launch dance as a practice start: dismiss this sheet first, then
+                // present the cover from onDismiss (the iOS 16.0–16.3 presentation-swap drop).
+                pendingLaunch = .locate(pt)
+                showAllPoints = false
+            })
         }
         .sheet(isPresented: $showHistory) {
             HistoryView()
@@ -356,6 +381,51 @@ struct CoachHome: View {
     // This week's sessions, the day streak, and how sessions have felt (last 30 days) — the
     // feelings people report become the app's own honest evidence. One VoiceOver element: the
     // separate number/caption pairs fragment into meaningless pieces otherwise.
+    // "Your spots": every point whose ring this user has personally corrected, with a way to
+    // re-find it or reset it to the standard location. Shown only once at least one spot exists —
+    // an empty section would just be noise on first run; the invitation to make one lives on the
+    // point cards ("Find my spot").
+    @ViewBuilder private var yourSpotsSection: some View {
+        let saved = Acupoint.all
+            .filter { calibration.hasCalibration($0.id) }
+            .sorted { $0.id < $1.id }
+        if !saved.isEmpty {
+            Text(AppLocale.pick("你的位置", "Your spots"))
+                .font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
+            Text(AppLocale.pick("这些穴位的圆圈已按你的手做过校准 — 每次练习都会用你保存的位置。",
+                                "These points are tuned to your hand — every session uses the spot you saved."))
+                .font(.caption).foregroundStyle(Ink.textDim)
+            VStack(spacing: 8) {
+                ForEach(saved) { pt in
+                    HStack(spacing: 10) {
+                        Circle().fill(MeridianColors.color(pt.meridian)).frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("\(pt.id) · \(AppLocale.pick(pt.zh, pt.en))")
+                                .font(.subheadline).foregroundStyle(Ink.text)
+                            Text(AppLocale.pick("已保存你的位置", "Your saved spot"))
+                                .font(.caption2).foregroundStyle(Ink.jade)
+                        }
+                        Spacer()
+                        Button(AppLocale.pick("重新找", "Re-find")) { launch = .locate(pt) }
+                            .font(.caption.weight(.semibold)).tint(Ink.gold)
+                            .accessibilityHint(AppLocale.pick("重新进入找位步骤，更新这个穴位保存的位置",
+                                                             "Re-open the locate step to update this saved spot"))
+                        Menu {
+                            Button(AppLocale.pick("恢复标准位置", "Reset to standard"), role: .destructive) {
+                                calibration.clear(pt.id)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.subheadline).foregroundStyle(Ink.textDim)
+                        }
+                        .accessibilityLabel(AppLocale.pick("更多选项", "More options"))
+                    }
+                    .padding(12).panel()
+                }
+            }
+        }
+    }
+
     private var insightsCard: some View {
         let tally = practice.feelingTally()
         return VStack(alignment: .leading, spacing: 8) {
