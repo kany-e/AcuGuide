@@ -111,14 +111,15 @@ struct SessionRecapView: View {
             Text(AppLocale.pick("（可跳过 — 记录体验，日积月累看出哪些穴位适合你。）",
                                 "(Optional — over time this shows which points suit you.)"))
                 .font(.caption2).foregroundStyle(Ink.textDim)
-            HStack {
-                ForEach(FeelingScale.allCases, id: \.rawValue) { scale in
-                    Button(scale.buttonTitle) {
-                        feeling = scale.rawValue
-                        onFeeling(scale.rawValue)
-                    }.buttonStyle(GoldButtonStyle())
-                        .accessibilityHint(AppLocale.pick("记录这次练习的体验", "Notes how this session felt"))
-                }
+            // ViewThatFits, not a fixed HStack: GoldButtonStyle adds 22 pt of padding per side at
+            // .headline, so "Relaxing / Neutral / Uncomfortable" plus chrome overflows a 375 pt
+            // screen — and it gets worse at every Dynamic Type step. The option that lost was
+            // "Uncomfortable", the LONGEST label and the one that triggers the non-negotiable stop
+            // guidance. The Chinese labels are short, so this was English-only and easy to miss.
+            // Falls back to a vertical stack when the row cannot fit, so nothing ever truncates.
+            ViewThatFits(in: .horizontal) {
+                HStack { feelingButtons }
+                VStack(spacing: 8) { feelingButtons }
             }
             // "Uncomfortable" → advise stopping, never "continue" (immutable safety behavior).
             if FeelingScale.showsStopGuidance(feeling) {
@@ -134,6 +135,20 @@ struct SessionRecapView: View {
             WellnessFooter()
         }
         .padding(28)
+    }
+
+    // Shared by both ViewThatFits arms so the row and the column render identical buttons.
+    @ViewBuilder private var feelingButtons: some View {
+        ForEach(FeelingScale.allCases, id: \.rawValue) { scale in
+            Button(scale.buttonTitle) {
+                feeling = scale.rawValue
+                onFeeling(scale.rawValue)
+            }
+            .buttonStyle(GoldButtonStyle())
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .accessibilityHint(AppLocale.pick("记录这次练习的体验", "Notes how this session felt"))
+        }
     }
 
     // Two exact wordings, kept character-identical to the originals: the camera coach vouches for
