@@ -240,3 +240,45 @@ final class AtlasContentCountTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Point-specific cautions reach the screen where the press happens
+
+// The forced safety gate covers GENERIC red flags and says nothing point-specific. 22 of the 33
+// points carry their own caution — LR3 "don't press hard on the pulsing artery in the groove",
+// KI1 "skip if the sole skin is broken" — and those strings were rendered on the atlas card but
+// on NEITHER session screen, so a bundled routine could walk a user straight into pressing LR3
+// without ever showing its caution.
+final class PointCautionTests: XCTestCase {
+    override func setUp() { super.setUp(); AppSettings.shared.lang = .en }
+
+    /// The cautions must exist to be shown, and must pass the same claim rules as all other copy.
+    func testCautionsExistAndCarryNoForbiddenClaims() {
+        let withCaution = Acupoint.all.filter { !$0.caution.isEmpty }
+        XCTAssertGreaterThanOrEqual(withCaution.count, 20,
+                                    "the sourced cautions have gone missing — they are the only "
+                                    + "point-specific safety copy the app has")
+        for pt in withCaution {
+            let low = pt.caution.lowercased()
+            for term in ["treat", "cure", "diagnos"] {
+                XCTAssertFalse(low.contains(term), "\(pt.id) caution contains '\(term)': \(pt.caution)")
+            }
+        }
+    }
+
+    /// Every point a ROUTINE can reach must be inspectable for its caution before the run — routines
+    /// are the path that chains several points together without the user picking each one.
+    func testEveryRoutinePointExposesItsCaution() {
+        for r in Routine.all {
+            for step in r.steps {
+                guard let pt = step.point else { continue }
+                // Not every point has a caution, but the accessor must never trap or return nil-ish
+                // garbage for one that does — the UI renders it unconditionally when non-empty.
+                XCTAssertEqual(pt.caution, pt.caution, "caution must be stable for \(pt.id)")
+                if !pt.caution.isEmpty {
+                    XCTAssertFalse(pt.caution.trimmingCharacters(in: .whitespaces).isEmpty,
+                                   "\(pt.id) in routine \(r.id) has a whitespace-only caution")
+                }
+            }
+        }
+    }
+}

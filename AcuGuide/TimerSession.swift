@@ -193,6 +193,22 @@ struct TimerSessionView: View {
                     .multilineTextAlignment(.center).padding(.horizontal)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // THE POINT'S OWN CAUTION, on the screen where the press actually happens. The forced
+            // safety gate covers generic red flags; it says nothing point-specific. This screen runs
+            // 25 of the 33 points, and a bundled routine could walk a user straight into pressing
+            // LR3 without ever showing "don't press hard on the pulsing artery in the groove" —
+            // the string existed and was rendered on the atlas card, just never here.
+            if !acupoint.caution.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.caption2)
+                    Text(acupoint.caution).font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(Ink.terracotta)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 24)
+                .accessibilityLabel(AppLocale.pick("注意：", "Caution: ") + acupoint.caution)
+            }
 
             ZStack {
                 Circle().stroke(Ink.line, lineWidth: 8).frame(width: 150, height: 150)
