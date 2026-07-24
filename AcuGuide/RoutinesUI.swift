@@ -50,7 +50,19 @@ struct RoutineDetailSheet: View {
                                 Text(AppLocale.pick("\(step.rounds) 轮", "\(step.rounds) rounds"))
                                     .font(.caption).foregroundStyle(Ink.textDim)
                             }
-                            .padding(10).panel()
+                            // Point-specific caution BEFORE the run starts, not mid-press: a routine
+                            // is a commitment to several points in sequence, and the user should see
+                            // what each one asks of them while they can still decide.
+                            if !pt.caution.isEmpty {
+                                HStack(alignment: .top, spacing: 6) {
+                                    Image(systemName: "exclamationmark.triangle.fill").font(.caption2)
+                                    Text(pt.caution).font(.caption2)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .foregroundStyle(Ink.terracotta)
+                                .padding(.top, 2)
+                                .accessibilityLabel(AppLocale.pick("注意：", "Caution: ") + pt.caution)
+                            }
                         }
                     }
                     Text(AppLocale.pick("带相机图标的穴位由相机引导，其余为计时引导（按说明自行定位）。",

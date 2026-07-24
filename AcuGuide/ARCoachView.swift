@@ -366,6 +366,17 @@ struct ARCoachView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityLabel(AppLocale.pick("这样找：", "How to find it: ") + acupoint.findHow)
                 }
+                // The point's OWN caution, alongside the find guide and under the same
+                // still-hunting condition — the forced safety gate covers generic red flags and says
+                // nothing point-specific, and a caution is most useful before the finger settles.
+                // Never during .holding: it must not appear as if something has gone wrong mid-press.
+                if !acupoint.caution.isEmpty,
+                   engine.phase == .searching || engine.phase == .noHand || engine.phase == .wrongFace {
+                    Text(acupoint.caution)
+                        .font(.caption2).foregroundStyle(Ink.terracotta)
+                        .lineLimit(2).minimumScaleFactor(0.75)
+                        .accessibilityLabel(AppLocale.pick("注意：", "Caution: ") + acupoint.caution)
+                }
                 if let hint = hintLine {
                     Text(hint).font(.caption2).foregroundStyle(Ink.warn)
                         .lineLimit(2).minimumScaleFactor(0.8)
