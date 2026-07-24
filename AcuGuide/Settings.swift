@@ -3,8 +3,12 @@ import SwiftUI
 // Settings sheet — language toggle (中文 ⇄ English). Reached from the gear on the atlas.
 struct SettingsSheet: View {
     @ObservedObject private var settings = AppSettings.shared
+    // Observed so the export/delete row appears and disappears with the data itself.
+    @ObservedObject private var practice = PracticeStore.shared
+    @State private var confirmDeleteHistory = false
     @Environment(\.dismiss) private var dismiss
     @State private var reminderDenied = false
+    @State private var setupTipsReset = false
 
     // Bridge reminderMinutes (minutes past midnight) ⇄ the hour-and-minute DatePicker.
     private var reminderTime: Binding<Date> {
@@ -74,6 +78,31 @@ struct SettingsSheet: View {
                                 .font(.footnote).foregroundStyle(Ink.terracotta)
                         }
                     }
+                    // Nothing shown once should be unrecoverable — the setup card teaches the
+                    // physical arrangement (prop the phone, both hands busy), which is exactly
+                    // what someone wants back when a later session isn't working.
+                    // `|| setupTipsReset` keeps the section on screen after the tap: the button's
+                    // own action clears seenCameraSetup, so gating on that alone would delete the
+                    // row and its confirmation in the same frame — the user taps and sees nothing.
+                    if settings.seenCameraSetup || setupTipsReset {
+                        Section(AppLocale.pick("相机引导", "Camera coach")) {
+                            if setupTipsReset {
+                                Label(AppLocale.pick("下次打开相机引导时会再显示摆放提示。",
+                                                     "Setup tips will show next time you open the camera coach."),
+                                      systemImage: "checkmark.circle")
+                                    .font(.footnote).foregroundStyle(Ink.textDim)
+                            } else {
+                                Button {
+                                    settings.seenCameraSetup = false
+                                    setupTipsReset = true
+                                } label: {
+                                    Label(AppLocale.pick("再看一次摆放提示", "Show setup tips again"),
+                                          systemImage: "iphone.gen3.landscape")
+                                }
+                                .tint(Ink.gold)
+                            }
+                        }
+                    }
                     Section(AppLocale.pick("参考", "Reference")) {
                         NavigationLink {
                             SourcesView()
@@ -92,10 +121,18 @@ struct SettingsSheet: View {
                         }
                         // History lives only on this device (by design) — the export is the user's
                         // own backup path.
-                        if !PracticeStore.shared.records.isEmpty {
+                        if !practice.records.isEmpty {
                             ShareLink(item: PracticeExport(),
                                       preview: SharePreview("AcuGuide practice history")) {
                                 Label(AppLocale.pick("导出练习记录", "Export practice history"), systemImage: "square.and.arrow.up")
+                            }
+                            // Deletion sits right beside export, and export comes FIRST — if you are
+                            // about to erase something, the way to keep a copy should already be in
+                            // view. The privacy copy promised this history "is deleted when you
+                            // delete the app"; uninstalling was the only way to act on that.
+                            Button(role: .destructive) { confirmDeleteHistory = true } label: {
+                                Label(AppLocale.pick("删除练习记录", "Delete practice history"),
+                                      systemImage: "trash")
                             }
                         }
                     }
@@ -118,6 +155,19 @@ struct SettingsSheet: View {
             }
             .navigationTitle(AppLocale.pick("设置", "Settings"))
             .navigationBarTitleDisplayMode(.inline)
+            // Destructive and irreversible, so it is confirmed and the message says exactly what
+            // goes and what stays — saved spots and custom routines are separate data and survive.
+            .confirmationDialog(AppLocale.pick("删除全部练习记录？", "Delete all practice history?"),
+                                isPresented: $confirmDeleteHistory, titleVisibility: .visible) {
+                Button(AppLocale.pick("删除", "Delete"), role: .destructive) {
+                    practice.deleteAllRecords()
+                }
+                Button(AppLocale.pick("取消", "Cancel"), role: .cancel) { }
+            } message: {
+                Text(AppLocale.pick(
+                    "将永久删除本机上的全部练习记录（穴位、轮数、时长与自评）。此操作无法撤销 —— 如需保留，请先「导出练习记录」。你保存的穴位位置与自定义套组不受影响。",
+                    "This permanently removes every practice record on this device (point, rounds, duration and self-report). It cannot be undone — export first if you want a copy. Your saved spots and custom routines are not affected."))
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(AppLocale.pick("完成", "Done")) { dismiss() }.tint(Ink.gold)

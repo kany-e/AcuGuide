@@ -282,3 +282,34 @@ final class PointCautionTests: XCTestCase {
         }
     }
 }
+
+// MARK: - The user can delete their own practice data
+
+// The privacy copy promises practice history "lives only on your phone and is deleted when you
+// delete the app" — but uninstalling was the ONLY way to act on that. A data-deletion path is
+// table stakes for a health-adjacent app, and it makes the privacy promise something the user can
+// actually exercise.
+final class PracticeDataDeletionTests: XCTestCase {
+
+    func testDeleteAllRecordsClearsHistoryAndPersistsTheDeletion() throws {
+        let suite = "acuguide.tests.delete.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { UserDefaults.standard.removeSuite(named: suite) }
+
+        let store = PracticeStore(defaults: defaults)
+        store.add(PracticeRecord(id: UUID().uuidString, date: Date(), pointId: "TE3",
+                                 rounds: 2, roundsTarget: 2, heldS: 60, feeling: "relaxing"))
+        store.add(PracticeRecord(id: UUID().uuidString, date: Date(), pointId: "PC6",
+                                 rounds: 1, roundsTarget: 2, heldS: 30, feeling: nil))
+        XCTAssertEqual(store.records.count, 2)
+
+        store.deleteAllRecords()
+        XCTAssertTrue(store.records.isEmpty, "deletion must clear the in-memory history")
+
+        // A fresh store over the SAME defaults must not resurrect them — otherwise "deleted" only
+        // lasted until the next launch.
+        let reloaded = PracticeStore(defaults: defaults)
+        XCTAssertTrue(reloaded.records.isEmpty,
+                      "deleted history must stay deleted across a reload, not come back on relaunch")
+    }
+}
