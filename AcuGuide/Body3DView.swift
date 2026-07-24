@@ -519,28 +519,40 @@ struct SceneKitBody: UIViewRepresentable {
                     return
                 }
                 let gltfScene = SCNScene(gltfAsset: asset)
+
+                // BUILD OFF THE MAIN THREAD. This whole block used to run inside
+                // DispatchQueue.main.async, so the atlas's first screen was blocked by the most
+                // expensive work in the app: BodyAtlas.channels raycast-projects 18 channels onto
+                // the body surface (densify → Laplacian smooth → Catmull-Rom → a hitTest per
+                // sample), and markers surface-snaps every acupoint. None of it touches the live
+                // scene — it builds a DETACHED node tree and does geometry math on that tree's own
+                // meshes — so it is safe here, and this callback is already off-main (the existing
+                // code did SCNScene(gltfAsset:) right here). Only the steps that mutate the LIVE
+                // scene graph, the camera, or @Published state hop back to main below.
+                var found: SCNGeometry? = nil
+                gltfScene.rootNode.enumerateHierarchy { n, _ in if found == nil { found = n.geometry } }
+                guard let found else { DispatchQueue.main.async { model.meshLoading = false }; return }
+                // GLTFKit2's skinner collapses the rigged mesh to a point; render the static
+                // bind-pose geometry directly. Authored Z-up (lying down) → -90°X stands it up.
+                let geometry = found.copy() as! SCNGeometry
+                geometry.materials = [sageMaterial()]
+                let mesh = SCNNode(geometry: geometry)
+                let (lo, hi) = mesh.boundingBox
+                mesh.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
+                mesh.addChildNode(BodyAtlas.channels(on: mesh))  // meridian channels (skeleton-routed, surface-projected)
+                mesh.addChildNode(BodyAtlas.markers(on: mesh))  // 3D acupoint markers, surface-snapped
+                let pose = SCNNode()
+                pose.addChildNode(mesh)
+                pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+                // Computed off-main too: it is bounding-box math over the detached tree.
+                let radius = pose.boundingSphere.radius
+
                 DispatchQueue.main.async {
-                    // GLTFKit2's skinner collapses the rigged mesh to a point; render the static
-                    // bind-pose geometry directly. Authored Z-up (lying down) → -90°X stands it up.
-                    var found: SCNGeometry? = nil
-                    gltfScene.rootNode.enumerateHierarchy { n, _ in if found == nil { found = n.geometry } }
-                    guard let found else { model.meshLoading = false; return }
                     capsule.removeFromParentNode()
-                    let geometry = found.copy() as! SCNGeometry
-                    geometry.materials = [sageMaterial()]
-                    let mesh = SCNNode(geometry: geometry)
-                    let (lo, hi) = mesh.boundingBox
-                    mesh.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
-                    mesh.addChildNode(BodyAtlas.channels(on: mesh))  // meridian channels (skeleton-routed, surface-projected)
-                    mesh.addChildNode(BodyAtlas.markers(on: mesh))  // 3D acupoint markers, surface-snapped
-                    let pose = SCNNode()
-                    pose.addChildNode(mesh)
-                    pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
                     spin.addChildNode(pose)
 
                     // Explicit camera (root child) so allowsCameraControl's auto-fit doesn't reframe
                     // the figure to fill the view; placed back so it reads as a small ink figure.
-                    let radius = pose.boundingSphere.radius
                     let cam = SCNNode()
                     cam.camera = SCNCamera()
                     cam.camera?.fieldOfView = 50
