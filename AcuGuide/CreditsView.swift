@@ -55,6 +55,53 @@ struct CreditsView: View {
                         }
                     }
                 }
+                // The app BUNDLES both fonts, so their licences travel with it. SIL OFL requires the
+                // copyright notice and licence to accompany the fonts — this screen is where that
+                // obligation is met, alongside the CC-BY model attributions above.
+                Section(AppLocale.pick("字体", "Fonts")) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Ma Shan Zheng 马善政").font(.subheadline).foregroundStyle(Ink.text)
+                        HStack(spacing: 4) {
+                            Link("Google Fonts", destination: URL(string: "https://fonts.google.com/specimen/Ma+Shan+Zheng")!)
+                                .font(.caption).tint(Ink.gold)
+                            Text("·").font(.caption).foregroundStyle(Ink.textDim)
+                            Link("SIL OFL 1.1", destination: URL(string: "https://scripts.sil.org/OFL")!)
+                                .font(.caption).tint(Ink.gold)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Cormorant Garamond").font(.subheadline).foregroundStyle(Ink.text)
+                        HStack(spacing: 4) {
+                            Text(AppLocale.pick("Christian Thalmann · Catharsis Fonts",
+                                                "Christian Thalmann · Catharsis Fonts"))
+                                .font(.caption).foregroundStyle(Ink.textDim)
+                            Text("·").font(.caption).foregroundStyle(Ink.textDim)
+                            Link("SIL OFL 1.1", destination: URL(string: "https://scripts.sil.org/OFL")!)
+                                .font(.caption).tint(Ink.gold)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                // The spoken audio SHIPS as 102 rendered clips, so the model that produced it is
+                // credited even though the model itself is not bundled — the output is what travels.
+                Section(AppLocale.pick("语音", "Voice")) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(AppLocale.pick("预渲染语音 · Kokoro-82M v1.1", "Pre-rendered voice · Kokoro-82M v1.1"))
+                            .font(.subheadline).foregroundStyle(Ink.text)
+                        HStack(spacing: 4) {
+                            Link("Apache-2.0", destination: URL(string: "https://www.apache.org/licenses/LICENSE-2.0")!)
+                                .font(.caption).tint(Ink.gold)
+                            Text("·").font(.caption).foregroundStyle(Ink.textDim)
+                            Link("sherpa-onnx", destination: URL(string: "https://github.com/k2-fsa/sherpa-onnx")!)
+                                .font(.caption).tint(Ink.gold)
+                        }
+                        Text(AppLocale.pick("每句台词都是固定文本，离线渲染为音频随应用一起发布；模型本身不包含在应用内。",
+                                            "Every spoken line is fixed text, rendered to audio offline and shipped with the app; the model itself is not bundled."))
+                            .font(.footnote).foregroundStyle(Ink.textDim)
+                    }
+                    .padding(.vertical, 2)
+                }
                 Section(AppLocale.pick("数据与参考", "Data & references")) {
                     Text(AppLocale.pick(
                         "穴位定位遵循 WHO 西太平洋区标准（2008）。经典归类与英文名参考 Yin Yang House 与《Atlas of Acupuncture Points》。研究计数来自 OCOM 的 AcuTrials 数据库 — 详见「来源与证据」。",
