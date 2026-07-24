@@ -30,8 +30,8 @@ struct OnboardingView: View {
                         icon: "lock.shield",
                         title: AppLocale.pick("一切都在设备上", "Everything stays on your device"),
                         text: AppLocale.pick(
-                            "相机画面即时处理，不保存、不上传。没有账户、没有统计、没有服务器 — \(CoachPersona.name) 也完全在设备上运行。",
-                            "Camera frames are processed live — never stored, never uploaded. No accounts, no analytics, no servers; even \(CoachPersona.name) runs entirely on-device."))
+                            "相机画面即时处理，不保存、不上传。没有账户、没有统计；相机与 \(CoachPersona.name) 都在你的设备上运行。（可选的语音确认可能会用到 Apple 的语音服务。）",
+                            "Camera frames are processed live — never stored, never uploaded. No accounts, no analytics; the camera and \(CoachPersona.name) run on your device. (The optional voice confirm can use Apple's speech service.)"))
                         .tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .always))
