@@ -74,7 +74,8 @@ struct ARCoachView: View {
                 // session behind a screen that shows no camera. The cost is that someone who then
                 // DENIES the camera has spent their one-time card on a session they can't run —
                 // Settings can bring it back, which is part of why that reset exists.
-                CameraSetupCard { settings.seenCameraSetup = true }
+                CameraSetupCard(onContinue: { settings.seenCameraSetup = true },
+                                voiceControl: locateVoice)
             } else {
                 // Permission gate AFTER the safety gate: the system prompt arrives in context, a
                 // denial gets an open-Settings hand-off instead of a black screen, and the capture

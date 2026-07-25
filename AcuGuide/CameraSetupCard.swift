@@ -15,6 +15,15 @@ import SwiftUI
 // Settings can bring this card back (nothing one-time should be unrecoverable).
 struct CameraSetupCard: View {
     let onContinue: () -> Void
+    // Hands-free voice confirm, offered HERE rather than deep in the locate step. Device report:
+    // "it should prompt the user to allow microphone at entrance to the camera guide." Requesting
+    // it unconditionally on entry is the one thing not done — a refusal is permanent (iOS never
+    // asks twice) and would kill the feature for someone who simply had not read what it was for.
+    // This card is the honest middle: it is already explaining that BOTH HANDS are busy, which is
+    // exactly why a spoken confirm exists, so the offer arrives with its reason attached and the
+    // user chooses. Declining costs nothing — the button is still there in the locate step.
+    var voiceControl: LocateVoiceControl? = nil
+    @State private var voiceRequested = false
 
     private struct Tip: Identifiable {
         let id = UUID()
@@ -77,6 +86,41 @@ struct CameraSetupCard: View {
                         .padding(14).panel()
                         // One VoiceOver stop per tip, read as a sentence rather than icon + two labels.
                         .accessibilityElement(children: .combine)
+                    }
+                    // The voice offer sits AFTER the tips, so "both hands are busy" has already been
+                    // read by the time it explains the way around that. Only shown when speech
+                    // recognition actually exists for this locale — never a dead button.
+                    if let vc = voiceControl, vc.available {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "mic")
+                                .font(.title3).foregroundStyle(Ink.gold).frame(width: 28)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(AppLocale.pick("用说的确认（可选）", "Confirm by voice (optional)"))
+                                    .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.text)
+                                Text(AppLocale.pick(
+                                    "两只手都在用的时候，说一句「就是这里」就能确认，不用腾出手来点屏幕。现在开启会问你一次麦克风权限 — 不开也完全没问题，之后随时能在画面里打开。",
+                                    "With both hands busy, saying \"this is my spot\" confirms without freeing a hand. Turning it on now asks for microphone access once — skipping is completely fine, and you can switch it on later from the camera screen."))
+                                    .font(.footnote).foregroundStyle(Ink.textDim)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                if voiceRequested {
+                                    Text(vc.denied
+                                         ? AppLocale.pick("没有授权 — 用点按确认就好。",
+                                                          "Not allowed — tapping to confirm works fine.")
+                                         : AppLocale.pick("已开启。", "Turned on."))
+                                        .font(.caption2)
+                                        .foregroundStyle(vc.denied ? Ink.warn : Ink.jade)
+                                } else {
+                                    Button(AppLocale.pick("开启语音确认", "Turn on Voice confirm")) {
+                                        voiceRequested = true
+                                        vc.toggle()     // requests permission in context, once
+                                    }
+                                    .font(.caption.bold()).tint(Ink.gold)
+                                    .frame(minHeight: 44)
+                                }
+                            }
+                        }
+                        .padding(14).panel()
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
