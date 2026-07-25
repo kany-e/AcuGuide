@@ -175,3 +175,66 @@ private func snapshotRenderer(_ scene: SCNScene, pointOfView: SCNNode) -> SCNRen
     renderer.pointOfView = pointOfView
     return renderer
 }
+
+// DIAGNOSTIC (audit aid, not an invariant): renders the hand sheet with every marker LABELED by
+// point id, so placement can be judged against each point's WHO location text instead of guessing
+// which anonymous dot is which. Device report: "the acupoints on the detailed views are very
+// inaccurate" — the existing assertions only prove a marker landed ON the mesh, which is a far
+// weaker claim than landing on the right anatomy, so they pass while the placement is wrong.
+extension DetailSnapshotTests {
+    func testRenderLabeledHandForAudit() throws {
+        guard let mesh = loadUnitMesh("hand_low_poly") else { XCTFail("no hand mesh"); return }
+        // wantBack: which side's points to LABEL. Markers on the far side are hidden behind the
+        // mesh, but a billboarded label still draws in front of it — so labelling both sides put
+        // five palm labels over the dorsum and made the render unreadable.
+        // The palm view moves the CAMERA behind the hand; it must NOT rotate the mesh. Rotating the
+        // mesh also rotates what "behind" means to screenMarker's farSide raycast, so the palmar
+        // points get re-projected onto the far side again and render invisible — which is exactly
+        // what the first version of this diagnostic did (labels, no dots).
+        for (name, backCamera, file, wantBack) in [
+            ("dorsal", false, "audit_hand_dorsal.png", false),
+            ("palm",   true,  "audit_hand_palm.png",   true),
+        ] {
+            let scene = SCNScene()
+            scene.background.contents = UIColor(white: 0.97, alpha: 1)
+            AtlasMarkers.addStudioLighting(to: scene)
+            let m2 = mesh.clone(); m2.eulerAngles = SCNVector3(0, 0.72, Float.pi)   // canonical pose
+            scene.rootNode.addChildNode(m2)
+            let cam = SCNNode(); cam.camera = SCNCamera()
+            cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
+            cam.position = SCNVector3(0, 0, backCamera ? -2.3 : 2.3)
+            if backCamera { cam.eulerAngles = SCNVector3(0, Float.pi, 0) }
+            scene.rootNode.addChildNode(cam)
+
+            let d = AcupointPlacements.detailLayout(region: "hand")
+            for (id, uv) in d.layout {
+                guard d.back.contains(id) == wantBack else { continue }
+                guard let pt = Acupoint.byId[id],
+                      let mk = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: m2, u: uv.x, v: uv.y,
+                                                         farSide: d.back.contains(id), id: id,
+                                                         color: UIColor(MeridianColors.color(pt.meridian)),
+                                                         core: 0.022, halo: 0.04) else { continue }
+                scene.rootNode.addChildNode(mk.node)
+                let t = SCNText(string: id, extrusionDepth: 0.001)
+                t.font = .systemFont(ofSize: 1.4); t.flatness = 0.05
+                t.firstMaterial?.diffuse.contents = UIColor.black
+                t.firstMaterial?.lightingModel = .constant
+                let tn = SCNNode(geometry: t)
+                tn.scale = SCNVector3(0.05, 0.05, 0.05)
+                // Float toward WHICHEVER camera is rendering — a fixed +z pushed labels behind the
+                // hand in the palm view, leaving dots with no readable labels.
+                tn.position = SCNVector3(mk.node.position.x + (backCamera ? -0.05 : 0.05),
+                                         mk.node.position.y + 0.02,
+                                         mk.node.position.z + (backCamera ? -0.35 : 0.35))
+                tn.constraints = [SCNBillboardConstraint()]
+                scene.rootNode.addChildNode(tn)
+            }
+            let img = snapshotRenderer(scene, pointOfView: cam)
+                .snapshot(atTime: 0, with: CGSize(width: 900, height: 1100), antialiasingMode: .multisampling4X)
+            let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent(file)
+            try img.pngData()!.write(to: out)
+            print("AUDIT \(name) wrote \(out.path)")
+        }
+    }
+}
