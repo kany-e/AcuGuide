@@ -98,15 +98,15 @@
     </div>
     <div class="meta">
       <div class="fresh"><span class="dot"></span> Last refreshed <b id="refreshed">—</b></div>
-      <div>Branch <b>main</b> (single trunk) · HEAD <b>d9a7f89</b> · app at the <b>repo root</b> · every change gate-verified before merge</div>
-      <div>Last commit <b>2026-07-25</b> · working tree <b>clean</b> · pre-release blockers cleared · <b>9 pre-release branches merged</b>, each gate-green before merge · 33 points all with plain-language find-guides</div>
+      <div>Branch <b>main</b> (single trunk) · HEAD <b>691e514</b> · app at the <b>repo root</b> · every change gate-verified before merge</div>
+      <div>Last commit <b>2026-07-25</b> · working tree <b>clean</b> · pre-release blockers cleared · <b>11 pre-release branches merged</b>, each gate-green before merge · 33 points all with plain-language find-guides</div>
     </div>
   </header>
 
   <!-- metrics -->
   <div class="metrics">
     <div class="metric"><div class="n">5<small>/5</small></div><div class="l good">Phases shipped</div></div>
-    <div class="metric"><div class="n">201</div><div class="l">iOS-port commits</div></div>
+    <div class="metric"><div class="n">205</div><div class="l">iOS-port commits</div></div>
     <div class="metric"><div class="n">51<small>+11</small></div><div class="l">Swift modules · tests</div></div>
     <div class="metric"><div class="n">~14.9k</div><div class="l">Lines of Swift</div></div>
     <div class="metric"><div class="n" style="color:var(--jade)">136/136</div><div class="l good">Tests passing (verified)</div></div>
@@ -223,6 +223,7 @@
     <div>
       <section class="card">
         <h2>Recent commits</h2>
+        <div class="commit"><span class="h">691e514</span><span class="m"><b>LICENSE added</b> (proprietary, all rights reserved) — the repo had none, so terms were all-rights-reserved by silence and stated nowhere. Plus THIRD-PARTY-NOTICES.md and licenses/OFL-1.1.txt: <b>the OFL requires its text to ship with the fonts and nothing carried it</b> — text verified byte-identical to canonical</span><span class="d">07-25</span></div>
         <div class="commit"><span class="h">d9a7f89</span><span class="m">README audit: <b>2 of 3 bundled CC-BY models were under-attributed</b> — model.glb had no author or licence, the female body model was unlisted (authors read from each GLB's embedded metadata; the in-app Credits screen was already correct). Also re-synced voice size, tab names, the FoundationModels chat, and the layout; documented the voice-clip key trap</span><span class="d">07-25</span></div>
         <div class="commit"><span class="h">1276fb4</span><span class="m">First-run camera setup card — "prop your phone": the coach needs BOTH hands (one receives, one presses) so none is left holding it; a first-timer used to land in .noHand hearing only "bring your hand into view". Shown once, re-armable from Settings</span><span class="d">07-24</span></div>
         <div class="commit"><span class="h">merge</span><span class="m">Delete practice history in-app — the privacy copy promised local-only data but uninstalling was the only way to act on it; export sits above delete, and the deletion survives a relaunch</span><span class="d">07-24</span></div>
@@ -327,7 +328,7 @@
       <span><span class="sw" style="background:var(--blue)"></span> tests</span>
       <span><span class="sw" style="background:var(--jade)"></span> new this round</span>
     </div>
-    <div style="margin-top:10px">Generated from live git state on branch <b>main</b> · AcuGuide repo · HEAD <b>d9a7f89</b> · the iOS app lives at the <b>REPO ROOT</b>; superseded web work is under <code>archive/</code> · metrics from live git (201 iOS commits · 51+11 Swift files · ~14.9k LOC app+tests) · tests <b>136/136</b> verified on main (<code>make test</code>, iPhone 17 Pro sim, 2026-07-24) · <b>merge-gate</b> is the required check and runs on EVERY branch — static integrity, device build, full suite, StressTests×5, perf budget, voice drift, and a second full run to catch UserDefaults state leaks · <code>make test</code> itself was broken from b7d397c until today (an unbalanced paren inside <code>$(shell …)</code>; CI drives xcodebuild directly, so it never noticed — the gate now parse-checks the Makefile) · device build (no signing) clean · GLTFKit2 pinned @ be89e83 · voice = 102 pre-rendered Kokoro clips shipped as a folder reference, AVSpeech is the fallback · <b>still unverified on real hardware:</b> meridian look and hand-detection feel · wellness self-care, not medical advice.</div>
+    <div style="margin-top:10px">Generated from live git state on branch <b>main</b> · AcuGuide repo · HEAD <b>691e514</b> · the iOS app lives at the <b>REPO ROOT</b>; superseded web work is under <code>archive/</code> · metrics from live git (205 iOS commits · 51+11 Swift files · ~14.9k LOC app+tests) · tests <b>136/136</b> verified on main (<code>make test</code>, iPhone 17 Pro sim, 2026-07-24) · <b>merge-gate</b> is the required check and runs on EVERY branch — static integrity, device build, full suite, StressTests×5, perf budget, voice drift, and a second full run to catch UserDefaults state leaks · <code>make test</code> itself was broken from b7d397c until today (an unbalanced paren inside <code>$(shell …)</code>; CI drives xcodebuild directly, so it never noticed — the gate now parse-checks the Makefile) · device build (no signing) clean · GLTFKit2 pinned @ be89e83 · voice = 102 pre-rendered Kokoro clips shipped as a folder reference, AVSpeech is the fallback · <b>still unverified on real hardware:</b> meridian look and hand-detection feel · wellness self-care, not medical advice.</div>
   </footer>
 
 </div>
