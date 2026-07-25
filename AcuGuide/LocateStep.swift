@@ -115,10 +115,34 @@ struct LocateCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Live status from the engine's locate tracker (what the camera sees right now).
-            Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
-                .lineLimit(3).minimumScaleFactor(0.7)
+            // WRONG FACE gets its own banner rather than a line of status text. It is the one
+            // locate state that both BLOCKS confirm and has a specific physical fix, and as plain
+            // .subheadline prose under a greyed-out button it read as background chatter: device
+            // report was "I had my 手心 side in the camera, it didn't ask me to flip or anything, it
+            // just shows that 就是这里 is unavailable to click". The cue was there; it just did not
+            // look like an instruction. Icon + warn colour + the reason the button is dead.
+            if engine.locateState == .wrongFace {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "hand.raised.fill")
+                        .font(.subheadline).foregroundStyle(Ink.warn)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(engine.cue).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.warn)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(AppLocale.pick("这一面对着镜头时才能确认。",
+                                            "Confirm unlocks once that side is facing the camera."))
+                            .font(.caption2).foregroundStyle(Ink.textDim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.updatesFrequently)
+            } else {
+                // Live status from the engine's locate tracker (what the camera sees right now).
+                Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
+                    .lineLimit(3).minimumScaleFactor(0.7)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
             if let hint {
                 Text(hint).font(.caption2).foregroundStyle(Ink.warn)
                     .lineLimit(2).minimumScaleFactor(0.8)
