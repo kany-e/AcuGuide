@@ -177,8 +177,12 @@ struct LocateCard: View {
                     Button { voiceControl.toggle() } label: {
                         HStack(spacing: 5) {
                             Image(systemName: voiceControl.listening ? "mic.fill" : "mic")
+                            // Says what it DOES. Was 免提 / "Hands-free" — 免提 is speakerphone
+                            // jargon and told the user nothing ("what does 免提 mean???"), while
+                            // the accessibility label right below already said 语音确认. The
+                            // visible label now matches that intent in both languages.
                             Text(voiceControl.listening ? AppLocale.pick("在听", "Listening")
-                                                        : AppLocale.pick("免提", "Hands-free"))
+                                                        : AppLocale.pick("语音确认", "Voice confirm"))
                         }
                         .font(.caption.bold())
                         .foregroundStyle(voiceControl.listening ? Ink.gold : Ink.textDim)
@@ -226,8 +230,8 @@ struct LocateCard: View {
                      // having to switch it on first. Deliberately GENERIC — no literal confirm
                      // phrase here: VoiceOver may read this aloud while the mic is live, and a
                      // matchable phrase coming out of the speaker would self-confirm.
-                     : AppLocale.pick("几秒内点击即可 — 或开启「免提」，不用腾出手也能确认。",
-                                      "Tap within a few seconds — or turn on Hands-free to confirm without freeing a hand."))
+                     : AppLocale.pick("几秒内点击即可 — 或开启「语音确认」，不用腾出手也能确认。",
+                                      "Tap within a few seconds — or turn on Voice confirm to confirm without freeing a hand."))
                     .font(.caption2).foregroundStyle(Ink.textDim)
             } else if calibration.hasCalibration(point.id) {
                 Text(AppLocale.pick("确认后会替换你保存的位置（小圆点）。",
