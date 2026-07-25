@@ -49,8 +49,20 @@ final class ShadowLocalizer {
 
     private let model: MLModel?
     private let log = Logger(subsystem: "app.acuguide", category: "shadow")
-    private let q = DispatchQueue(label: "app.acuguide.shadow", qos: .utility)  // off the capture/coach path
-    private let gate = DispatchSemaphore(value: 1)   // bound the queue to ONE in-flight inference (no backlog)
+    // Stays .utility — telemetry must never compete with the coach for CPU. The Hang Risk Xcode
+    // reported ("user-interactive thread waiting on a lower QoS thread") came from the main thread
+    // WAITING on the semaphore below, not from this queue's priority: a fire-and-forget async to a
+    // low-QoS queue inverts nothing, because nobody blocks on it. Removing the wait is the whole
+    // fix. Raising this to .userInitiated as well was a mistake — on a 2-core CI runner it put
+    // CoreML inference in contention with the test thread.
+    private let q = DispatchQueue(label: "app.acuguide.shadow", qos: .utility)
+    // In-flight gate. Was a DispatchSemaphore the MAIN thread wait()ed on and the worker signalled —
+    // the half of the inversion the checker actually names. It is now a plain Bool confined to the
+    // main thread (same confinement `frame` already relies on): record() sets it, and the worker
+    // clears it by hopping back to main. It bounds the queue to one in-flight inference exactly as
+    // the semaphore did, but the main thread never waits on anything. No lock, no new dependency,
+    // and the extra main hop happens at most once per throttled frame, in DEBUG only.
+    private var inFlight = false                      // main-thread only
     private var frame = 0                             // main-thread throttle counter
     // Per (point|regime) accumulator. `regime` splits idle vs two-hand PRESS frames — the press is when
     // the massaging hand occludes the receiving hand, the exact case the localizer research flags as the
@@ -117,10 +129,14 @@ final class ShadowLocalizer {
         guard Self.enabled, model != nil, handSize > 0, Self.points.contains(point.id) else { return }
         frame += 1                                                    // main-thread serial → no lock needed
         guard frame % Self.inferEveryNFrames == 0 else { return }     // throttle BEFORE enqueue
-        guard gate.wait(timeout: .now()) == .success else { return }  // drop the frame if one is in flight
-        let id = point.id, g = gate
-        q.async { [weak self] in defer { g.signal() }
-            self?.doRecord(hand, id: id, affine: affine, handSize: handSize, pressing: pressing) }
+        guard !inFlight else { return }                               // drop the frame if one is in flight
+        inFlight = true                                               // main-thread confined; no wait
+        let id = point.id
+        q.async { [weak self] in
+            self?.doRecord(hand, id: id, affine: affine, handSize: handSize, pressing: pressing)
+            // Clear on MAIN, where the flag lives — never signal a main-thread waiter from here.
+            DispatchQueue.main.async { self?.inFlight = false }
+        }
     }
 
     private func doRecord(_ hand: Hand, id: String, affine: CGPoint, handSize: CGFloat, pressing: Bool) {  // `q` only

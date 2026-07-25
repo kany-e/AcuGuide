@@ -115,10 +115,34 @@ struct LocateCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Live status from the engine's locate tracker (what the camera sees right now).
-            Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
-                .lineLimit(3).minimumScaleFactor(0.7)
+            // WRONG FACE gets its own banner rather than a line of status text. It is the one
+            // locate state that both BLOCKS confirm and has a specific physical fix, and as plain
+            // .subheadline prose under a greyed-out button it read as background chatter: device
+            // report was "I had my 手心 side in the camera, it didn't ask me to flip or anything, it
+            // just shows that 就是这里 is unavailable to click". The cue was there; it just did not
+            // look like an instruction. Icon + warn colour + the reason the button is dead.
+            if engine.locateState == .wrongFace {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "hand.raised.fill")
+                        .font(.subheadline).foregroundStyle(Ink.warn)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(engine.cue).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.warn)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(AppLocale.pick("这一面对着镜头时才能确认。",
+                                            "Confirm unlocks once that side is facing the camera."))
+                            .font(.caption2).foregroundStyle(Ink.textDim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.updatesFrequently)
+            } else {
+                // Live status from the engine's locate tracker (what the camera sees right now).
+                Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
+                    .lineLimit(3).minimumScaleFactor(0.7)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
             if let hint {
                 Text(hint).font(.caption2).foregroundStyle(Ink.warn)
                     .lineLimit(2).minimumScaleFactor(0.8)
@@ -153,8 +177,12 @@ struct LocateCard: View {
                     Button { voiceControl.toggle() } label: {
                         HStack(spacing: 5) {
                             Image(systemName: voiceControl.listening ? "mic.fill" : "mic")
+                            // Says what it DOES. Was 免提 / "Hands-free" — 免提 is speakerphone
+                            // jargon and told the user nothing ("what does 免提 mean???"), while
+                            // the accessibility label right below already said 语音确认. The
+                            // visible label now matches that intent in both languages.
                             Text(voiceControl.listening ? AppLocale.pick("在听", "Listening")
-                                                        : AppLocale.pick("免提", "Hands-free"))
+                                                        : AppLocale.pick("语音确认", "Voice confirm"))
                         }
                         .font(.caption.bold())
                         .foregroundStyle(voiceControl.listening ? Ink.gold : Ink.textDim)
@@ -182,6 +210,16 @@ struct LocateCard: View {
                                     "Voice recognition is unavailable right now — use the button to confirm."))
                     .font(.caption2).foregroundStyle(Ink.warn)
             }
+            // Further from the standard estimate than a typical fine-tune. This is a NOTE, never a
+            // block: the point of the locate step is to record where the user's point actually is,
+            // and pressing outside the ring used to leave them with "a little far" and a dead
+            // button (device-reported). Say what we noticed, then let them decide.
+            if engine.locateState == .ready, engine.locateFarFromStandard {
+                Text(AppLocale.pick("这个位置离标准位置比较远 — 如果按着就是对的，照样可以确认。",
+                                    "That's further from the standard location than usual — if it's the spot that feels right, confirm it anyway."))
+                    .font(.caption2).foregroundStyle(Ink.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             // The offer is time-boxed (the engine's confirm latch) — say so while it's live, so a
             // silent lapse mid-reach isn't a mystery (the lapsed cue then explains re-arming).
             if engine.locateState == .ready {
@@ -192,8 +230,8 @@ struct LocateCard: View {
                      // having to switch it on first. Deliberately GENERIC — no literal confirm
                      // phrase here: VoiceOver may read this aloud while the mic is live, and a
                      // matchable phrase coming out of the speaker would self-confirm.
-                     : AppLocale.pick("几秒内点击即可 — 或开启「免提」，不用腾出手也能确认。",
-                                      "Tap within a few seconds — or turn on Hands-free to confirm without freeing a hand."))
+                     : AppLocale.pick("几秒内点击即可 — 或开启「语音确认」，不用腾出手也能确认。",
+                                      "Tap within a few seconds — or turn on Voice confirm to confirm without freeing a hand."))
                     .font(.caption2).foregroundStyle(Ink.textDim)
             } else if calibration.hasCalibration(point.id) {
                 Text(AppLocale.pick("确认后会替换你保存的位置（小圆点）。",
