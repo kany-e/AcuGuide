@@ -1,0 +1,54 @@
+Copyright (c) 2026 kany-e. All rights reserved.
+
+AcuGuide — proprietary license
+
+This repository is published so that others may READ, STUDY, and REVIEW the
+source. It is not open-source software, and no license to use it is granted
+beyond what is written here.
+
+PERMITTED, without asking:
+  - Viewing and reading the source.
+  - Cloning or forking the repository in order to read, study, or evaluate it.
+  - Building and running the app locally, unmodified, for personal evaluation.
+  - Quoting short excerpts for commentary, teaching, review, or academic work,
+    with attribution.
+
+NOT PERMITTED, without prior written permission from the copyright holder:
+  - Distributing this software, modified or unmodified, in source or binary
+    form. This includes publishing it to any app store.
+  - Using it, or any substantial part of it, in another product or service,
+    commercial or otherwise.
+  - Creating and distributing derivative works.
+  - Removing or altering this notice, the third-party notices, or the
+    attribution shown inside the app.
+
+Nothing here restricts any right you already hold under applicable copyright
+law, including fair use or fair dealing.
+
+THIRD-PARTY COMPONENTS
+
+This license covers only the original AcuGuide source code. The repository and
+the built app also include third-party components under their own licenses —
+CC-BY 4.0 3D models, an Apache-2.0 voice model, SIL OFL fonts, and an MIT
+Swift package. Those licenses are NOT superseded by this one, and several of
+them require attribution that must be preserved when the app is distributed.
+
+See THIRD-PARTY-NOTICES.md for the full list, and licenses/ for license texts.
+
+NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+NOT MEDICAL ADVICE
+
+AcuGuide is a wellness self-care app. It is not a medical device, it does not
+diagnose, treat, or cure anything, and it is not a substitute for professional
+care. See docs/privacy-policy.md and the in-app safety copy.
+
+Questions, or want a different license for your use case? Open an issue at
+https://github.com/kany-e/AcuGuide

@@ -25,6 +25,7 @@ scripts/                # safety_scan.py (banned-claim scanner), pick_simulator.
 claude-deliverables/    # CV research, acupoint sources, and the replay fixtures the tests bundle
 tools/voice/            # offline Kokoro renderer for the pre-rendered voice clips
 store/metadata/         # App Store listing copy (en-US, zh-Hans) — scanned by the safety gate
+licenses/               # full third-party license texts (OFL 1.1)
 docs/                   # privacy policy, release checklist, pre-release vision, icon drafts
 archive/                # superseded work, kept for reference — nothing here is built (see below)
 CLAUDE.md               # working agreement + the traps that bite (read this before changing things)
@@ -109,6 +110,15 @@ NO_HAND / WRONG_FACE.
 - Acupoint data is sourced and adversarially verified — see `claude-deliverables/references/` and
   the in-app Sources screen.
 
+## Licensing
+AcuGuide's own source is **proprietary — all rights reserved** ([LICENSE](LICENSE)). The repo is
+public so the source can be read and reviewed; it is not open-source, and redistribution or reuse
+in another product needs written permission.
+
+The bundled third-party components keep their own licenses, several of which **require attribution
+that must be preserved when the app is distributed** — see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and [`licenses/`](licenses/).
+
 ## Third-party assets / credits
 All three bundled models are **CC-BY 4.0** from Sketchfab and their attribution is a **licence
 obligation**. The same credits are shown in-app under Settings → Licenses & credits.
@@ -123,7 +133,8 @@ Models were recolored and rescaled for display.
 
 - **Voice:** [Kokoro-82M v1.1](https://huggingface.co/hexgrad/Kokoro-82M) (Apache-2.0), rendered
   offline via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx).
-- **Fonts** (`AcuGuide/Fonts/`): **Ma Shan Zheng** and **Cormorant Garamond**, both SIL OFL.
+- **Fonts** (`AcuGuide/Fonts/`): **Ma Shan Zheng** and **Cormorant Garamond**, both
+  [SIL OFL 1.1](licenses/OFL-1.1.txt) (the license text ships with them, as OFL requires).
 - **GLTFKit2** by [Warren Moore](https://github.com/warrenm/GLTFKit2), MIT.
 
 ## Notes / things to tune on-device
