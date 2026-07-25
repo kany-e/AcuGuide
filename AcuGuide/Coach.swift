@@ -388,12 +388,22 @@ final class CoachEngine: ObservableObject {
     // When the lone-presser (receiver occluded) state began — bounds it to lonePresserGraceS.
     private var lonePresserSince: Double? = nil
 
+    // Last MEASURED target, in the canonical (hand-relative) frame, plus its hand scale. When the
+    // pressing finger covers an anchor — the normal state of a correct press — the ring reprojects
+    // from this instead of vanishing, so it keeps tracking the hand rather than freezing at stale
+    // screen coordinates. Written only from a real weightedTarget measurement, never from a
+    // reprojection, so it cannot drift by compounding on itself. Cleared with the rest of the
+    // scene-keyed state on a camera flip / reset (both spaces change).
+    private var lastCanonicalTarget: (x: Double, y: Double)? = nil
+    private var lastHandScale: CGFloat? = nil
+
     // A camera flip is a NEW SCENE in a different coordinate parity: drop everything keyed to the
     // old one — smoothers, sticky role anchors, the face verdict, the lone-presser assumption, and
     // the on-screen ring/tip (their positions are meaningless in the new frame).
     func cameraFlipped() {
         smootherReset(); roleReset()
         lastFaceCorrect = false; lonePresserSince = nil
+        lastCanonicalTarget = nil; lastHandScale = nil   // canonical frame is parity-dependent
         overlay.ringCenter = nil; overlay.pressTip = nil
         resetLocateTracking()   // window/candidate/anchors are all in the old coordinate parity
         // Frames are scene-generation-dropped until the flip's reconfigure commits, so nothing
@@ -422,6 +432,7 @@ final class CoachEngine: ObservableObject {
     func reset() {
         machine.reset(); smootherReset(); roleReset()
         lastFaceCorrect = false; lonePresserSince = nil
+        lastCanonicalTarget = nil; lastHandScale = nil
         roundsDone = 0; sessionComplete = false; restLeft = nil; heldAccum = 0
         roundTimes = []; clearHint()
         phase = .noHand; overlay.ringCenter = nil; overlay.pressTip = nil; overlay.progress = 0
@@ -499,13 +510,37 @@ final class CoachEngine: ObservableObject {
         // presser slot afterwards. A weak hand must never anchor the ring, and weak-only frames
         // decay to "no usable hand" rather than promoting one to receiver.
         let strongHands = hands.filter { !$0.weak }
+        let weakHands = hands.filter { $0.weak }
         var receiverOpt: Hand?
         var presser: Hand?
         if strongHands.isEmpty {
             (receiverOpt, presser) = (nil, hands.first)
+        } else if strongHands.count == 1, let weak = weakHands.first {
+            // EXACTLY ONE strong hand + at least one weak hand is UNAMBIGUOUS by policy: weak-tier
+            // hands are presser-only, so the strong hand is necessarily the receiver.
+            //
+            // This case used to go through assignRoles with only the strong hand, which took its
+            // SINGLE-hand branch — and that branch assumes "mid-press it is usually the MASSAGING
+            // hand that survives detection", so it could return (nil, strongHand) and classify the
+            // RECEIVING hand as the presser. The consequences were the three symptoms reported from
+            // device testing: receiverOpt nil froze the ring on its last value, the press dot fell to
+            // the degraded occlusion path so it flickered, the "show the pressed hand more" hint
+            // fired at a hand that was fully visible, and lonePresserGraceS (1.5s) later the roles
+            // reset and it all repeated — the "detects for a short while, then doesn't, and repeats"
+            // cycle.
+            //
+            // The single-hand branch's premise is right only when the OTHER hand is genuinely gone.
+            // Here it isn't: we can see it, we just see it weakly — which is the NORMAL mid-press
+            // state, because the massaging hand is foreshortened and doing the occluding. Keep the
+            // role anchors in step so the two-hand path stays sticky when the presser firms back up.
+            receiverOpt = strongHands[0]
+            presser = weak
+            if let rw = strongHands[0].p(.wrist) { lastReceiverWrist = rw }
+            if let pw = weak.p(.wrist) { lastPresserWrist = pw }
+            swapVotes = 0
         } else {
             (receiverOpt, presser) = assignRoles(strongHands, target: target, requiresDorsal: point.requiresDorsal)
-            if presser == nil, receiverOpt != nil { presser = hands.first(where: { $0.weak }) }
+            if presser == nil, receiverOpt != nil { presser = weakHands.first }
         }
         if receiverOpt == nil {
             let since = lonePresserSince ?? now
@@ -554,17 +589,53 @@ final class CoachEngine: ObservableObject {
         // PAUSES within grace (via the dropout debounce) instead of flashing NO_HAND and wiping
         // the steadiness run. Keep the last ring; drop the now-stale press tip. Do NOT reset the
         // smoother — geometry resumes continuously.
-        guard let rawCenter = receiver.weightedTarget(target.anchors),
-              let handScale = isoHandSize(receiver), handScale > 0 else {
-            overlay.pressTip = nil
-            // Sustained anchor loss = the pressing hand is covering the receiver's landmarks.
-            occlusionHint(now, AppLocale.pick("让手腕和指节露出来一点。",
-                                              "Let the wrist and knuckles peek into view."))
-            step(occludedInput(now), point: point, hasPresser: false)
+        // PRESSING THE POINT OCCLUDES THE POINT. weightedTarget is all-or-nothing — one missing
+        // anchor returns nil — and Vision discards any landmark under 0.3 confidence. TE3's anchors
+        // are ringMCP (0.11), pinkyMCP (0.47) and wrist (0.42), while the point itself is the groove
+        // BEHIND the ring/little knuckles, so the pressing finger lands squarely on two of its three
+        // anchors. Losing the 11%-weight one was enough to null the target.
+        //
+        // This branch used to answer that by clearing the press dot outright and reporting
+        // hasPresser: false — bypassing the tipGraceS grace the sibling receiver-occluded path uses.
+        // Device-reported result: the dot flickered on and off as anchors crossed the confidence
+        // line, and the ring froze and jumped, "when the pressing finger comes into the circle".
+        // Pinned by testAnchorOccludedByThePressingFingerDoesNotKillTheDot (6/6 frames lost before).
+        //
+        // Occlusion here is the NORMAL state of a correct press, not a failure, so it is ridden out
+        // rather than reported: the ring reprojects from the canonical hand frame (which needs only
+        // wrist + middleMCP, still visible when a knuckle is covered) so it keeps TRACKING the hand
+        // instead of freezing, and the press dot resolves through the same selectPresserTip + grace
+        // path as everywhere else.
+        var resolvedCenter = receiver.weightedTarget(target.anchors)
+        var resolvedScale = isoHandSize(receiver)
+        if resolvedCenter == nil || (resolvedScale ?? 0) <= 0,
+           let q = lastCanonicalTarget,
+           let ridden = PointCalibration.reproject(q, hand: receiver, aspect: frameAspect) {
+            resolvedCenter = ridden
+            if (resolvedScale ?? 0) <= 0 { resolvedScale = lastHandScale }   // scale is slower-moving
+        }
+        guard let rawCenter = resolvedCenter, let handScale = resolvedScale, handScale > 0 else {
+            // Nothing left to ride: even the canonical frame is gone (no wrist/middleMCP, or the
+            // hand has never resolved once). Keep the dot within its grace rather than hard-clearing.
+            if pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {
+                step(occludedInput(now), point: point, hasPresser: true)
+            } else {
+                overlay.pressTip = nil; pressSmoother.reset()
+                occlusionHint(now, AppLocale.pick("让手腕和指节露出来一点。",
+                                                  "Let the wrist and knuckles peek into view."))
+                step(occludedInput(now), point: point, hasPresser: false)
+            }
             return
         }
         clearHint()   // geometry is resolving again
         let hs = handScale
+        // Cache the resolved geometry in the CANONICAL (hand-relative) frame so the next occluded
+        // frame can ride it. Only cached from a genuine measurement, never from a reprojection, so
+        // the estimate can't drift by compounding on itself.
+        if receiver.weightedTarget(target.anchors) != nil {
+            lastCanonicalTarget = PointCalibration.canonical(rawCenter, hand: receiver, aspect: frameAspect)
+            lastHandScale = hs
+        }
         // M1 shadow mode: run the learned CoreML head next to the affine target + log the delta. Never
         // alters the ring/state machine — reads the hand only. See LearnedLocalizer / M1 experiment.
         ShadowLocalizer.shared.record(hand: receiver, point: point, affine: rawCenter, handSize: hs, pressing: presser != nil)
@@ -669,6 +740,7 @@ final class CoachEngine: ObservableObject {
     // (was two near-verbatim inline blocks).
     private func stepNoUsableHand(_ now: TimeInterval, point: Acupoint) {
         smootherReset(); roleReset(); lastFaceCorrect = false
+        lastCanonicalTarget = nil; lastHandScale = nil   // no hand → nothing to ride
         overlay.ringCenter = nil; overlay.pressTip = nil
         clearHint()   // the NO_HAND cue already says what to do
         step(noHandInput(now), point: point, hasPresser: false)
