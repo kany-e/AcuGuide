@@ -14,6 +14,9 @@ struct ARCoachView: View {
     // Hands-free confirm for the locate step (both hands are pressing — speaking beats tapping).
     @StateObject private var locateVoice = LocateVoiceControl()
     @ObservedObject private var settings = AppSettings.shared
+    // Observed, not just read: the read-aloud button's icon and label key off `speaking`, and a bare
+    // AtlasSpeaker.shared.speaking would render once and then never update when playback ends.
+    @ObservedObject private var atlasSpeaker = AtlasSpeaker.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var acknowledged = false
     @State private var endedEarly = false          // "End" pressed — recap with partial rounds (normal, not failure)
@@ -377,11 +380,38 @@ struct ARCoachView: View {
                 // and it must never grow the card mid-press. No tap needed — both hands are busy.
                 if acupoint.hasFindGuide,
                    engine.phase == .searching || engine.phase == .noHand || engine.phase == .wrongFace {
-                    Text(acupoint.findHow)
-                        .font(.caption2).foregroundStyle(Ink.gold)
-                        .lineLimit(3).minimumScaleFactor(0.75)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(AppLocale.pick("这样找：", "How to find it: ") + acupoint.findHow)
+                    HStack(alignment: .top, spacing: 8) {
+                        // .footnote, wrapping in full. Was .caption2 with lineLimit(3) and
+                        // minimumScaleFactor(0.75): the app's smallest type, shrunk further, then
+                        // TRUNCATED — over a live camera feed. Device report was that the detailed
+                        // instructions are "very unaccessible", and at that size they were, in the
+                        // literal sense. These states never coexist with a hold, so letting the text
+                        // wrap cannot grow the card mid-press.
+                        Text(acupoint.findHow)
+                            .font(.footnote).foregroundStyle(Ink.gold)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityLabel(AppLocale.pick("这样找：", "How to find it: ") + acupoint.findHow)
+                        Spacer(minLength: 0)
+                        // HEAR it instead of reading it. The request was to see the instructions
+                        // while interacting with the marker — but interacting means both hands are
+                        // on the point and the eyes are on the hand, not the screen, so the honest
+                        // answer is audio. Every point already ships a pre-rendered spokenInfo clip
+                        // (VoiceClips indexes Acupoint.all), so this plays existing audio: no new
+                        // line, no key change, no orphaned clip, nothing to re-render.
+                        Button {
+                            AtlasSpeaker.shared.toggle(acupoint.spokenInfo)
+                        } label: {
+                            Image(systemName: atlasSpeaker.speaking
+                                  ? "speaker.wave.2.fill" : "speaker.wave.2")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Ink.gold)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel(atlasSpeaker.speaking
+                            ? AppLocale.pick("停止朗读", "Stop reading")
+                            : AppLocale.pick("朗读找穴说明", "Read the finding guide aloud"))
+                    }
                 }
                 // The point's OWN caution, alongside the find guide and under the same
                 // still-hunting condition — the forced safety gate covers generic red flags and says
