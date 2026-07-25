@@ -188,3 +188,39 @@ final class PresserStabilityTests: XCTestCase {
                        + "was fully visible")
     }
 }
+
+// Device-reported: "what if the user's actual acupoint is outside of the dashed circle? the
+// 就是这里 doesn't even allow you to press." The locate step exists to record where the user's
+// point ACTUALLY is, so a press outside the standard ring is the case it was built for — refusing
+// it defeated the feature. These pin the gate/clamp relationship that makes that safe.
+final class LocateReachTests: XCTestCase {
+
+    // The storage clamp must never truncate a press the capture gate accepted — otherwise the saved
+    // spot silently lands somewhere the user never pressed.
+    func testStorageClampReachesAsFarAsTheCaptureGate() {
+        XCTAssertGreaterThanOrEqual(PointCalibration.maxOffsetXHandSize,
+                                    CoachConst.locateFarCaptureRadiusXHandSize,
+                                    "a gate-accepted press would be silently clamped on save")
+    }
+
+    // The outer band must genuinely extend past the inner one, or the honest-note path is dead code
+    // and users outside the ring are still blocked.
+    func testFarBandExtendsBeyondTheNormalRadius() {
+        XCTAssertGreaterThan(CoachConst.locateFarCaptureRadiusXHandSize,
+                             CoachConst.locateCaptureRadiusXHandSize,
+                             "there is no band in which a far-but-real spot can be confirmed")
+    }
+
+    // A press out at the far band still round-trips through the store unchanged — the actual
+    // guarantee the user cares about: the spot they confirmed is the spot that gets saved.
+    func testFarPressRoundTripsWithoutTruncation() {
+        let cal = PointCalibration.ephemeral()
+        let r = CoachConst.locateFarCaptureRadiusXHandSize * 0.98        // just inside the gate
+        let o = PointCalibration.Offset(dx: r, dy: 0)
+        cal.set(o, for: "TE3")
+        let saved = cal.offset(for: "TE3")
+        XCTAssertNotNil(saved)
+        XCTAssertEqual(saved!.norm, o.norm, accuracy: 1e-9,
+                       "the confirmed spot was clamped on save — the user's point moved")
+    }
+}

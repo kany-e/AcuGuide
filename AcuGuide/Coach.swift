@@ -67,7 +67,23 @@ enum CoachConst {
     // confirms the spot that feels right; the confirmed press becomes their personal correction.
     // The capture radius is measured from the PURE affine target (the same datum and iso units as
     // the storage clamp), so a gate-accepted press is never silently clamped away on save.
-    static let locateCaptureRadiusXHandSize = 0.30   // a press this near the standard spot can be confirmed
+    static let locateCaptureRadiusXHandSize = 0.30   // a press this near the standard spot confirms normally
+    // Your point may simply NOT be where the standard estimate puts it — anatomy varies, and the
+    // affine estimate itself carries error. Blocking confirm outside the inner radius meant the one
+    // feature whose entire purpose is "record where YOUR point is" refused to record it: the user
+    // got "a little far, come back to the ring" and a dead button (device-reported).
+    //
+    // So presses out to this OUTER radius still settle and confirm — the UI just says plainly that
+    // the spot is further from the standard location than usual, rather than silently refusing. The
+    // inner radius keeps its meaning as "normal", and the guard against a stray press becoming a
+    // permanent calibration becomes an informed choice instead of a locked door. Beyond THIS, the
+    // press is treated as genuinely off-guide (a hand resting elsewhere, a mis-tap).
+    // 0.45, deliberately NOT wider: selectPresserTip only acquires a fingertip within
+    // presserAcquireXHandSize (0.65), so pushing this to ~0.55+ would squeeze the genuine
+    // "off-guide" band (tracked, but too far) down to almost nothing and a mis-tap would read as a
+    // confirmable spot. 0.45 gives ~50% more reach than the old 0.30 while leaving 0.45–0.65 as a
+    // real off-guide range.
+    static let locateFarCaptureRadiusXHandSize = 0.45
     static let locateWindowS   = 0.8    // trailing window of measured presses
     static let locateSteadyS   = 0.6    // the window must span this long before confirm unlocks
     // MEAN absolute deviation from the window centroid below this = a settled press. (Named
@@ -334,6 +350,9 @@ final class CoachEngine: ObservableObject {
     // hand's geometry has been unresolvable for a while (occlusion), so it never flashes on the
     // routine one-frame dropouts the grace timers already absorb.
     @Published private(set) var hintText: String? = nil
+    // The settled press is confirmable but sits further from the standard estimate than a typical
+    // anatomical fine-tune. Drives an honest note on the confirm card — never a block.
+    @Published private(set) var locateFarFromStandard = false
     private var anchorLostSince: Double? = nil
 
     private let machine: CoachStateMachine
@@ -807,11 +826,15 @@ final class CoachEngine: ObservableObject {
             breakLocateSearch()
         } else if let off = f.offsetXHandSize, let tip = pressTip,
                   f.tipConfidence >= CoachConst.minTipConfidence {
-            if off > CoachConst.locateCaptureRadiusXHandSize {
+            if off > CoachConst.locateFarCaptureRadiusXHandSize {
                 // A tracked far press mid-latch is the pressing hand REACHING FOR THE BUTTON —
                 // keep the offer. Otherwise it's a genuine off-guide search.
                 if !offerLatched { state = .offGuide; locateWindow.removeAll() }
             } else {
+                // Inside the outer band: confirmable, but say so honestly when it is further out
+                // than a typical anatomical fine-tune.
+                let far = off > CoachConst.locateCaptureRadiusXHandSize
+                if locateFarFromStandard != far { locateFarFromStandard = far }
                 latchLapsed = false
                 locateWindow.append((now, tip, frameAnchors?.hand.chirality ?? .unknown))
                 pruneLocateWindow(before: now - CoachConst.locateWindowS)
@@ -869,6 +892,7 @@ final class CoachEngine: ObservableObject {
     // The receiving hand vanished or flipped: the captured geometry is void — break the offer,
     // the window, and the lapse flag together.
     private func breakLocateSearch() {
+        if locateFarFromStandard { locateFarFromStandard = false }
         locateWindow.removeAll()
         lastLiveReadyT = -.infinity
         latchLapsed = false

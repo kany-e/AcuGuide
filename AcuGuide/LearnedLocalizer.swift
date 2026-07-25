@@ -49,13 +49,13 @@ final class ShadowLocalizer {
 
     private let model: MLModel?
     private let log = Logger(subsystem: "app.acuguide", category: "shadow")
-    // QoS .userInitiated, NOT .utility. record() is called from the coach path on the MAIN thread
-    // (user-interactive), so a .utility worker it hands work to is a priority INVERSION — Xcode's
-    // Thread Performance Checker reports it as a Hang Risk ("thread running at user-interactive QoS
-    // waiting on a lower QoS thread"). This is telemetry, so it is DEBUG-only and shipping users
-    // never run it — but debug builds are exactly what gets evaluated on device, so the inversion
-    // was adding jitter to the very sessions being judged for coach feel.
-    private let q = DispatchQueue(label: "app.acuguide.shadow", qos: .userInitiated)
+    // Stays .utility — telemetry must never compete with the coach for CPU. The Hang Risk Xcode
+    // reported ("user-interactive thread waiting on a lower QoS thread") came from the main thread
+    // WAITING on the semaphore below, not from this queue's priority: a fire-and-forget async to a
+    // low-QoS queue inverts nothing, because nobody blocks on it. Removing the wait is the whole
+    // fix. Raising this to .userInitiated as well was a mistake — on a 2-core CI runner it put
+    // CoreML inference in contention with the test thread.
+    private let q = DispatchQueue(label: "app.acuguide.shadow", qos: .utility)
     // In-flight gate. Was a DispatchSemaphore the MAIN thread wait()ed on and the worker signalled —
     // the half of the inversion the checker actually names. It is now a plain Bool confined to the
     // main thread (same confinement `frame` already relies on): record() sets it, and the worker

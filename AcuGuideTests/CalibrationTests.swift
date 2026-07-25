@@ -354,8 +354,14 @@ final class CoachEngineLocateTests: XCTestCase {
         XCTAssertEqual(engine.phase, .holding)
     }
 
-    // A press OUTSIDE the capture radius must read as off-guide and never unlock confirm — the
-    // guided correction is a fine-tune near the marked area, not a "put the ring anywhere" tool.
+    // A press outside the OUTER capture radius must read as off-guide and never unlock confirm.
+    // The inner radius no longer refuses — a user whose point genuinely isn't where the affine
+    // estimate puts it can confirm out to locateFarCaptureRadiusXHandSize with an honest note
+    // (device-reported: "what if the acupoint is outside the dashed circle? it doesn't even allow
+    // you to press"). This pins the OUTER limit that still exists, so a stray press or a hand
+    // resting elsewhere cannot become a permanent calibration.
+    // Distances are derived from the constants, not hard-coded: this test previously used a fixed
+    // offset chosen against the old 0.30 gate and silently became a no-op when the gate widened.
     func testFarPressNeverUnlocksConfirm() {
         let saved = HandCalibration.dorsalWhenSignedPositive
         HandCalibration.dorsalWhenSignedPositive = true
@@ -365,7 +371,12 @@ final class CoachEngineLocateTests: XCTestCase {
         let target = te3.mediapipeTarget!
         let receiver = Hand(points: base, chirality: .right)
         let affine = receiver.weightedTarget(target.anchors)!
-        let far = CGPoint(x: affine.x + 0.25, y: affine.y)   // way past the capture radius
+        // Past the OUTER radius but still inside presserAcquireXHandSize (0.65), so the tip is
+        // tracked and the verdict is a real "off-guide", not "no press at all".
+        // Same iso hand size the sibling boundary test uses (wrist→middleMCP, y in width units).
+        let hsIsoLocal = CGFloat(hypot(0.0, 0.28 / (9.0 / 16.0)))
+        let beyond = CGFloat(CoachConst.locateFarCaptureRadiusXHandSize + 0.08) * hsIsoLocal
+        let far = CGPoint(x: affine.x + beyond, y: affine.y)
         let presser = presserHand(pressing: far, finger: target.pressFinger)
 
         let engine = CoachEngine(startLocating: true, calibration: .ephemeral())
@@ -554,8 +565,10 @@ final class CoachEngineLocateTests: XCTestCase {
                                "stored norm must equal the press's iso distance (r=\(r) deg=\(deg))")
             }
         }
-        // Boundary: past the gate → offGuide, nothing stored.
-        let far = CGPoint(x: affine.x + 0.35 * hsIso, y: affine.y)
+        // Boundary: past the OUTER gate → offGuide, nothing stored. Derived from the constant so
+        // it tracks the gate instead of quietly falling inside it when the gate widens.
+        let far = CGPoint(x: affine.x + CGFloat(CoachConst.locateFarCaptureRadiusXHandSize + 0.08) * hsIso,
+                          y: affine.y)
         let farPresser = presserHand(pressing: far, finger: target.pressFinger)
         let cal = PointCalibration.ephemeral()
         let engine = CoachEngine(startLocating: true, calibration: cal)

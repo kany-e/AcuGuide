@@ -182,6 +182,16 @@ struct LocateCard: View {
                                     "Voice recognition is unavailable right now — use the button to confirm."))
                     .font(.caption2).foregroundStyle(Ink.warn)
             }
+            // Further from the standard estimate than a typical fine-tune. This is a NOTE, never a
+            // block: the point of the locate step is to record where the user's point actually is,
+            // and pressing outside the ring used to leave them with "a little far" and a dead
+            // button (device-reported). Say what we noticed, then let them decide.
+            if engine.locateState == .ready, engine.locateFarFromStandard {
+                Text(AppLocale.pick("这个位置离标准位置比较远 — 如果按着就是对的，照样可以确认。",
+                                    "That's further from the standard location than usual — if it's the spot that feels right, confirm it anyway."))
+                    .font(.caption2).foregroundStyle(Ink.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             // The offer is time-boxed (the engine's confirm latch) — say so while it's live, so a
             // silent lapse mid-reach isn't a mystery (the lapsed cue then explains re-arming).
             if engine.locateState == .ready {

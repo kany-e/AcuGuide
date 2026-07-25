@@ -28,11 +28,17 @@ final class PointCalibration: ObservableObject {
         var norm: Double { (dx * dx + dy * dy).squareRoot() }
     }
 
-    // The clamp: how far a user's confirmed press may pull the ring, in iso hand-size units — the
-    // same units (and the same 0.30) as the locate step's capture gate, so a gate-accepted press
-    // never silently clamps. The coached tolerances are 0.16–0.24, so 0.30 allows a real
-    // anatomical fine-tune (~a finger width) while a press on the wrong landmark stays capped.
-    static let maxOffsetXHandSize = 0.30
+    // The clamp: how far a user's confirmed press may pull the ring, in iso hand-size units. It
+    // MUST track the locate step's OUTER capture radius — a press the gate accepted must never be
+    // silently truncated on save, which would move the user's spot somewhere they never pressed.
+    // (Kept in step with CoachConst.locateFarCaptureRadiusXHandSize; CalibrationTests pins the
+    // relationship so the two can't drift apart.)
+    //
+    // The value widened with the gate: 0.30 blocked users whose point genuinely isn't where the
+    // affine estimate puts it, which defeated the feature's whole purpose. A press on a completely
+    // wrong landmark is still capped — it just caps further out, and the UI now says plainly when a
+    // spot is unusually far from the standard location rather than refusing it.
+    static let maxOffsetXHandSize = CoachConst.locateFarCaptureRadiusXHandSize
 
     @Published private(set) var table: [String: Offset]
     private let defaults: UserDefaults
