@@ -154,7 +154,9 @@ final class DetailSnapshotTests: XCTestCase {
             let pad: Float = 0.12
             for pt in cfg.points {
                 guard let uv = cfg.layout[pt.id] else { continue }
-                guard let m = AtlasMarkers.screenMarker(cameraZ: 2.4, mesh: mesh, u: uv.x, v: uv.y,
+                // cfg.cameraZ, not a hardcoded 2.4: the arm now renders from closer, and an
+                // assertion run at a different camera than the app uses is testing a view nobody sees.
+                guard let m = AtlasMarkers.screenMarker(cameraZ: cfg.cameraZ, mesh: mesh, u: uv.x, v: uv.y,
                                                         farSide: cfg.back.contains(pt.id), id: pt.id,
                                                         color: UIColor(MeridianColors.color(pt.meridian)),
                                                         core: 0.03, halo: 0.055) else {
@@ -342,13 +344,13 @@ extension DetailSnapshotTests {
                 let cam = SCNNode(); cam.camera = SCNCamera()
                 cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
                 let yaw: Float = tag == "side" ? Float.pi / 2 : (back ? Float.pi : 0)
-                cam.position = SCNVector3(2.3 * sin(yaw), 0, 2.3 * cos(yaw))
+                cam.position = SCNVector3(cfg.cameraZ * sin(yaw), 0, cfg.cameraZ * cos(yaw))
                 cam.eulerAngles = SCNVector3(0, yaw, 0)
                 scene.rootNode.addChildNode(cam)
 
                 for (pid, uv) in d.layout where d.back.contains(pid) == back {
                     guard let pt = Acupoint.byId[pid],
-                          let mk = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: m2, u: uv.x, v: uv.y,
+                          let mk = AtlasMarkers.screenMarker(cameraZ: cfg.cameraZ, mesh: m2, u: uv.x, v: uv.y,
                                                              farSide: d.back.contains(pid), id: pid,
                                                              color: UIColor(MeridianColors.color(pt.meridian)),
                                                              core: 0.022, halo: 0.04) else { continue }
