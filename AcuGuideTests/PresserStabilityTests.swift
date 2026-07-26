@@ -264,3 +264,60 @@ final class RoleInversionTests: XCTestCase {
         }
     }
 }
+
+// STUDY-MODE voice vocabulary. These commands are what makes freezing the frame usable at all: the
+// screen's premise is that both hands are occupied, so a tap-only exit would break exactly the
+// constraint the feature exists for (user-caught: "if they found the location, they would have to
+// take it off and click continue"). Recognition only — no spoken line, no clip, nothing to
+// re-render.
+final class StudyVoiceCommandTests: XCTestCase {
+
+    func testStudyPhrasesAreRecognised() {
+        for p in ["show me", "ok show me how", "read it", "read it again", "how do i find it"] {
+            XCTAssertEqual(LocateVoiceCommand.parse(p), .study, "'\(p)' should open the guide")
+        }
+        for p in ["怎么找", "看说明", "再说一次"] {
+            XCTAssertEqual(LocateVoiceCommand.parse(p), .study, "'\(p)' should open the guide")
+        }
+    }
+
+    func testResumePhrasesAreRecognised() {
+        for p in ["continue", "resume", "carry on", "im ready", "ok go on"] {
+            XCTAssertEqual(LocateVoiceCommand.parse(p), .resume, "'\(p)' should resume")
+        }
+        // 找到了 / 开始吧 exercise the filler strip: the trailing 了 / 吧 comes off and the stem
+        // matches. Phrases whose STEM would be bare 好 are deliberately absent — see resumeZh.
+        for p in ["继续", "找到了", "开始吧", "继续吧"] {
+            XCTAssertEqual(LocateVoiceCommand.parse(p), .resume, "'\(p)' should resume")
+        }
+    }
+
+    // The negation guard is the part most likely to bite: the mic is open next to a person who is
+    // talking to themselves while hunting for a sore spot.
+    func testNegatedCommandsDoNotFire() {
+        for p in ["dont continue", "not ready", "no dont show me", "don't resume"] {
+            XCTAssertNotEqual(LocateVoiceCommand.parse(p), .resume, "'\(p)' must not resume")
+            XCTAssertNotEqual(LocateVoiceCommand.parse(p), .study, "'\(p)' must not open the guide")
+        }
+        for p in ["不要继续", "别继续", "不用看说明"] {
+            XCTAssertNotEqual(LocateVoiceCommand.parse(p), .resume, "'\(p)' must not resume")
+            XCTAssertNotEqual(LocateVoiceCommand.parse(p), .study, "'\(p)' must not open the guide")
+        }
+    }
+
+    // The new words must not cannibalise the existing ones — confirm and skip are the commands that
+    // actually save a calibration, and a mis-parse there costs the user their spot.
+    func testExistingCommandsStillWin() {
+        XCTAssertEqual(LocateVoiceCommand.parse("this is my spot"), .confirm)
+        XCTAssertEqual(LocateVoiceCommand.parse("就是这里"), .confirm)
+        XCTAssertEqual(LocateVoiceCommand.parse("skip"), .skip)
+        XCTAssertEqual(LocateVoiceCommand.parse("跳过"), .skip)
+    }
+
+    // Ambient speech must not trip study mode mid-session.
+    func testAmbientChatterDoesNotTrigger() {
+        for p in ["i can show you later", "the show was good", "i read a book", "看电视"] {
+            XCTAssertNil(LocateVoiceCommand.parse(p), "'\(p)' must not be a command")
+        }
+    }
+}

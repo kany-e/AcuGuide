@@ -23,6 +23,13 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(seenOnboarding, forKey: Self.onboardingKey) }
     }
 
+    // Whether the mic permission has been requested automatically on entering the camera coach.
+    // iOS asks once per install and never again after a refusal, so this only guards against
+    // re-issuing a request that can no longer show a dialog — it is not a user preference.
+    @Published var autoAskedMic: Bool {
+        didSet { UserDefaults.standard.set(autoAskedMic, forKey: Self.autoAskedMicKey) }
+    }
+
     // Physical-setup card before the FIRST camera session (prop the phone, both hands are busy).
     // Setup knowledge, not a warning — shown once, then never again. Settings can reset it.
     @Published var seenCameraSetup: Bool {
@@ -46,6 +53,7 @@ final class AppSettings: ObservableObject {
     private static let llmKey = "llmChat"
     private static let onboardingKey = "seenOnboarding"
     private static let cameraSetupKey = "seenCameraSetup"
+    private static let autoAskedMicKey = "autoAskedMic"
     private static let voiceKey = "voiceMuted"
     private static let reminderOnKey = "reminderOn"
     private static let reminderMinKey = "reminderMinutes"
@@ -61,6 +69,7 @@ final class AppSettings: ObservableObject {
         llmChat = UserDefaults.standard.object(forKey: Self.llmKey) as? Bool ?? true
         seenOnboarding = UserDefaults.standard.bool(forKey: Self.onboardingKey)
         seenCameraSetup = UserDefaults.standard.bool(forKey: Self.cameraSetupKey)
+        autoAskedMic = UserDefaults.standard.bool(forKey: Self.autoAskedMicKey)
         voiceMuted = UserDefaults.standard.bool(forKey: Self.voiceKey)
         reminderOn = UserDefaults.standard.bool(forKey: Self.reminderOnKey)
         reminderMinutes = UserDefaults.standard.object(forKey: Self.reminderMinKey) as? Int ?? 20 * 60

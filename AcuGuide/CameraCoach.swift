@@ -1,6 +1,7 @@
 import AVFoundation
 import Vision
 import SwiftUI
+import CoreImage
 
 // Owns the capture session + Vision hand-pose pipeline and drives a CoachEngine.
 // Native equivalent of the web app's useMediaPipe + useHandClassifier.
@@ -23,6 +24,12 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     // Dim-scene flag for the "why can't it see my hand" hint. Sampled from the luma plane every
     // ~15th frame (a sparse grid, not the full image), with hysteresis so it never flickers.
     @Published private(set) var lowLight = false
+    // STUDY MODE needs a still of the user's own hand to annotate. Holding ONE pixel buffer is
+    // enough — converting every frame to an image would be pure waste when the feature is used a
+    // handful of times per session, so the conversion happens on demand in studySnapshot().
+    // Queue-confined write, main-thread read of the reference only.
+    private var lastPixelForStudy: CVPixelBuffer?
+    private let studyLock = NSLock()
     private var lumaFrameCount = 0
     private var lastLowLight = false
 
@@ -236,6 +243,7 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
         guard let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        studyLock.lock(); lastPixelForStudy = pixel; studyLock.unlock()
         lumaFrameCount += 1
         if lumaFrameCount % 15 == 0 { updateLowLight(pixel) }
         let w = CVPixelBufferGetWidth(pixel), h = CVPixelBufferGetHeight(pixel)
@@ -406,6 +414,24 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
                     mirroredCoords: queueMirrored,
                     weak: obs.confidence < Float(CoachConst.minConfidence),
                     detectionConfidence: obs.confidence)
+    }
+}
+
+extension CameraCoach {
+    /// A still of the CURRENT camera frame, oriented and mirrored to match the live preview, so the
+    /// study overlay annotates the same picture the user was just looking at. Converted on demand.
+    func studySnapshot() -> UIImage? {
+        studyLock.lock(); let pixel = lastPixelForStudy; studyLock.unlock()
+        guard let pixel else { return nil }
+        var ci = CIImage(cvPixelBuffer: pixel)
+        // The preview is portrait and (front camera) mirrored; match both or the frozen frame will
+        // not line up with the ring drawn over it.
+        ci = ci.oriented(.right)
+        if usingFront { ci = ci.transformed(by: CGAffineTransform(scaleX: -1, y: 1)
+                                                .translatedBy(x: -ci.extent.width, y: 0)) }
+        let ctx = CIContext(options: [.useSoftwareRenderer: false])
+        guard let cg = ctx.createCGImage(ci, from: ci.extent) else { return nil }
+        return UIImage(cgImage: cg)
     }
 }
 

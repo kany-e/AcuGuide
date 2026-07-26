@@ -27,6 +27,12 @@ struct ARCoachView: View {
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
     @State private var savedChip: String? = nil    // transient over-camera confirmation chip
+    // STUDY MODE: a frozen still of the user's own hand with the ring on it, beside the guide at
+    // full size. Reading and pressing are different attention modes — while learning the spot you
+    // want the whole text and no time pressure; while pressing both hands are busy and text is
+    // nearly useless. The old card tried to serve both at once in one strip over the camera, which
+    // is why the guide was truncated to .caption2 and still crowded the view.
+    @State private var studyShot: UIImage? = nil
 
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
          onNext: (label: String, action: () -> Void)? = nil,
@@ -85,7 +91,19 @@ struct ARCoachView: View {
                 // session only ever starts once authorized. The find-it-by-feel LOCATE step now
                 // lives ON the camera (engine.mode == .locate): dashed guide ring + instructions,
                 // the user's press gets labeled, and their confirmed spot corrects the ring.
-                CameraGate(onAuthorized: { camera.start() }, onUseTimer: onUseTimer) { coachLayer }
+                CameraGate(onAuthorized: {
+                    camera.start()
+                    // MIC AT ENTRY, not buried in the locate card and not only on the once-shown
+                    // setup card. Study mode's exit is a spoken "continue" — the screen's whole
+                    // premise is that both hands are occupied — so the mic is now load-bearing, not
+                    // a nicety, and asking for it after the user is already mid-press is too late.
+                    // Asked ONCE per install (autoAskedMic): iOS never re-prompts after a refusal,
+                    // so re-firing it every session would only produce a no-op that looks broken.
+                    if locateVoice.available, !settings.autoAskedMic {
+                        settings.autoAskedMic = true
+                        locateVoice.start()
+                    }
+                }, onUseTimer: onUseTimer) { coachLayer }
             }
         }
         // Same reason as the timer session: the user is holding a point with both hands and not
@@ -127,6 +145,10 @@ struct ARCoachView: View {
             case .skip:
                 engine.endLocate()
                 voice.handover()
+            case .study:
+                if studyShot == nil { studyShot = camera.studySnapshot() }
+            case .resume:
+                studyShot = nil
             }
         }
         // The app's own TTS goes out the speaker into the open mic — pause recognition while it
@@ -259,6 +281,7 @@ struct ARCoachView: View {
                 }
             }
 
+            if let shot = studyShot { studyOverlay(shot) }
             if userPaused { pausedOverlay }
         }
         // Cap growth so the largest accessibility sizes can't break the camera overlay layout,
@@ -281,6 +304,76 @@ struct ARCoachView: View {
     private func resumeSession() {
         userPaused = false
         camera.start()
+    }
+
+    // STUDY MODE. A still of the user's OWN hand with the ring drawn on it, above the guide at full
+    // readable size. Not a bigger font in the same strip — that was the failed attempt: enlarging
+    // text inside a card overlaid on a live camera just eats the camera, which is why the original
+    // was truncated in the first place.
+    //
+    // Frozen deliberately: with a still there is no posture to hold, no time limit, and no conflict
+    // between "look at my hand" and "read the words" — the hand IS in the picture. Exit is by VOICE
+    // ("continue" / 继续) as well as the button, because the premise of the whole screen is that both
+    // hands are occupied; a tap-only exit would break exactly the constraint this exists for.
+    private func studyOverlay(_ shot: UIImage) -> some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ZStack {
+                            Image(uiImage: shot)
+                                .resizable().scaledToFit()
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                            // The ring stays where it was when the frame froze, so the still is
+                            // annotated rather than just a photo.
+                            CoachOverlayLayer(engine: engine, overlay: engine.overlay,
+                                              frameAspect: camera.frameAspect)
+                                .allowsHitTesting(false)
+                        }
+                        .frame(maxHeight: 320)
+                        .accessibilityLabel(AppLocale.pick("你的手，标出大致位置",
+                                                           "Your hand, with the approximate spot marked"))
+                        Text("\(acupoint.id) · \(acupoint.zh)")
+                            .font(.headline).foregroundStyle(Ink.gold)
+                        Text(acupoint.findHow)
+                            .font(.body).foregroundStyle(Ink.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !acupoint.findFeel.isEmpty {
+                            Text(acupoint.findFeel)
+                                .font(.callout).foregroundStyle(Ink.gold)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if !acupoint.caution.isEmpty {
+                            Text(acupoint.caution)
+                                .font(.footnote).foregroundStyle(Ink.terracotta)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(20)
+                }
+                HStack(spacing: 10) {
+                    Button(AppLocale.pick("继续", "Continue")) { studyShot = nil }
+                        .buttonStyle(GoldButtonStyle())
+                    Button {
+                        AtlasSpeaker.shared.toggle(acupoint.spokenInfo)
+                    } label: {
+                        Image(systemName: atlasSpeaker.speaking ? "speaker.wave.2.fill" : "speaker.wave.2")
+                            .font(.body.weight(.semibold)).foregroundStyle(Ink.gold)
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel(AppLocale.pick("朗读说明", "Read the guide aloud"))
+                }
+                .padding(.horizontal, 20).padding(.bottom, 18)
+                if locateVoice.listening {
+                    Text(AppLocale.pick("也可以直接说「继续」。", "Or just say \"continue\"."))
+                        .font(.caption2).foregroundStyle(Ink.textDim).padding(.bottom, 12)
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 20).fill(Ink.paper.opacity(0.97)))
+            .padding(16)
+        }
+        .transition(.opacity)
     }
 
     private var pausedOverlay: some View {
