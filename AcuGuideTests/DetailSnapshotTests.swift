@@ -154,7 +154,9 @@ final class DetailSnapshotTests: XCTestCase {
             let pad: Float = 0.12
             for pt in cfg.points {
                 guard let uv = cfg.layout[pt.id] else { continue }
-                guard let m = AtlasMarkers.screenMarker(cameraZ: 2.4, mesh: mesh, u: uv.x, v: uv.y,
+                // cfg.cameraZ, not a hardcoded 2.4: the arm now renders from closer, and an
+                // assertion run at a different camera than the app uses is testing a view nobody sees.
+                guard let m = AtlasMarkers.screenMarker(cameraZ: cfg.cameraZ, mesh: mesh, u: uv.x, v: uv.y,
                                                         farSide: cfg.back.contains(pt.id), id: pt.id,
                                                         color: UIColor(MeridianColors.color(pt.meridian)),
                                                         core: 0.03, halo: 0.055) else {
@@ -313,6 +315,66 @@ extension DetailSnapshotTests {
                 .appendingPathComponent("probe_\(tag).png")
             try img.pngData()!.write(to: out)
             print("PROBE wrote \(out.path)")
+        }
+    }
+}
+
+// Labelled audit for the head / arm / foot sheets — the same instrument that exposed the hand.
+// The shipping assertions only prove a marker landed ON its mesh, which is true of a marker on
+// entirely the wrong feature, so placement has to be judged against each point's WHO location text
+// with the ids visible.
+extension DetailSnapshotTests {
+    func testRenderLabeledPartsForAudit() throws {
+        for (id, cfg) in PartDetail.byRegion.sorted(by: { $0.key < $1.key }) {
+            guard let mesh = loadUnitMesh(cfg.resource, nodeName: cfg.nodeName) else {
+                XCTFail("no mesh for \(id)"); continue
+            }
+            let d = AcupointPlacements.detailLayout(region: id)
+            // "side" orbits 90 deg. The wrist taught this: a landmark on a surface that faces AWAY
+            // from the canonical camera is foreshortened to nothing and can sit far off while
+            // projecting to the right pixel. GV20 is at the CROWN — edge-on from the front — so a
+            // frontal render cannot show whether it is at the vertex or on the forehead slope.
+            for (tag, back) in [("near", false), ("far", true), ("side", false)] {
+                guard d.layout.contains(where: { d.back.contains($0.key) == back }) else { continue }
+                let scene = SCNScene()
+                scene.background.contents = UIColor(white: 0.97, alpha: 1)
+                AtlasMarkers.addStudioLighting(to: scene)
+                let m2 = mesh.clone(); m2.eulerAngles = cfg.euler
+                scene.rootNode.addChildNode(m2)
+                let cam = SCNNode(); cam.camera = SCNCamera()
+                cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
+                let yaw: Float = tag == "side" ? Float.pi / 2 : (back ? Float.pi : 0)
+                cam.position = SCNVector3(cfg.cameraZ * sin(yaw), 0, cfg.cameraZ * cos(yaw))
+                cam.eulerAngles = SCNVector3(0, yaw, 0)
+                scene.rootNode.addChildNode(cam)
+
+                for (pid, uv) in d.layout where d.back.contains(pid) == back {
+                    guard let pt = Acupoint.byId[pid],
+                          let mk = AtlasMarkers.screenMarker(cameraZ: cfg.cameraZ, mesh: m2, u: uv.x, v: uv.y,
+                                                             farSide: d.back.contains(pid), id: pid,
+                                                             color: UIColor(MeridianColors.color(pt.meridian)),
+                                                             core: 0.022, halo: 0.04) else { continue }
+                    scene.rootNode.addChildNode(mk.node)
+                    let t = SCNText(string: pid, extrusionDepth: 0.001)
+                    t.font = .systemFont(ofSize: 1.4); t.flatness = 0.05
+                    t.firstMaterial?.diffuse.contents = UIColor.black
+                    t.firstMaterial?.lightingModel = .constant
+                    let tn = SCNNode(geometry: t)
+                    tn.scale = SCNVector3(0.05, 0.05, 0.05)
+                    tn.position = SCNVector3(mk.node.position.x + (back ? -0.06 : 0.06),
+                                             mk.node.position.y + 0.03,
+                                             mk.node.position.z + (back ? -0.35 : 0.35))
+                    tn.constraints = [SCNBillboardConstraint()]
+                    scene.rootNode.addChildNode(tn)
+                    print("AUDIT \(id)/\(tag) \(pid) uv=\(uv) snapped=\(mk.snapped) onSurface=\(mk.onSurface)")
+                }
+                let img = snapshotRenderer(scene, pointOfView: cam)
+                    .snapshot(atTime: 0, with: CGSize(width: 900, height: 1100), antialiasingMode: .multisampling4X)
+                let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("audit_\(id)_\(tag).png")
+                try img.pngData()!.write(to: out)
+                print("AUDIT wrote \(out.path)")
+            }
         }
     }
 }

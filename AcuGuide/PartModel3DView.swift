@@ -20,6 +20,18 @@ struct PartDetail: Identifiable {
     let resource: String                        // GLB file name (no extension)
     let nodeName: String?                        // geometry node to extract from a multi-part GLB (else first)
     let euler: SCNVector3                        // orientation to a sensible canonical view
+    // How far the camera sits. Per-part because unitMesh normalises by the LARGEST extent, so a long
+    // thin part (the arm) has its LENGTH scaled to 1.0 and its width to almost nothing — at the
+    // shared 2.4 the whole shoulder→hand rendered as a horizontal sliver across the middle of a
+    // portrait sheet, both markers reduced to specks with ~85% of the frame empty (device-reported
+    // via the labelled audit). Pulling the camera in crops the ends and magnifies the middle, which
+    // is exactly the region that carries the points (LI11/LU5 at the elbow, TE4/PC7 at the wrist).
+    //
+    // Safe for placement: detailUV targets are a fraction of the mesh's WORLD bounding box
+    // (screenMarker: center + uv × ext), so camera distance does not change which anatomy a uv
+    // names — it only sets the ray origin. Changing `euler` WOULD invalidate every uv for that part;
+    // this deliberately does not.
+    let cameraZ: Float
     let layout: [String: SIMD2<Float>]           // acupoint id → (u, v) in the camera plane
     let back: Set<String>                        // points on the far/under surface (raycast reversed)
     let titleZh: String; let titleEn: String
@@ -32,10 +44,11 @@ struct PartDetail: Identifiable {
     // Marker positions come from the ONE placement registry (AcupointPlacements —
     // Placements3D.swift); this table only authors each part's mesh + canonical pose.
     private static func make(id: String, resource: String, nodeName: String?, euler: SCNVector3,
+                             cameraZ: Float = 2.4,
                              titleZh: String, titleEn: String,
                              creditZh: String, creditEn: String) -> PartDetail {
         let d = AcupointPlacements.detailLayout(region: id)
-        return PartDetail(id: id, resource: resource, nodeName: nodeName, euler: euler,
+        return PartDetail(id: id, resource: resource, nodeName: nodeName, euler: euler, cameraZ: cameraZ,
                           layout: d.layout, back: d.back,
                           titleZh: titleZh, titleEn: titleEn, creditZh: creditZh, creditEn: creditEn)
     }
@@ -51,6 +64,11 @@ struct PartDetail: Identifiable {
         // Full arm (shoulder → hand), horizontal with the dorsum to the camera.
         "arm": make(id: "arm", resource: "arms_hands_head_legs_and_feet__low_poly_female",
                     nodeName: "polySurface6_lambert1_0", euler: SCNVector3(0, 0.5, -0.8),
+                    // 1.6, not 1.35: at 1.35 the arm overflowed both frame edges with the points
+                    // at 15% and 74% across — fine in a 900x1100 render, but the sheet's real
+                    // aspect is not guaranteed to match, and a point cropped off-screen is worse
+                    // than a small one. 1.6 is still ~1.5x the old magnification with margin to spare.
+                    cameraZ: 1.6,
                     titleZh: "手臂", titleEn: "Arm",
                     creditZh: "手臂模型 · pnhtuan（CC-BY 4.0）", creditEn: "Arm model · pnhtuan (CC-BY 4.0)"),
         // Proper foot (3/4 lateral view, toes right, dorsum to camera).
@@ -88,7 +106,7 @@ struct PartModel3DView: UIViewRepresentable {
         // supplies the part's canonical pose + its marker placement.
         let cfg = config
         AtlasMarkers.installDetailMesh(resource: cfg.resource, nodeName: cfg.nodeName,
-                                       euler: cfg.euler, cameraZ: 2.4,
+                                       euler: cfg.euler, cameraZ: cfg.cameraZ,
                                        in: scene, view: view, coordinator: context.coordinator,
                                        loading: loading) { mesh in
             placeMarkers(in: scene, mesh: mesh, config: cfg)
@@ -114,7 +132,7 @@ struct PartModel3DView: UIViewRepresentable {
     private func placeMarkers(in scene: SCNScene, mesh: SCNNode, config: PartDetail) {
         for pt in config.points {
             guard let uv = config.layout[pt.id] else { continue }
-            if let m = AtlasMarkers.screenMarker(cameraZ: 2.4, mesh: mesh, u: uv.x, v: uv.y, farSide: config.back.contains(pt.id),
+            if let m = AtlasMarkers.screenMarker(cameraZ: config.cameraZ, mesh: mesh, u: uv.x, v: uv.y, farSide: config.back.contains(pt.id),
                                                  id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
                                                  core: 0.03, halo: 0.055) {
                 scene.rootNode.addChildNode(m.node)
