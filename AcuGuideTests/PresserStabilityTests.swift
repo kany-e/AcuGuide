@@ -76,40 +76,20 @@ final class PresserStabilityTests: XCTestCase {
                           + "moved — a weak second hand must not move the ring")
     }
 
-    // The receiver must stay the receiver even when the anchors would prefer otherwise. A strong
-    // hand plus a weak hand is unambiguous by policy — weak hands are presser-only — so the lone
-    // strong hand cannot be the presser, whatever the sticky wrist anchors say.
-    func testStrongHandIsReceiverWheneverAWeakHandIsAvailableToPress() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
-
-        let te3 = Acupoint.byId["TE3"]!
-        let target = te3.mediapipeTarget!
-        let receiver = Hand(points: receiverPts, chirality: .right)
-        let tip = receiver.weightedTarget(target.anchors)!
-        let engine = CoachEngine(calibration: .ephemeral())
-        var t = 0.0
-
-        // Seed the anchors with the roles REVERSED relative to where the hands end up, by running a
-        // few frames with the presser sitting where the receiver will be. This is the adversarial
-        // version of "the hands moved / crossed", which is what makes the wrist-proximity heuristic
-        // pick wrong.
-        let decoy = makePresser(onTarget: tip, pressFinger: target.pressFinger, weak: false,
-                                wristOffset: CGVector(dx: 0.0, dy: 0.02))   // wrist ~ on the receiver's
-        for _ in 0..<6 { engine.update(hands: [receiver, decoy], point: te3, now: t); t += dt }
-
-        // Now only the receiver is strong; the massaging hand is weak.
-        let weakPresser = makePresser(onTarget: tip, pressFinger: target.pressFinger, weak: true)
-        for _ in 0..<20 { engine.update(hands: [receiver, weakPresser], point: te3, now: t); t += dt }
-
-        XCTAssertNotNil(engine.ringCenter,
-                        "a strong receiving hand plus a weak massaging hand must still produce a ring")
-        let ring = engine.ringCenter!
-        XCTAssertLessThan(hypot(ring.x - tip.x, ring.y - tip.y), 0.05,
-                          "the ring must sit on the RECEIVING hand's target, not wander to the "
-                          + "massaging hand")
-    }
+    // (Removed: testStrongHandIsReceiverWheneverAWeakHandIsAvailableToPress.)
+    //
+    // It pinned a rule — "one strong hand plus a weak hand means the strong one is the receiver" —
+    // that is FALSE in the case that matters. Mid-press the receiver is the hand being covered, so
+    // it is the RECEIVER that drops to the weak tier while the presser, on top and unoccluded,
+    // stays strong. The rule inverted the roles exactly then: selectPresserTip went on to exclude
+    // the real massaging hand (device report: "it's not even detecting the massaging finger
+    // anymore") and faceCorrect was read off the massaging hand, which enters fingers-first and
+    // never passes the dorsal gate (device report: "it triggers flip hand prompt").
+    //
+    // The test also passed with AND without the rule it claimed to pin — which is how the rule got
+    // merged in the first place. A test that cannot fail is not coverage, so it is deleted rather
+    // than left looking like a guard. RoleInversionTests below replaces it and is verified to fail
+    // against the bad rule (tip lost on 30/45 frames, ring displaced 0.29).
 
     // THE reported bug, isolated. TE3's target is a weighted blend of ringMCP (0.11), pinkyMCP
     // (0.47) and wrist (0.42) — and the point itself is the groove BEHIND the ring/little knuckles,
@@ -222,5 +202,65 @@ final class LocateReachTests: XCTestCase {
         XCTAssertNotNil(saved)
         XCTAssertEqual(saved!.norm, o.norm, accuracy: 1e-9,
                        "the confirmed spot was clamped on save — the user's point moved")
+    }
+}
+
+// Regression: the RECEIVER is the hand being occluded by the press, so mid-press it is routinely
+// the receiver that drops to the weak tier while the PRESSER — sitting on top, unoccluded — stays
+// strong. A rule of "the strong hand is the receiver" therefore inverts the roles exactly when the
+// user is pressing, which is the one moment that matters.
+//
+// Device-reported consequences of shipping that rule: the massaging finger stopped being detected
+// at all (selectPresserTip excludes the hand it believes is the receiver — which was the real
+// massaging hand), and a WRONG-FACE prompt fired on entry (faceCorrect was read off the massaging
+// hand, which comes in fingers-first and never passes the dorsal gate).
+final class RoleInversionTests: XCTestCase {
+    private let dt = 1.0 / 30.0
+    private let receiverPts: [HandJoint: CGPoint] = [
+        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55),
+        .middleMCP: CGPoint(x: 0.50, y: 0.52), .ringMCP: CGPoint(x: 0.56, y: 0.54),
+        .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
+        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30),
+        .pinkyTip: CGPoint(x: 0.66, y: 0.36), .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+
+    func testWeakReceiverDoesNotHandTheRingToTheMassagingHand() {
+        let saved = HandCalibration.dorsalWhenSignedPositive
+        HandCalibration.dorsalWhenSignedPositive = true
+        defer { HandCalibration.dorsalWhenSignedPositive = saved }
+
+        let te3 = Acupoint.byId["TE3"]!
+        let target = te3.mediapipeTarget!
+        let strongReceiver = Hand(points: receiverPts, chirality: .right)
+        let tip = strongReceiver.weightedTarget(target.anchors)!
+        var pPts: [HandJoint: CGPoint] = [.wrist: CGPoint(x: tip.x + 0.20, y: tip.y + 0.28),
+                                          .middleMCP: CGPoint(x: tip.x + 0.16, y: tip.y + 0.20)]
+        pPts[target.pressFinger] = tip
+        let presser = Hand(points: pPts, chirality: .left)
+
+        let engine = CoachEngine(calibration: .ephemeral())
+        var t = 0.0
+        // Establish correct roles with both hands strong.
+        for _ in 0..<10 { engine.update(hands: [strongReceiver, presser], point: te3, now: t); t += dt }
+        let ringWhenHealthy = engine.ringCenter
+        XCTAssertNotNil(ringWhenHealthy)
+
+        // Now the RECEIVER degrades to weak (it is the one being covered), presser stays strong.
+        let weakReceiver = Hand(points: receiverPts, chirality: .right, weak: true, detectionConfidence: 0.35)
+        var wrongFaceFrames = 0, lostTip = 0
+        for _ in 0..<45 {
+            engine.update(hands: [weakReceiver, presser], point: te3, now: t); t += dt
+            if engine.phase == .wrongFace { wrongFaceFrames += 1 }
+            if engine.pressTip == nil { lostTip += 1 }
+        }
+        XCTAssertEqual(wrongFaceFrames, 0,
+                       "a WRONG-FACE prompt fired on \(wrongFaceFrames)/45 frames — the face gate is "
+                       + "being read off the massaging hand, so the roles have inverted")
+        XCTAssertEqual(lostTip, 0,
+                       "the massaging fingertip was lost on \(lostTip)/45 frames — selectPresserTip is "
+                       + "excluding the real massaging hand because it has been labelled the receiver")
+        if let a = ringWhenHealthy, let b = engine.ringCenter {
+            XCTAssertLessThan(hypot(a.x - b.x, a.y - b.y), 0.05,
+                              "the ring jumped to the massaging hand when the receiver went weak")
+        }
     }
 }
