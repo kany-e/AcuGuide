@@ -534,29 +534,6 @@ final class CoachEngine: ObservableObject {
         var presser: Hand?
         if strongHands.isEmpty {
             (receiverOpt, presser) = (nil, hands.first)
-        } else if strongHands.count == 1, let weak = weakHands.first {
-            // EXACTLY ONE strong hand + at least one weak hand is UNAMBIGUOUS by policy: weak-tier
-            // hands are presser-only, so the strong hand is necessarily the receiver.
-            //
-            // This case used to go through assignRoles with only the strong hand, which took its
-            // SINGLE-hand branch — and that branch assumes "mid-press it is usually the MASSAGING
-            // hand that survives detection", so it could return (nil, strongHand) and classify the
-            // RECEIVING hand as the presser. The consequences were the three symptoms reported from
-            // device testing: receiverOpt nil froze the ring on its last value, the press dot fell to
-            // the degraded occlusion path so it flickered, the "show the pressed hand more" hint
-            // fired at a hand that was fully visible, and lonePresserGraceS (1.5s) later the roles
-            // reset and it all repeated — the "detects for a short while, then doesn't, and repeats"
-            // cycle.
-            //
-            // The single-hand branch's premise is right only when the OTHER hand is genuinely gone.
-            // Here it isn't: we can see it, we just see it weakly — which is the NORMAL mid-press
-            // state, because the massaging hand is foreshortened and doing the occluding. Keep the
-            // role anchors in step so the two-hand path stays sticky when the presser firms back up.
-            receiverOpt = strongHands[0]
-            presser = weak
-            if let rw = strongHands[0].p(.wrist) { lastReceiverWrist = rw }
-            if let pw = weak.p(.wrist) { lastPresserWrist = pw }
-            swapVotes = 0
         } else {
             (receiverOpt, presser) = assignRoles(strongHands, target: target, requiresDorsal: point.requiresDorsal)
             if presser == nil, receiverOpt != nil { presser = weakHands.first }
