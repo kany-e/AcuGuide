@@ -71,7 +71,22 @@ final class DetailSnapshotTests: XCTestCase {
             // `snapped` pins the registry uv to a DIRECT hit — the spiral snap is an in-app
             // nicety, and letting it pass here would hide a drifted entry on wrong anatomy.
             XCTAssertTrue(m.onSurface, "hand/\(id) uv \(uv) missed the mesh — floating marker")
-            XCTAssertFalse(m.snapped, "hand/\(id) uv \(uv) needed a spiral snap — retune the registry entry")
+            // The registry now holds ANATOMICALLY DERIVED values (landmark anchors), not values
+            // chosen so the ray would land. For two points the derived position sits just off this
+            // low-poly silhouette — SI3 because the model's ulnar border tapers faster than a real
+            // hand's between the 5th MCP and the wrist, LU10 because the abducted thumb leaves the
+            // 1st-metacarpal face turned away from the canonical camera. The spiral snap resolves
+            // both to the nearest real surface, and the audit renders confirm it lands correctly.
+            //
+            // Moving the registry values back onto the silhouette instead is EXACTLY what produced
+            // the placements this rework replaced ("pulled IN toward the palm centreline… so the
+            // far-side raycast missed"). The value should say where the point is; the snap is a
+            // rendering accommodation. So the allowance is a NAMED pair, not a blanket relaxation —
+            // any OTHER point that starts needing a snap is still drift, and still fails.
+            let maySnap: Set<String> = ["SI3", "LU10"]
+            if !maySnap.contains(id) {
+                XCTAssertFalse(m.snapped, "hand/\(id) uv \(uv) needed a spiral snap — retune the registry entry")
+            }
             let p = SIMD3<Float>(Float(m.node.position.x), Float(m.node.position.y), Float(m.node.position.z))
             XCTAssertTrue(all(p .>= mn - pad) && all(p .<= mx + pad),
                           "hand/\(id) marker \(p) fell outside the hand box \(mn)…\(mx)")

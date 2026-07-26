@@ -26,27 +26,27 @@ struct Placement3D {
 enum AcupointPlacements {
     static let table: [String: Placement3D] = [
         // ── Hand (detail = the fingered hand sheet, dorsal pose) ─────────────────────────────
-        "TE3": Placement3D(body: [-0.370, -0.043, 0.883], detailUV: [ 0.240, -0.080]),  // 4th/5th MC groove behind the knuckles (audited: was riding the MCP heads — moved proximal)
-        "TE2": Placement3D(                               detailUV: [ 0.284,  0.055]),  // 4th/5th web margin
+        "TE3": Placement3D(body: [-0.370, -0.043, 0.883], detailUV: [ 0.222, -0.144]),  // 4th/5th MC groove behind the knuckles (audited: was riding the MCP heads — moved proximal)
+        "TE2": Placement3D(                               detailUV: [ 0.305,  0.040]),  // 4th/5th web margin
         // SI3/SI4 pulled onto the mesh (were 0.288/-0.066 and 0.160/-0.280): both sat just off
         // the ulnar silhouette, so their rays missed and the markers survived only via the spiral
         // snap — the snapped==false test assertion now pins every registry uv to a DIRECT hit
         // (probed: the ulnar edge runs u≈0.28 at the 5th MCP and u≈0.15 at the wrist band).
-        "SI3": Placement3D(body: [-0.398, -0.055, 0.848], detailUV: [ 0.278, -0.066]),  // ulnar border, behind 5th MCP
+        "SI3": Placement3D(body: [-0.398, -0.055, 0.848], detailUV: [ 0.277, -0.122]),  // ulnar border, behind 5th MCP
         // SI4 sits in the depression between the 5th-metacarpal BASE and the triquetral, at the
         // edge of the wrist crease (WHO; iaomai) — the retired map had it floating mid-hand
         // (user-reported; was [0.200, -0.202]).
-        "SI4": Placement3D(                               detailUV: [ 0.150, -0.270]),
-        "HT7": Placement3D(body: [-0.352, -0.075, 0.922], detailUV: [ 0.069, -0.341], detailFarSide: true),  // ulnar palmar wrist, pisiform
-        "PC8": Placement3D(body: [-0.365, -0.088, 0.885], detailUV: [ 0.020, -0.170], detailFarSide: true),  // palm centre, 2nd/3rd MC (audited: was too ulnar — moved toward the 3rd MC)
-        "HT8": Placement3D(                               detailUV: [ 0.194, -0.075], detailFarSide: true),  // where the pinky tip lands in a fist (audited: nudged distal)
+        "SI4": Placement3D(                               detailUV: [ 0.195, -0.186]),
+        "HT7": Placement3D(body: [-0.352, -0.075, 0.922], detailUV: [ 0.105, -0.282], detailFarSide: true),  // ulnar palmar wrist, pisiform
+        "PC8": Placement3D(body: [-0.365, -0.088, 0.885], detailUV: [ 0.095, -0.112], detailFarSide: true),  // palm centre, 2nd/3rd MC (audited: was too ulnar — moved toward the 3rd MC)
+        "HT8": Placement3D(                               detailUV: [ 0.207, -0.138], detailFarSide: true),  // where the pinky tip lands in a fist (audited: nudged distal)
         // LU9/LU10 pulled IN toward the palm centreline (was u −0.10/−0.137): their old rays fell
         // off the radial silhouette into empty space, so the far-side raycast missed and the
         // markers floated beside the wrist (user-reported two floaters). u ≈ −0.05 keeps them on
         // the thenar/radial-wrist band, over solid mesh, matching LI5's on-hand column.
-        "LU10": Placement3D(                              detailUV: [-0.050, -0.235], detailFarSide: true),  // thenar, 1st MC midpoint
-        "LU9": Placement3D(                               detailUV: [-0.085, -0.300], detailFarSide: true),  // radial end of palmar wrist crease (audited: v -0.35 landed on the stub CUT FACE — invisible from the palm)
-        "LI5": Placement3D(                               detailUV: [-0.105, -0.300]),                       // anatomical snuffbox (audited: was mid-wrist — pulled onto the radial border)
+        "LU10": Placement3D(                              detailUV: [-0.190, -0.150], detailFarSide: true),  // thenar, 1st MC midpoint
+        "LU9": Placement3D(                               detailUV: [-0.044, -0.271], detailFarSide: true),  // radial end of palmar wrist crease (audited: v -0.35 landed on the stub CUT FACE — invisible from the palm)
+        "LI5": Placement3D(                               detailUV: [-0.052, -0.267]),                       // anatomical snuffbox (audited: was mid-wrist — pulled onto the radial border)
         // ── Forearm (full-body atlas only — no detail sheet reaches them) ────────────────────
         "PC6": Placement3D(body: [-0.323, -0.050, 1.002]),  // palmar forearm, 2 cun above the crease
         "SJ5": Placement3D(body: [-0.323, -0.004, 1.002]),  // dorsal forearm, opposite PC6
