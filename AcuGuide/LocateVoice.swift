@@ -12,6 +12,13 @@ import AVFoundation
 enum LocateVoiceCommand: Equatable {
     case confirm   // "this is my spot" — same path as tapping the button
     case skip      // "skip" — same as tapping Skip
+    // STUDY MODE, hands-free. Freezing the frame to read the guide is only useful if you can get
+    // out of it again without a hand — the whole premise is that both are occupied (one receiving,
+    // one pressing). A tap-to-resume would break exactly the constraint the feature exists for
+    // (user-caught: "if they found the location, they would have to take it off and click
+    // continue"). Recognition, not synthesis, so these add no voice clips and nothing to re-render.
+    case study     // "show me" / "怎么找" — freeze the frame and open the full guide
+    case resume    // "continue" / "继续" — unfreeze and carry on
 
     // Whole-WORD confirm/skip phrases. English matches the trailing TOKENS (not a character
     // suffix, so "reconfirm" no longer matches "confirm"); Chinese matches the trailing chars
@@ -20,6 +27,17 @@ enum LocateVoiceCommand: Equatable {
     // conversation. Pure + unit-tested.
     static let confirmEn = ["this is my spot", "this is it", "thats it", "that is it", "confirm"]
     static let confirmZh = ["就是这里", "就在这里", "确认"]
+    // Deliberately multi-word / specific: a bare "show" or "看" trips constantly in ambient speech.
+    static let studyEn = ["show me", "show me how", "read it", "read it again", "how do i find it"]
+    static let studyZh = ["怎么找", "看说明", "再说一次"]
+    static let resumeEn = ["resume", "continue", "carry on", "go on", "im ready", "i am ready"]
+    // NOTE the filler interaction: zhFillers strips a trailing 了 before matching, so a phrase that
+    // ENDS in 了 can never match — 好了 reduces to 好 and 可以了 to 可以. Matching the stripped forms
+    // instead is not an option either: bare 好 is exactly the "too easy to trip in ambient
+    // conversation" case the confirm list already rejects. So the Chinese resume words are ones that
+    // survive stripping intact and stay specific. (Caught by StudyVoiceCommandTests before shipping —
+    // both 好了 and 可以了 were silently dead.)
+    static let resumeZh = ["继续", "找到", "开始"]
     private static let negationsEn: Set<String> = ["dont", "not", "no", "never", "cant", "cannot", "wont", "shouldnt"]
     private static let negationsZh = "不别没"
     private static let zhFillers = "吧了啊嗯呢的哦噢呀"
@@ -41,6 +59,8 @@ enum LocateVoiceCommand: Equatable {
         }
         for k in confirmEn where trailingMatch(k) { return .confirm }
         if trailingMatch("skip") { return .skip }
+        for k in studyEn where trailingMatch(k) { return .study }
+        for k in resumeEn where trailingMatch(k) { return .resume }
 
         // ── Chinese: no spaces → trailing-substring match after trimming filler, + negation guard ─
         var zh = Substring(cleaned)
@@ -52,6 +72,8 @@ enum LocateVoiceCommand: Equatable {
         }
         for k in confirmZh where zhSuffix(k) { return .confirm }
         if zhSuffix("跳过") { return .skip }
+        for k in studyZh where zhSuffix(k) { return .study }
+        for k in resumeZh where zhSuffix(k) { return .resume }
         return nil
     }
 }
