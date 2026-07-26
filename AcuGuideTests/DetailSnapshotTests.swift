@@ -253,47 +253,51 @@ extension DetailSnapshotTests {
         AtlasMarkers.addStudioLighting(to: scene)
         mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
         scene.rootNode.addChildNode(mesh)
-        let cam = SCNNode(); cam.camera = SCNCamera()
-        cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
-        cam.position = SCNVector3(0, 0, 2.3)
-        scene.rootNode.addChildNode(cam)
-
-        // CURRENT (registry, eyeballed) vs DERIVED (the coach's validated weighted anchors applied
-        // to the five landmarks identified above). Rendered together so the disagreement is visible
-        // rather than asserted — RED = what ships today, GREEN = what the labelled-data weights say.
-        let current: [(String, Float, Float)] = [
-            ("TE3", 0.240, -0.080), ("SI3", 0.278, -0.066),
-            ("HT7", 0.069, -0.341), ("PC8", 0.020, -0.170),
+        // THUMB-SIDE landmark probe + the CORRECTED wrist. LU10/LU9/LI5 are all radial points and
+        // the five knuckle/wrist landmarks have no radial reference beyond indexMCP, so a thumb-base
+        // (1st metacarpal) landmark is needed before any of them can be derived rather than guessed.
+        let probes: [(String, Float, Float, UIColor)] = [
+            ("wrist-33", 0.06, -0.33, .systemPurple),      // corrected: at the crease, not the stump
+            ("thumbA", -0.28, -0.06, .systemOrange),
+            ("thumbB", -0.22, -0.12, .systemOrange),
+            ("thumbC", -0.16, -0.18, .systemOrange),
+            ("thumbD", -0.10, -0.24, .systemOrange),
         ]
-        let derived: [(String, Float, Float)] = [
-            ("TE3", 0.222, -0.195), ("SI3", 0.277, -0.164),
-            ("HT7", 0.105, -0.384), ("PC8", 0.095, -0.151),
-        ]
-        for (set, color, dy) in [(current, UIColor.systemRed, Float(0.02)),
-                                 (derived, UIColor.systemGreen, Float(-0.06))] {
-            for (name, u, v) in set {
-                guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v,
-                                                        farSide: name == "HT7" || name == "PC8",
-                                                        id: name, color: color,
-                                                        core: 0.020, halo: 0.034) else { continue }
-                scene.rootNode.addChildNode(m.node)
-                let t = SCNText(string: name, extrusionDepth: 0.001)
-                t.font = .systemFont(ofSize: 1.15); t.flatness = 0.05
-                t.firstMaterial?.diffuse.contents = color
-                t.firstMaterial?.lightingModel = .constant
-                let tn = SCNNode(geometry: t)
-                tn.scale = SCNVector3(0.04, 0.04, 0.04)
-                tn.position = SCNVector3(m.node.position.x + 0.06, m.node.position.y + dy,
-                                         m.node.position.z + 0.35)
-                tn.constraints = [SCNBillboardConstraint()]
-                scene.rootNode.addChildNode(tn)
-            }
+        for (i, pr) in probes.enumerated() {
+            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: pr.1, v: pr.2,
+                                                    farSide: false, id: pr.0, color: pr.3,
+                                                    core: 0.020, halo: 0.034) else { continue }
+            scene.rootNode.addChildNode(m.node)
+            let t = SCNText(string: pr.0, extrusionDepth: 0.001)
+            t.font = .systemFont(ofSize: 1.2); t.flatness = 0.05
+            t.firstMaterial?.diffuse.contents = pr.3
+            t.firstMaterial?.lightingModel = .constant
+            let tn = SCNNode(geometry: t)
+            tn.scale = SCNVector3(0.042, 0.042, 0.042)
+            tn.position = SCNVector3(m.node.position.x - 0.30,
+                                     m.node.position.y + Float(i % 2) * 0.05,
+                                     m.node.position.z + 0.35)
+            tn.constraints = [SCNBillboardConstraint()]
+            scene.rootNode.addChildNode(tn)
+            print("PROBE \(pr.0) onSurface=\(m.onSurface)")
         }
-        let img = snapshotRenderer(scene, pointOfView: cam)
-            .snapshot(atTime: 0, with: CGSize(width: 950, height: 1150), antialiasingMode: .multisampling4X)
-        let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("probe_grid.png")
-        try img.pngData()!.write(to: out)
-        print("PROBE wrote \(out.path)")
+        // ORBIT. Head-on, the wrist is badly foreshortened — the hand's long axis runs almost
+        // straight away from the camera there, so a landmark can sit centimetres proximal or distal
+        // and project to the same pixel. That is precisely why the wrist was the least certain of
+        // the five. Yaw around the model so the wrist crease is seen across the line of sight.
+        for (tag, yaw) in [("front", Float(0)), ("q45", Float.pi/4),
+                           ("side", Float.pi/2), ("q135", 3 * Float.pi/4)] {
+            let cam = SCNNode(); cam.camera = SCNCamera()
+            cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
+            cam.position = SCNVector3(2.3 * sin(yaw), 0, 2.3 * cos(yaw))
+            cam.eulerAngles = SCNVector3(0, yaw, 0)
+            scene.rootNode.addChildNode(cam)
+            let img = snapshotRenderer(scene, pointOfView: cam)
+                .snapshot(atTime: 0, with: CGSize(width: 900, height: 1100), antialiasingMode: .multisampling4X)
+            let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("probe_\(tag).png")
+            try img.pngData()!.write(to: out)
+            print("PROBE wrote \(out.path)")
+        }
     }
 }
