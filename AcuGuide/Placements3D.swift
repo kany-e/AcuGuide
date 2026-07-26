@@ -32,7 +32,7 @@ enum AcupointPlacements {
         // the ulnar silhouette, so their rays missed and the markers survived only via the spiral
         // snap — the snapped==false test assertion now pins every registry uv to a DIRECT hit
         // (probed: the ulnar edge runs u≈0.28 at the 5th MCP and u≈0.15 at the wrist band).
-        "SI3": Placement3D(body: [-0.398, -0.055, 0.848], detailUV: [ 0.277, -0.122]),  // ulnar border, behind 5th MCP
+        "SI3": Placement3D(body: [-0.398, -0.055, 0.848], detailUV: [ 0.267, -0.105]),  // ulnar border, behind 5th MCP
         // SI4 sits in the depression between the 5th-metacarpal BASE and the triquetral, at the
         // edge of the wrist crease (WHO; iaomai) — the retired map had it floating mid-hand
         // (user-reported; was [0.200, -0.202]).
@@ -44,7 +44,7 @@ enum AcupointPlacements {
         // off the radial silhouette into empty space, so the far-side raycast missed and the
         // markers floated beside the wrist (user-reported two floaters). u ≈ −0.05 keeps them on
         // the thenar/radial-wrist band, over solid mesh, matching LI5's on-hand column.
-        "LU10": Placement3D(                              detailUV: [-0.190, -0.150], detailFarSide: true),  // thenar, 1st MC midpoint
+        "LU10": Placement3D(                              detailUV: [-0.161, -0.142], detailFarSide: true),  // thenar, 1st MC midpoint
         "LU9": Placement3D(                               detailUV: [-0.044, -0.271], detailFarSide: true),  // radial end of palmar wrist crease (audited: v -0.35 landed on the stub CUT FACE — invisible from the palm)
         "LI5": Placement3D(                               detailUV: [-0.052, -0.267]),                       // anatomical snuffbox (audited: was mid-wrist — pulled onto the radial border)
         // ── Forearm (full-body atlas only — no detail sheet reaches them) ────────────────────

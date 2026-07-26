@@ -71,22 +71,18 @@ final class DetailSnapshotTests: XCTestCase {
             // `snapped` pins the registry uv to a DIRECT hit — the spiral snap is an in-app
             // nicety, and letting it pass here would hide a drifted entry on wrong anatomy.
             XCTAssertTrue(m.onSurface, "hand/\(id) uv \(uv) missed the mesh — floating marker")
-            // The registry now holds ANATOMICALLY DERIVED values (landmark anchors), not values
-            // chosen so the ray would land. For two points the derived position sits just off this
-            // low-poly silhouette — SI3 because the model's ulnar border tapers faster than a real
-            // hand's between the 5th MCP and the wrist, LU10 because the abducted thumb leaves the
-            // 1st-metacarpal face turned away from the canonical camera. The spiral snap resolves
-            // both to the nearest real surface, and the audit renders confirm it lands correctly.
+            // STRICT again: every hand point must land DIRECTLY, no spiral snap. Two derived
+            // positions originally missed this model's silhouette (SI3 off the ulnar border, LU10
+            // on the abducted thumb) and were allowed to snap — but a snapped marker is pinned to
+            // whatever surface the fallback finds, which is why those two still read as misplaced,
+            // one on each face of the hand. testFindNearestDirectHitForSnappedPoints searched the
+            // neighbourhood of each derived position for the closest uv that lands directly: 0.020
+            // for SI3 and 0.030 for LU10. Both now hit the mesh, so the allowance is gone.
             //
-            // Moving the registry values back onto the silhouette instead is EXACTLY what produced
-            // the placements this rework replaced ("pulled IN toward the palm centreline… so the
-            // far-side raycast missed"). The value should say where the point is; the snap is a
-            // rendering accommodation. So the allowance is a NAMED pair, not a blanket relaxation —
-            // any OTHER point that starts needing a snap is still drift, and still fails.
-            let maySnap: Set<String> = ["SI3", "LU10"]
-            if !maySnap.contains(id) {
-                XCTAssertFalse(m.snapped, "hand/\(id) uv \(uv) needed a spiral snap — retune the registry entry")
-            }
+            // The concession to the model is measured and minimal, and it is made ONCE by search
+            // rather than by nudging until a render looks acceptable — which is the method that
+            // produced the placements this rework replaced.
+            XCTAssertFalse(m.snapped, "hand/\(id) uv \(uv) needed a spiral snap — a snapped marker sits wherever the fallback lands, not on the anatomy")
             let p = SIMD3<Float>(Float(m.node.position.x), Float(m.node.position.y), Float(m.node.position.z))
             XCTAssertTrue(all(p .>= mn - pad) && all(p .<= mx + pad),
                           "hand/\(id) marker \(p) fell outside the hand box \(mn)…\(mx)")
@@ -270,40 +266,36 @@ extension DetailSnapshotTests {
         AtlasMarkers.addStudioLighting(to: scene)
         mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
         scene.rootNode.addChildNode(mesh)
-        // THUMB-SIDE landmark probe + the CORRECTED wrist. LU10/LU9/LI5 are all radial points and
-        // the five knuckle/wrist landmarks have no radial reference beyond indexMCP, so a thumb-base
-        // (1st metacarpal) landmark is needed before any of them can be derived rather than guessed.
-        let probes: [(String, Float, Float, UIColor)] = [
-            ("wrist-33", 0.06, -0.33, .systemPurple),      // corrected: at the crease, not the stump
-            ("thumbA", -0.28, -0.06, .systemOrange),
-            ("thumbB", -0.22, -0.12, .systemOrange),
-            ("thumbC", -0.16, -0.18, .systemOrange),
-            ("thumbD", -0.10, -0.24, .systemOrange),
+        // THUMB LANDMARK VERIFICATION. LU10/LU9/LI5 all derive from thumbMCP/thumbCMC, and those
+        // two were taken from a coarse frontal render and never checked from another angle — the
+        // same mistake the wrist taught. The thumb is ABDUCTED and angled toward the camera, so it
+        // is the most foreshortened structure on this mesh and the least safe to eyeball head-on.
+        let thumbs: [(String, Float, Float)] = [
+            ("A", -0.34, 0.02), ("B", -0.28, -0.06), ("C", -0.24, -0.02),
+            ("D", -0.22, -0.12), ("E", -0.16, -0.18), ("F", -0.10, -0.24),
         ]
-        for (i, pr) in probes.enumerated() {
-            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: pr.1, v: pr.2,
-                                                    farSide: false, id: pr.0, color: pr.3,
+        for (i, t3) in thumbs.enumerated() {
+            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: t3.1, v: t3.2,
+                                                    farSide: false, id: t3.0, color: .systemOrange,
                                                     core: 0.020, halo: 0.034) else { continue }
             scene.rootNode.addChildNode(m.node)
-            let t = SCNText(string: pr.0, extrusionDepth: 0.001)
-            t.font = .systemFont(ofSize: 1.2); t.flatness = 0.05
-            t.firstMaterial?.diffuse.contents = pr.3
+            let t = SCNText(string: t3.0, extrusionDepth: 0.001)
+            t.font = .systemFont(ofSize: 1.5); t.flatness = 0.05
+            t.firstMaterial?.diffuse.contents = UIColor.systemOrange
             t.firstMaterial?.lightingModel = .constant
             let tn = SCNNode(geometry: t)
-            tn.scale = SCNVector3(0.042, 0.042, 0.042)
-            tn.position = SCNVector3(m.node.position.x - 0.30,
-                                     m.node.position.y + Float(i % 2) * 0.05,
+            tn.scale = SCNVector3(0.05, 0.05, 0.05)
+            tn.position = SCNVector3(m.node.position.x - 0.10,
+                                     m.node.position.y + Float(i % 2) * 0.06,
                                      m.node.position.z + 0.35)
             tn.constraints = [SCNBillboardConstraint()]
             scene.rootNode.addChildNode(tn)
-            print("PROBE \(pr.0) onSurface=\(m.onSurface)")
         }
         // ORBIT. Head-on, the wrist is badly foreshortened — the hand's long axis runs almost
         // straight away from the camera there, so a landmark can sit centimetres proximal or distal
         // and project to the same pixel. That is precisely why the wrist was the least certain of
         // the five. Yaw around the model so the wrist crease is seen across the line of sight.
-        for (tag, yaw) in [("front", Float(0)), ("q45", Float.pi/4),
-                           ("side", Float.pi/2), ("q135", 3 * Float.pi/4)] {
+        for (tag, yaw) in [("front", Float(0)), ("q45", -Float.pi/4), ("side", -Float.pi/2)] {
             let cam = SCNNode(); cam.camera = SCNCamera()
             cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
             cam.position = SCNVector3(2.3 * sin(yaw), 0, 2.3 * cos(yaw))
@@ -374,6 +366,45 @@ extension DetailSnapshotTests {
                     .appendingPathComponent("audit_\(id)_\(tag).png")
                 try img.pngData()!.write(to: out)
                 print("AUDIT wrote \(out.path)")
+            }
+        }
+    }
+}
+
+// Nearest-direct-hit search. SI3 and LU10 are the only hand points whose anatomically derived uv
+// misses this model's silhouette (SI3 off the ulnar border, LU10 on the abducted thumb), so both
+// survive only via the spiral snap — and they are exactly the two that still read as misplaced,
+// one on each surface. Rather than nudge them by eye (the method that produced the placements this
+// rework replaced), search the neighbourhood for the CLOSEST uv that lands directly. The anatomy
+// stays the target; the concession to the model is the minimum the mesh forces, and it is measured.
+extension DetailSnapshotTests {
+    func testFindNearestDirectHitForSnappedPoints() throws {
+        guard let mesh = loadUnitMesh("hand_low_poly") else { XCTFail("no hand mesh"); return }
+        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
+        let scene = SCNScene(); scene.rootNode.addChildNode(mesh)
+        let targets: [(String, Float, Float, Bool)] = [
+            ("SI3",  0.277, -0.122, false),
+            ("LU10", -0.190, -0.150, true),
+        ]
+        for (id, u0, v0, far) in targets {
+            var best: (d: Float, u: Float, v: Float)? = nil
+            var r: Float = 0.01
+            while r <= 0.10, best == nil {
+                for a in stride(from: Float(0), to: 2 * .pi, by: .pi / 12) {
+                    let u = u0 + r * cos(a), v = v0 + r * sin(a)
+                    guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v,
+                                                            farSide: far, id: id, color: .white,
+                                                            core: 0.02, halo: 0.03),
+                          m.onSurface, !m.snapped else { continue }
+                    let d = r
+                    if best == nil || d < best!.d { best = (d, u, v) }
+                }
+                r += 0.01
+            }
+            if let b = best {
+                print("NEAREST \(id) derived=(\(u0), \(v0)) -> direct=(\(String(format: "%.3f", b.u)), \(String(format: "%.3f", b.v))) offset=\(String(format: "%.3f", b.d))")
+            } else {
+                print("NEAREST \(id) NO direct hit within 0.10 of the derived position")
             }
         }
     }
