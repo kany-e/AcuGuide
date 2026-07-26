@@ -238,3 +238,62 @@ extension DetailSnapshotTests {
         }
     }
 }
+
+// LANDMARK PROBE (audit aid). Option A of the placement rework: identify the five landmarks the
+// coach's validated anchor sets need — wrist + index/middle/ring/pinky MCP — ONCE, by eye, from a
+// labelled grid. A knuckle is visually unambiguous in a way an acupoint in a groove is not, which
+// is exactly why reading THESE off a render is sound while reading acupoints off one was not.
+// Once the five are fixed, all ten hand points derive from the same weighted-anchor formula the
+// camera coach uses, instead of ten independent eyeballed bbox fractions.
+extension DetailSnapshotTests {
+    func testRenderLandmarkProbeGrid() throws {
+        guard let mesh = loadUnitMesh("hand_low_poly") else { XCTFail("no hand mesh"); return }
+        let scene = SCNScene()
+        scene.background.contents = UIColor(white: 0.97, alpha: 1)
+        AtlasMarkers.addStudioLighting(to: scene)
+        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
+        scene.rootNode.addChildNode(mesh)
+        let cam = SCNNode(); cam.camera = SCNCamera()
+        cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
+        cam.position = SCNVector3(0, 0, 2.3)
+        scene.rootNode.addChildNode(cam)
+
+        // CURRENT (registry, eyeballed) vs DERIVED (the coach's validated weighted anchors applied
+        // to the five landmarks identified above). Rendered together so the disagreement is visible
+        // rather than asserted — RED = what ships today, GREEN = what the labelled-data weights say.
+        let current: [(String, Float, Float)] = [
+            ("TE3", 0.240, -0.080), ("SI3", 0.278, -0.066),
+            ("HT7", 0.069, -0.341), ("PC8", 0.020, -0.170),
+        ]
+        let derived: [(String, Float, Float)] = [
+            ("TE3", 0.222, -0.195), ("SI3", 0.277, -0.164),
+            ("HT7", 0.105, -0.384), ("PC8", 0.095, -0.151),
+        ]
+        for (set, color, dy) in [(current, UIColor.systemRed, Float(0.02)),
+                                 (derived, UIColor.systemGreen, Float(-0.06))] {
+            for (name, u, v) in set {
+                guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v,
+                                                        farSide: name == "HT7" || name == "PC8",
+                                                        id: name, color: color,
+                                                        core: 0.020, halo: 0.034) else { continue }
+                scene.rootNode.addChildNode(m.node)
+                let t = SCNText(string: name, extrusionDepth: 0.001)
+                t.font = .systemFont(ofSize: 1.15); t.flatness = 0.05
+                t.firstMaterial?.diffuse.contents = color
+                t.firstMaterial?.lightingModel = .constant
+                let tn = SCNNode(geometry: t)
+                tn.scale = SCNVector3(0.04, 0.04, 0.04)
+                tn.position = SCNVector3(m.node.position.x + 0.06, m.node.position.y + dy,
+                                         m.node.position.z + 0.35)
+                tn.constraints = [SCNBillboardConstraint()]
+                scene.rootNode.addChildNode(tn)
+            }
+        }
+        let img = snapshotRenderer(scene, pointOfView: cam)
+            .snapshot(atTime: 0, with: CGSize(width: 950, height: 1150), antialiasingMode: .multisampling4X)
+        let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("probe_grid.png")
+        try img.pngData()!.write(to: out)
+        print("PROBE wrote \(out.path)")
+    }
+}
