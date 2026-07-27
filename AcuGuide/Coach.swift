@@ -100,6 +100,15 @@ enum CoachConst {
     static let dupConflictRadius: CGFloat = 0.05   // conflicting-label reads must be near-coincident
     static let dupConfidenceBias: Float = 0.1      // primary wins unless inverted beats it by this
     static let weakHandConfidence: Float = 0.3     // whole-hand floor for the weak (presser-only) tier
+    // ── Handedness hold + face-gate escape (CoachEngine) ────────────────────────────────────────
+    // Consecutive frames that must agree before the receiver's held handedness changes. Nobody
+    // swaps pressing hands mid-session, so this can be generous; at 30 Hz it is a third of a second,
+    // long enough to absorb Vision's misreads and short enough that a real hand change keeps up.
+    static let chiralityFlipFrames = 10
+    // How long the palm/back gate may refuse before the UI offers the user an override. Long enough
+    // that someone genuinely holding the wrong side turns it over first (the cue is spoken within a
+    // second), short enough not to strand someone the gate has simply misread.
+    static let wrongFaceStuckS = 6.0
     // Once a press has settled (.ready), the offer stays open this long after the pressing
     // finger lifts — the user needs that hand to TAP the confirm button, and without a latch the
     // state decayed within tipGraceS and the button disabled before any physical tap could land
@@ -401,6 +410,58 @@ final class CoachEngine: ObservableObject {
     // and reset the steadiness run.
     private var lastFaceCorrect = false
 
+    // HELD HANDEDNESS for the receiving hand, and the votes for changing it.
+    //
+    // Vision re-decides chirality independently on every frame, from image content alone, and the
+    // coach's framing — two overlapping hands filling the frame, no forearm, no body — is its worst
+    // case. Handedness is the sign multiplier inside isDorsal, so one misread frame inverts the
+    // palm/back verdict and the coach tells the user to turn over a hand that is already correct
+    // (device report: "I tried my left hand and it tells me to flip even though it's the correct
+    // side"). Nobody swaps which hand they are pressing mid-session, so the label is held and only
+    // changes after several consecutive frames agree — the same shape as the sticky role swap
+    // above, applied to the one other per-frame identity the coach depends on.
+    private var heldChirality: VNChirality = .unknown
+    private var chiralityVotes = 0
+
+    // WHEN THE GATE IS WRONG ANYWAY. Holding the label makes a misread rare, not impossible, and
+    // palm-vs-back from a 2D image is a heuristic even with a perfect label — the web original that
+    // this test was ported from called it "only moderately reliable" and scored 7/8. Its cost when
+    // wrong is a HARD BLOCK: the confirm button is disabled and the coach repeats "turn your hand
+    // over" at someone whose hand is already the right way up, with no way out (the only override
+    // shipped was #if DEBUG). So: after a stuck stretch, say so and let the user overrule it.
+    private var wrongFaceSince: Double? = nil
+    /// The face gate has been refusing for long enough to offer the user an override.
+    @Published private(set) var faceGateStuck = false
+    /// Set by the user overruling the gate. Session-scoped, never persisted, and never inferred.
+    private(set) var faceOverridden = false
+    func overrideFaceGate() {
+        faceOverridden = true
+        faceGateStuck = false
+        wrongFaceSince = nil
+    }
+
+    /// Drop the held label and the stuck-gate timer — for a new scene, a new session, or a frame
+    /// with no usable hand. Deliberately does NOT clear `faceOverridden`: a user who has overruled
+    /// the gate should not have to do it again every time their hand briefly leaves the frame.
+    private func forgetHandedness() {
+        heldChirality = .unknown; chiralityVotes = 0
+        wrongFaceSince = nil
+        if faceGateStuck { faceGateStuck = false }
+    }
+
+    /// The handedness to reason with this frame: the held label, updated only on a sustained change.
+    private func holdChirality(_ observed: VNChirality) -> VNChirality {
+        guard observed != .unknown else { return heldChirality }   // a blank read is not a vote
+        if observed == heldChirality { chiralityVotes = 0; return heldChirality }
+        if heldChirality == .unknown { heldChirality = observed; chiralityVotes = 0; return heldChirality }
+        chiralityVotes += 1
+        if chiralityVotes >= CoachConst.chiralityFlipFrames {
+            heldChirality = observed
+            chiralityVotes = 0
+        }
+        return heldChirality
+    }
+
     // When the press tip was last actually measured — drives the tipGraceS dropout grace.
     private var lastTipT = -Double.infinity
 
@@ -422,6 +483,7 @@ final class CoachEngine: ObservableObject {
     func cameraFlipped() {
         smootherReset(); roleReset()
         lastFaceCorrect = false; lonePresserSince = nil
+        forgetHandedness()   // a new scene may well be a different physical hand
         lastCanonicalTarget = nil; lastHandScale = nil   // canonical frame is parity-dependent
         overlay.ringCenter = nil; overlay.pressTip = nil
         resetLocateTracking()   // window/candidate/anchors are all in the old coordinate parity
@@ -451,6 +513,8 @@ final class CoachEngine: ObservableObject {
     func reset() {
         machine.reset(); smootherReset(); roleReset()
         lastFaceCorrect = false; lonePresserSince = nil
+        forgetHandedness()
+        faceOverridden = false   // an override is the user's call for THIS session, never inherited
         lastCanonicalTarget = nil; lastHandScale = nil
         roundsDone = 0; sessionComplete = false; restLeft = nil; heldAccum = 0
         roundTimes = []; clearHint()
@@ -657,15 +721,28 @@ final class CoachEngine: ObservableObject {
         overlay.ringCenter = center
         overlay.ringRadius = tol
 
-        // 4) Face gate. isDorsal is nil when a required MCP landmark is missing; in that case
-        // reuse the last verdict we could compute so a transient drop doesn't flip to WRONG_FACE.
-        let faceCorrect: Bool
-        if let dorsal = receiver.isDorsal {
+        // 4) Face gate, against the HELD handedness rather than this frame's raw read (see
+        // holdChirality). isDorsal is nil when a required MCP landmark is missing OR when no
+        // handedness is known yet; in either case reuse the last verdict we could compute, so
+        // neither a transient occlusion nor an unreadable label flips to WRONG_FACE.
+        var faceCorrect: Bool
+        if let dorsal = receiver.isDorsal(assuming: holdChirality(receiver.chirality)) {
             faceCorrect = point.requiresDorsal ? dorsal : !dorsal
             lastFaceCorrect = faceCorrect
         } else {
             faceCorrect = lastFaceCorrect
         }
+        // Track how long the gate has been refusing, then offer the escape (see faceGateStuck).
+        if faceCorrect {
+            wrongFaceSince = nil
+            if faceGateStuck { faceGateStuck = false }
+        } else if let since = wrongFaceSince {
+            let stuck = now - since >= CoachConst.wrongFaceStuckS
+            if stuck != faceGateStuck { faceGateStuck = stuck }
+        } else {
+            wrongFaceSince = now
+        }
+        if faceOverridden { faceCorrect = true }
 
         // 5) Press tip + contact. The pressing fingertip is now the nearest fingertip of a hand OTHER
         // than the receiver, within an acquire radius of the ring (selectPresserTip) — so the receiver's
@@ -736,6 +813,7 @@ final class CoachEngine: ObservableObject {
     // (was two near-verbatim inline blocks).
     private func stepNoUsableHand(_ now: TimeInterval, point: Acupoint) {
         smootherReset(); roleReset(); lastFaceCorrect = false
+        forgetHandedness()   // the held label described a hand that has left the frame
         lastCanonicalTarget = nil; lastHandScale = nil   // no hand → nothing to ride
         overlay.ringCenter = nil; overlay.pressTip = nil
         clearHint()   // the NO_HAND cue already says what to do

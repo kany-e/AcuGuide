@@ -133,9 +133,26 @@ struct LocateCard: View {
                                             "Confirm unlocks once that side is facing the camera."))
                             .font(.caption2).foregroundStyle(Ink.textDim)
                             .fixedSize(horizontal: false, vertical: true)
+                        // THE WAY OUT when the camera is the one that is wrong. Palm-vs-back is read
+                        // from a 2D outline plus Vision's handedness guess, and both can be wrong —
+                        // device report: "it tells me to flip even though it's the correct side."
+                        // Until now the only override was a #if DEBUG toggle, so a release user in
+                        // this state was simply stuck behind a disabled button. Offered only after
+                        // the gate has refused for a while, so someone genuinely holding the wrong
+                        // side turns it over first.
+                        if engine.faceGateStuck {
+                            Button(AppLocale.pick("这面是对的 — 继续",
+                                                  "It's already the right side — continue")) {
+                                engine.overrideFaceGate()
+                            }
+                            .font(.caption.weight(.semibold)).tint(Ink.gold)
+                            .padding(.top, 2)
+                            .accessibilityHint(AppLocale.pick("忽略这次的手面判断，继续本次练习",
+                                                              "Ignores the camera's palm-or-back reading for this session"))
+                        }
                     }
                 }
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .contain)
                 .accessibilityAddTraits(.updatesFrequently)
             } else {
                 // Live status from the engine's locate tracker (what the camera sees right now).

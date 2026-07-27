@@ -521,6 +521,18 @@ struct ARCoachView: View {
                     Text(hint).font(.caption2).foregroundStyle(Ink.warn)
                         .lineLimit(2).minimumScaleFactor(0.8)
                 }
+                // Same escape as the locate card: the palm/back gate is a heuristic on top of
+                // Vision's handedness guess, and when it is wrong it repeats "turn your hand over"
+                // at a hand that is already correct with no way past it. Offered only once the gate
+                // has been refusing for a while (CoachConst.wrongFaceStuckS).
+                if engine.faceGateStuck {
+                    Button(AppLocale.pick("这面是对的 — 继续", "It's already the right side — continue")) {
+                        engine.overrideFaceGate()
+                    }
+                    .font(.caption.weight(.semibold)).tint(Ink.gold)
+                    .accessibilityHint(AppLocale.pick("忽略这次的手面判断，继续本次练习",
+                                                      "Ignores the camera's palm-or-back reading for this session"))
+                }
             }
             Spacer()
             Button { pauseSession() } label: {

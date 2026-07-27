@@ -378,7 +378,18 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         }
         if let match = best {
             if h.detectionConfidence > hands[match.i].detectionConfidence + CoachConst.dupConfidenceBias {
+                let primary = hands[match.i]
                 hands[match.i] = h
+                // Take the inverted read's GEOMETRY, but not its handedness, when the two passes
+                // disagree about the label. This merge used to replace the whole Hand — chirality
+                // included — which is the one field the inverted pass is least entitled to: it
+                // exists for foreshortened, tips-away poses, and the comment above already concedes
+                // those are the poses Vision mislabels. Since chirality is the sign multiplier
+                // inside isDorsal, importing a bad one flips palm-vs-back for that hand and the
+                // coach asks the user to turn over a hand that is already correct. The upright
+                // primary pass is the better handedness witness; keep its label (and if IT could
+                // not read one, keep .unknown rather than inventing certainty from the rotated pass).
+                if primary.chirality != h.chirality { hands[match.i].chirality = primary.chirality }
                 return true
             }
             return false
