@@ -89,3 +89,40 @@ final class CaptureRotationTests: XCTestCase {
         return hypot(dx, dy)
     }
 }
+
+// THE DEVICE → INTERFACE MAPPING that actually turns the window.
+//
+// Permitting landscape was never enough on device: widening the mask requests a set that CONTAINS
+// .portrait at the one moment the window is guaranteed to already BE portrait, so the system
+// resolves it to "already there" and turns nothing. OrientationDriver requests a SINGLE orientation
+// instead — which means this mapping is now load-bearing, and it inverts.
+final class OrientationDriverMappingTests: XCTestCase {
+
+    // UIDeviceOrientation and UIInterfaceOrientation name the landscapes from opposite ends. If this
+    // ever "reads more naturally", the window turns the right way and the VIDEO comes out upside
+    // down — CaptureRotation.angle puts these two 180° apart.
+    func testTheLandscapesInvert() {
+        XCTAssertEqual(OrientationDriver.target(for: .landscapeLeft), .landscapeRight)
+        XCTAssertEqual(OrientationDriver.target(for: .landscapeRight), .landscapeLeft)
+        XCTAssertEqual(OrientationDriver.target(for: .portrait), .portrait)
+    }
+
+    // A phone propped against a cup — the posture this whole screen is designed around — reports
+    // faceUp/faceDown constantly. Acting on those would flip the layout while the user is pressing.
+    func testFlatAndUnknownHoldTheCurrentOrientation() {
+        XCTAssertNil(OrientationDriver.target(for: .faceUp))
+        XCTAssertNil(OrientationDriver.target(for: .faceDown))
+        XCTAssertNil(OrientationDriver.target(for: .unknown))
+        // Upside-down is excluded from the app's mask, so never request it.
+        XCTAssertNil(OrientationDriver.target(for: .portraitUpsideDown))
+    }
+
+    // Every orientation this driver will ever request must map to a distinct, legal capture angle —
+    // otherwise a rotation the driver forces leaves the video a quarter or half turn out.
+    func testEveryRequestedOrientationHasADistinctCaptureAngle() {
+        let requested: [UIDeviceOrientation] = [.portrait, .landscapeLeft, .landscapeRight]
+        let angles = requested.compactMap(OrientationDriver.target(for:)).map(CaptureRotation.angle(for:))
+        XCTAssertEqual(angles.count, 3)
+        XCTAssertEqual(Set(angles).count, 3, "two orientations share a capture angle")
+    }
+}

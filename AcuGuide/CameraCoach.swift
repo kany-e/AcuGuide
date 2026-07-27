@@ -507,11 +507,24 @@ enum CaptureRotation {
         }
     }
 
+    /// Last orientation a foregroundActive scene actually reported.
+    ///
+    /// The fallback here used to be a hardcoded `.portrait`, which is not a default — it is a wrong
+    /// ANSWER. The scene is merely foregroundInactive during a system permission alert, Control
+    /// Centre, or the app switcher, so this reported portrait (angle 90) for a window that was
+    /// sideways. And the value LATCHES: setRotation early-outs on `guard angle != queueRotation`, and
+    /// the landscape Bool will not change again to re-drive it, so a rotation completing while the
+    /// scene was inactive left the layout landscape and the video portrait for the whole session.
+    private static var lastKnownOrientation: UIInterfaceOrientation = .portrait
+
     static var interfaceOrientation: UIInterfaceOrientation {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }?
-            .interfaceOrientation ?? .portrait
+        if let live = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive })?
+            .interfaceOrientation, live != .unknown {
+            lastKnownOrientation = live
+        }
+        return lastKnownOrientation
     }
 
     /// What Vision must apply to read a buffer delivered at `actual` as upright for `desired`.
