@@ -51,6 +51,15 @@ struct VoiceCommandsView: View {
                 detail: AppLocale.pick("直接开始按压引导。", "Starts the coaching without saving a spot."),
                 phrases: zh ? ["跳过"] : ["skip"],
                 icon: "forward"),
+            // Listed LAST but the most important one to know, because it is the only command that
+            // gets you back to this list without touching the screen — the gap that made a "?"
+            // button the wrong answer for a hands-free feature. Same pattern as iOS Voice Control's
+            // own "show me what to say".
+            Row(title: AppLocale.pick("再看这张表", "Bring this list back"),
+                detail: AppLocale.pick("不用碰屏幕就能重新打开这份指令表。",
+                                       "Reopens this list without touching the screen."),
+                phrases: zh ? LocateVoiceCommand.helpZh : LocateVoiceCommand.helpEn,
+                icon: "questionmark.circle"),
         ]
     }
 
@@ -130,5 +139,35 @@ struct VoiceCommandsView: View {
             .padding(.horizontal, 9).padding(.vertical, 4)
             .background(Capsule().fill(Ink.gold.opacity(0.12)))
             .overlay(Capsule().stroke(Ink.gold.opacity(0.35), lineWidth: 1))
+    }
+}
+
+
+// The in-flow hint, as its own view so an offscreen render exercises exactly what the coach draws
+// rather than a copy that could drift. ARCoachView decides WHICH lines (see its `voiceHint`); this
+// only draws them.
+struct VoiceHintChip: View {
+    let lines: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(lines, id: \.self) { line in
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform").font(.caption2).accessibilityHidden(true)
+                    Text(line).font(.caption.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .foregroundStyle(Ink.paper)
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(Capsule().fill(.black.opacity(0.45)))
+        .overlay(Capsule().stroke(Ink.gold.opacity(0.5), lineWidth: 1))
+        // PARAPHRASED for VoiceOver. The visible text is the literal phrase on purpose — that is
+        // what makes it teach — but VoiceOver would read it out of the speaker and into the open
+        // mic, which is the self-trigger LocateStep and VoiceCommandsView already guard against.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(AppLocale.pick("提示：这一步可以用语音操作，也可以出声询问有哪些指令。",
+                                           "Tip: you can use your voice for this step, and you can ask out loud what the commands are."))
     }
 }

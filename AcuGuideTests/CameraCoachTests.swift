@@ -212,6 +212,8 @@ final class VoiceCommandTableTests: XCTestCase {
             ("resumeEn",  LocateVoiceCommand.resumeEn,  .resume),
             ("resumeZh",  LocateVoiceCommand.resumeZh,  .resume),
             ("skip",      ["skip", "跳过"],              .skip),
+            ("helpEn",    LocateVoiceCommand.helpEn,   .help),
+            ("helpZh",    LocateVoiceCommand.helpZh,   .help),
         ]
         for (name, phrases, expected) in tables {
             XCTAssertFalse(phrases.isEmpty, "\(name) is empty — the sheet would show a command with no phrases")
@@ -230,6 +232,7 @@ final class VoiceCommandTableTests: XCTestCase {
             (LocateVoiceCommand.confirmEn, .confirm), (LocateVoiceCommand.confirmZh, .confirm),
             (LocateVoiceCommand.studyEn, .study),     (LocateVoiceCommand.studyZh, .study),
             (LocateVoiceCommand.resumeEn, .resume),   (LocateVoiceCommand.resumeZh, .resume),
+            (LocateVoiceCommand.helpEn, .help),       (LocateVoiceCommand.helpZh, .help),
         ]
         for (phrases, cmd) in all {
             for p in phrases {
@@ -239,5 +242,22 @@ final class VoiceCommandTableTests: XCTestCase {
                 seen[p] = cmd
             }
         }
+    }
+}
+
+
+// "show me what to say" and "show me" are one word apart, and one opens a list while the other
+// freezes the camera. English matching is anchored to the TRAILING tokens, so only an utterance
+// ENDING in "show me" is a study request — but that is a property worth pinning rather than
+// remembering, because a single reordering of the parse would silently swap the two.
+extension VoiceCommandTableTests {
+    func testHelpAndStudyDoNotSwallowEachOther() {
+        XCTAssertEqual(LocateVoiceCommand.parse("show me what to say"), .help)
+        XCTAssertEqual(LocateVoiceCommand.parse("okay show me"), .study)
+        XCTAssertEqual(LocateVoiceCommand.parse("hey what can i say"), .help)
+        XCTAssertEqual(LocateVoiceCommand.parse("能说什么"), .help)
+        XCTAssertEqual(LocateVoiceCommand.parse("怎么找"), .study)
+        // And the negation guard still applies to the new command.
+        XCTAssertNil(LocateVoiceCommand.parse("dont show commands"))
     }
 }
