@@ -17,6 +17,8 @@ struct ARCoachView: View {
     // Observed, not just read: the read-aloud button's icon and label key off `speaking`, and a bare
     // AtlasSpeaker.shared.speaking would render once and then never update when playback ends.
     @ObservedObject private var atlasSpeaker = AtlasSpeaker.shared
+    // The only source that can tell landscapeLeft from landscapeRight — see OrientationDriver.
+    @ObservedObject private var orientation = OrientationDriver.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var acknowledged = false
     @State private var endedEarly = false          // "End" pressed — recap with partial rounds (normal, not failure)
@@ -94,6 +96,16 @@ struct ARCoachView: View {
             coachBody
                 .onChange(of: geo.size.width > geo.size.height) { syncRotation(landscape: $0) }
                 .onAppear { syncRotation(landscape: geo.size.width > geo.size.height) }
+                // LANDSCAPE-LEFT ↔ LANDSCAPE-RIGHT is invisible to the hook above: both satisfy
+                // width > height so the Bool never changes and neither trigger fires — yet
+                // CaptureRotation maps those two to 180° and 0°, a half turn apart. Flipping the
+                // propped phone end-for-end therefore gave upside-down video under a layout that
+                // looked entirely correct, and nothing re-drove it for the rest of the session.
+                // Driven off the ORIENTATION because the size is the very thing that cannot see it;
+                // the layout still owns `isLandscape`.
+                .onChange(of: orientation.interfaceOrientation) { _ in
+                    syncRotation(landscape: geo.size.width > geo.size.height)
+                }
         }
     }
 
@@ -221,10 +233,20 @@ struct ARCoachView: View {
             }
         }
         .onDisappear { locateVoice.stop(); camera.stop(); voice.reset() }
-        // Landscape is permitted only while the CAMERA is the point of the screen. The recap and
-        // the safety gate are reading screens — long prose and a pinned button — so the lock drops
-        // back to portrait there rather than reflowing text nobody wants sideways.
-        .landscapeCapable(acknowledged && engine.phase != .complete && !endedEarly && feeling == nil)
+        // LANDSCAPE FOR THE WHOLE COACH SCREEN, gate and recap included.
+        //
+        // This used to be gated on `acknowledged && … && feeling == nil` — the live-camera stretch
+        // only — on the reasoning that the gate and the recap are reading screens. The cost of that
+        // was invisible in the code and obvious on a phone: the forced safety gate is the FIRST thing
+        // in every camera session and the recap is the LAST, so a user who opens the coach and turns
+        // the phone is looking at a screen where landscape is not merely absent but actively switched
+        // off — narrowing the mask force-rotates the window back upright. "The landscape still
+        // doesn't work" is precisely what that feels like.
+        //
+        // The original objection was designed out on earlier passes anyway: the gate pins its button
+        // below a ScrollView and the recap is wrapped in one, so both survive a short viewport.
+        // Nothing here relaxes the gate itself — it is still forced and still unskippable.
+        .landscapeCapable()
     }
 
     // Drive rotation off the view's OWN SIZE, not UIDevice.orientationDidChangeNotification.
