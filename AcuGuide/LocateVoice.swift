@@ -54,11 +54,44 @@ enum LocateVoiceCommand: Equatable {
     private static let negationsZh = "不别没"
     private static let zhFillers = "吧了啊嗯呢的哦噢呀"
 
-    static func parse(_ transcript: String) -> LocateVoiceCommand? {
+    /// WHICH phrase matched, not just which command. The gate that stops the app acting on its own
+    /// spoken cues needs the phrase: the old gate was blanket — while CoachVoice spoke (plus a 0.6 s
+    /// tail) EVERY recognised command was discarded — and `.ready` is the one cue withheld while the
+    /// mic is open (Speech.swift), so the only quiet moment in the whole locate step was the moment
+    /// 就是这里 is said. That is the device report verbatim: "voice recognition only works for
+    /// 就是这里". Knowing the phrase lets the gate reject only what the app could actually have
+    /// produced, so the user can barge in over a 3-5 s cue with 怎么找 / 跳过 / 能说什么.
+    struct Match: Equatable { let kind: LocateVoiceCommand; let phrase: String }
+
+    /// The cleanup parse() applies to a transcript — also used to normalize the app's OWN spoken
+    /// line, so the echo check compares like with like.
+    static func normalize(_ s: String) -> String {
+        s.lowercased().replacingOccurrences(of: "[.,!?，。！？'’‘ʼ]", with: "", options: .regularExpression)
+    }
+
+    /// Every phrase the recognizer can act on, in the CURRENT app language. Handed to
+    /// SFSpeechAudioBufferRecognitionRequest.contextualStrings as a lexical prior — without it the
+    /// request is plain free-form dictation and a two-syllable command has to win against the whole
+    /// language model, which is what "you have to say it very slow in order for it to understand"
+    /// feels like. Language-scoped because the recognizer is built for one locale (AppLocale).
+    static var allPhrases: [String] {
+        AppLocale.isChinese
+            ? confirmZh + ["跳过"] + studyZh + resumeZh + helpZh
+            : confirmEn + ["skip"] + studyEn + resumeEn + helpEn
+    }
+
+    /// Could `spoken` — a line the app itself is saying right now — have produced this phrase? Only
+    /// then is a recognition hit the app's own echo rather than the user.
+    static func isSelfEcho(phrase: String, spoken: String) -> Bool {
+        normalize(spoken).contains(phrase)
+    }
+
+    static func parse(_ transcript: String) -> LocateVoiceCommand? { match(transcript)?.kind }
+
+    static func match(_ transcript: String) -> Match? {
         // Strip ASCII AND typographic apostrophes/quotes — iOS speech transcripts render
         // contractions with U+2019 ("that’s"), so the plain "'" alone missed "that's it".
-        let cleaned = transcript.lowercased()
-            .replacingOccurrences(of: "[.,!?，。！？'’‘ʼ]", with: "", options: .regularExpression)
+        let cleaned = normalize(transcript)
 
         // ── English: trailing whole-token match + a 2-token negation window ──────────────────────
         let words = cleaned.split(separator: " ").map(String.init)
@@ -69,11 +102,11 @@ enum LocateVoiceCommand: Equatable {
             let before = words.dropLast(pw.count).suffix(2)
             return !before.contains(where: negationsEn.contains)
         }
-        for k in helpEn where trailingMatch(k) { return .help }   // before study: see helpEn
-        for k in confirmEn where trailingMatch(k) { return .confirm }
-        if trailingMatch("skip") { return .skip }
-        for k in studyEn where trailingMatch(k) { return .study }
-        for k in resumeEn where trailingMatch(k) { return .resume }
+        for k in helpEn where trailingMatch(k) { return Match(kind: .help, phrase: k) }   // before study: see helpEn
+        for k in confirmEn where trailingMatch(k) { return Match(kind: .confirm, phrase: k) }
+        if trailingMatch("skip") { return Match(kind: .skip, phrase: "skip") }
+        for k in studyEn where trailingMatch(k) { return Match(kind: .study, phrase: k) }
+        for k in resumeEn where trailingMatch(k) { return Match(kind: .resume, phrase: k) }
 
         // ── Chinese: no spaces → trailing-substring match after trimming filler, + negation guard ─
         var zh = Substring(cleaned)
@@ -83,12 +116,52 @@ enum LocateVoiceCommand: Equatable {
             let before = zh.dropLast(k.count).suffix(2)          // 不要确认 / 先别确认 / 不就是这里
             return !before.contains(where: negationsZh.contains)
         }
-        for k in helpZh where zhSuffix(k) { return .help }
-        for k in confirmZh where zhSuffix(k) { return .confirm }
-        if zhSuffix("跳过") { return .skip }
-        for k in studyZh where zhSuffix(k) { return .study }
-        for k in resumeZh where zhSuffix(k) { return .resume }
+        for k in helpZh where zhSuffix(k) { return Match(kind: .help, phrase: k) }
+        for k in confirmZh where zhSuffix(k) { return Match(kind: .confirm, phrase: k) }
+        if zhSuffix("跳过") { return Match(kind: .skip, phrase: "跳过") }
+        for k in studyZh where zhSuffix(k) { return Match(kind: .study, phrase: k) }
+        for k in resumeZh where zhSuffix(k) { return Match(kind: .resume, phrase: k) }
         return nil
+    }
+}
+
+// THE WHOLE "does this transcript fire a command" DECISION, PURE — nothing here touches audio, so
+// the interaction that broke voice control on device is unit-testable (LocateVoiceGateTests). The
+// two defects that lost commands both lived inside one four-line `if` in handle(), where nothing
+// could reach them.
+enum LocateVoiceGate {
+    /// One command per utterance burst — but per KIND, see decide().
+    static let repeatDebounceS: TimeInterval = 2.0
+
+    /// - transcript:    the recognizer's cumulative text for the current task
+    /// - firedAtLength: consume-once anchor (the transcript must grow past the last fire)
+    /// - lastKind:      what fired last, or nil
+    /// - appSaying:     the line the app is speaking RIGHT NOW (+ a recognizer-lag tail), else nil
+    /// - blanketMute:   ignore everything — for the one caller with no single known line
+    static func decide(transcript: String,
+                       firedAtLength: Int,
+                       lastKind: LocateVoiceCommand?,
+                       sinceLastFire: TimeInterval,
+                       appSaying: String?,
+                       blanketMute: Bool) -> LocateVoiceCommand.Match? {
+        // The commands sheet renders every literal phrase ON SCREEN, where VoiceOver may read them
+        // into the open mic. There is no single "line" to compare against there, so that caller keeps
+        // the old blunt behaviour — it is a modal the user is reading, not a coaching step.
+        guard !blanketMute else { return nil }
+        // Consume-once: the transcript is cumulative within a task, so require it to have grown.
+        guard transcript.count > firedAtLength + 1 else { return nil }
+        guard let m = LocateVoiceCommand.match(transcript) else { return nil }
+        // ECHO, NOT BLANKET. Reject only a phrase the app's own current line actually contains.
+        if let saying = appSaying, LocateVoiceCommand.isSelfEcho(phrase: m.phrase, spoken: saying) {
+            return nil
+        }
+        // KIND-AWARE DEBOUNCE. The old single `lastFired` was global, so a command that does NOTHING
+        // in the current state still burned the window for the one that would have worked: 找到了
+        // parses as .resume, which is a silent no-op when no frame is frozen (ARCoachView), and it
+        // then blocked the 就是这里 said a second later. Repeats of the SAME kind are what needs
+        // damping; a different kind is new intent.
+        if m.kind == lastKind && sinceLastFire <= repeatDebounceS { return nil }
+        return m
     }
 }
 
@@ -108,6 +181,7 @@ final class LocateVoiceControl: ObservableObject {
     private let audioEngine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    private var tapFormat: AVAudioFormat?            // the format the LIVE tap was installed with
 
     // ONE monotonically-rising token, bumped by stop() and every (re)start. Async permission
     // callbacks and recognition-task callbacks capture the value at their scheduling time and
@@ -129,12 +203,24 @@ final class LocateVoiceControl: ObservableObject {
     private var configRecoverBurst = 0
     private var ignoreConfigUntil = Date.distantPast
 
-    // Self-confirmation guard: the app's own spoken cues + VoiceOver announcements come out the
-    // speaker into the open mic. While CoachVoice is speaking (and a short tail after), ignore
-    // recognition so the app can't transcribe and act on its own voice (review-caught). The cue
-    // copy is also reworded keyword-free — this is the defense-in-depth half.
-    private var appSpeaking = false
-    private var ignoreHitsUntil = Date.distantPast
+    // SELF-CONFIRMATION GUARD, NARROWED FROM A BLANKET MUTE.
+    //
+    // The app's own spoken cues come out the speaker into the open mic, so the recognizer transcribes
+    // them and could act on them. The old guard handled that by ignoring ALL recognition while
+    // CoachVoice spoke, plus a 0.6 s tail — and during the locate step the coach speaks almost
+    // continuously: the zh clips run ~1.8-5.0 s and stepLocate flips between noPress/settling/
+    // offGuide inside a second (CoachConst.locateSteadyS 0.6 / locateWindowS 0.8). Since `.ready` is
+    // the ONE cue withheld while the mic is open (Speech.updateLocate), the only quiet window in the
+    // entire step was the moment 就是这里 is said — which is exactly the device report, "voice
+    // recognition only works for 就是这里". Every other command was being recognised and thrown away.
+    //
+    // Now we keep WHAT the app is saying and reject only a command phrase that line actually
+    // contains, so the user can barge in over a cue. `blanketMute` remains for the one caller that
+    // has no single known line (the commands sheet, whose phrases VoiceOver may read out loud).
+    private var appSaying: String? = nil
+    private var appSayingUntil = Date.distantPast
+    private var blanketMute = false
+    private var lastKind: LocateVoiceCommand? = nil
 
     private var observers: [NSObjectProtocol] = []
 
@@ -152,10 +238,44 @@ final class LocateVoiceControl: ObservableObject {
 
     func toggle() { listening ? stop() : start() }
 
-    // Called by the view when the app's TTS starts/stops (bridged from CoachVoice.isSpeaking).
-    func setAppSpeaking(_ speaking: Bool) {
-        appSpeaking = speaking
-        if !speaking { ignoreHitsUntil = Date().addingTimeInterval(0.6) }   // recognizer lag tail
+    /// True while this control owns the shared session with a live input tap. Anything that would
+    /// hand the session back to `.ambient` — a category with NO INPUT ROUTE — has to check this, or
+    /// the mic stays "listening" over a dead route with nothing to repair it.
+    static private(set) var micHoldsSession = false
+
+    /// The session shape the MIC needs, hoisted out of beginListening so it can be re-claimed.
+    ///
+    /// Mode `.voiceChat` selects the voice-processing I/O path — hardware echo cancellation and the
+    /// tuned input chain — which is what a two-syllable spoken command needs while the coach is
+    /// talking out of the loudspeaker. The old call set no mode at all, i.e. `.default`: a playback
+    /// shape, so several seconds of full-level speech was decoded mixed in with the user's command.
+    /// `.allowBluetooth` is deliberately GONE: it offers the system a headset's HANDS-FREE link as
+    /// the INPUT, an 8/16 kHz mono SCO channel that the tap then records faithfully.
+    /// `.allowBluetoothA2DP` stays, so the user's headphones remain the OUTPUT — the reason the
+    /// option was added — while the input stays on the built-in mic.
+    static func reclaimSession() {
+        let s = AVAudioSession.sharedInstance()
+        try? s.setCategory(.playAndRecord, mode: .voiceChat,
+                           options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP])
+        try? s.setActive(true)
+        micHoldsSession = true
+    }
+
+    /// Called by the view when the app's TTS starts/stops (bridged from CoachVoice.isSpeaking),
+    /// WITH the line being spoken so the echo check can compare like with like. Passing no line
+    /// falls back to the old blanket behaviour — correct for the commands sheet, where the phrases
+    /// are on screen for VoiceOver to read and there is no single utterance to match against.
+    func setAppSpeaking(_ speaking: Bool, saying line: String? = nil) {
+        if speaking {
+            blanketMute = (line == nil)
+            appSaying = line
+            appSayingUntil = .distantFuture
+        } else {
+            blanketMute = false
+            // Keep the line for a short tail: the recognizer reports the cue's own words up to ~0.6 s
+            // after it stops playing, so dropping the line at didFinish would let the echo through.
+            appSayingUntil = Date().addingTimeInterval(0.6)
+        }
     }
 
     func start() {
@@ -185,12 +305,7 @@ final class LocateVoiceControl: ObservableObject {
 
     private func beginListening() {
         guard !listening, recognizer != nil else { return }   // armTask re-binds it where it's used
-        // .playAndRecord so CoachVoice's spoken cues keep working while the mic is open;
-        // defaultToSpeaker keeps them audible, allowBluetoothA2DP keeps output on the user's
-        // headphones (without it, enabling the mic yanks audio to the phone speaker).
-        try? AVAudioSession.sharedInstance().setCategory(
-            .playAndRecord, options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        Self.reclaimSession()
 
         let format = audioEngine.inputNode.outputFormat(forBus: 0)
         // No usable input route → there is no mic to listen with (the Simulator, or a device with no
@@ -215,6 +330,13 @@ final class LocateVoiceControl: ObservableObject {
         guard listening, let recognizer else { return }
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
+        // THE LEXICAL PRIOR THIS ALWAYS NEEDED. Without it the request is plain free-form dictation:
+        // a 2-4 character command has to out-score the whole language model, and over-articulating is
+        // the user's only lever — "you have to say it very slow in order for it to understand".
+        // contextualStrings biases the decoder toward the exact phrases we can act on, and
+        // .confirmation tells it to expect a short command rather than a sentence.
+        req.contextualStrings = LocateVoiceCommand.allPhrases
+        req.taskHint = .confirmation
         // Prefer ON-DEVICE recognition when the device supports it (audio stays local); otherwise fall
         // back to Apple's speech service so voice-confirm works at all (user-approved privacy trade —
         // on-device wasn't installed for the app's language on the user's iPhone, so requiring it just
@@ -224,8 +346,10 @@ final class LocateVoiceControl: ObservableObject {
         firedAtLength = 0
 
         let input = audioEngine.inputNode
+        let fmt = input.outputFormat(forBus: 0)
+        tapFormat = fmt                              // remembered so a benign config change can be ignored
         input.removeTap(onBus: 0)                    // idempotent; clears any prior task's tap
-        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 1024, format: fmt) { buffer, _ in
             req.append(buffer)                       // captured request — no self, no shared mutable read
         }
 
@@ -243,15 +367,16 @@ final class LocateVoiceControl: ObservableObject {
         if let text = result?.bestTranscription.formattedString, !text.isEmpty {
             noProgressRestarts = 0                   // real transcription → the pipeline is healthy
             configRecoverBurst = 0                   // …and route recovery is working, not storming
-            // Ignore the app's own voice, and only fire once per fresh utterance (the transcript
-            // is cumulative within a task; require it to have grown past the last fire).
-            let quiet = !appSpeaking && Date() >= ignoreHitsUntil
-            if quiet, text.count > firedAtLength + 1,
-               let cmd = LocateVoiceCommand.parse(text),
-               Date().timeIntervalSince(lastFired) > 2.0 {
+            if let m = LocateVoiceGate.decide(transcript: text,
+                                              firedAtLength: firedAtLength,
+                                              lastKind: lastKind,
+                                              sinceLastFire: Date().timeIntervalSince(lastFired),
+                                              appSaying: Date() < appSayingUntil ? appSaying : nil,
+                                              blanketMute: blanketMute) {
                 lastFired = Date()
+                lastKind = m.kind
                 firedAtLength = text.count
-                command = Command(id: UUID(), kind: cmd)
+                command = Command(id: UUID(), kind: m.kind)
             }
         }
         // The recognizer ends tasks on its own (~1 min cap, final results, errors). Keep the
@@ -296,6 +421,8 @@ final class LocateVoiceControl: ObservableObject {
     // (which ignores the silent switch for every later cue; review-caught).
     private func restoreSession() {
         request?.endAudio(); request = nil
+        tapFormat = nil
+        Self.micHoldsSession = false
         try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
     }
 
@@ -327,6 +454,15 @@ final class LocateVoiceControl: ObservableObject {
         guard listening else { return }
         let now = Date()
         guard now >= ignoreConfigUntil else { return }   // the engine's own start-time settle
+        // A CONFIG CHANGE IS NOT AUTOMATICALLY A REBUILD. Every spoken cue calls setActive(true) on
+        // the shared session, which fires this notification without the input format actually
+        // changing — and rebuilding is expensive in the one currency that matters here: teardownTask()
+        // CANCELS the recognition task, throwing away the cumulative transcript, and armTask() starts
+        // a blank one with firedAtLength reset. A command spoken across a cue boundary was therefore
+        // destroyed outright, not merely delayed, with nothing to re-evaluate it. If the format is
+        // unchanged and the engine is still running, there is nothing to repair.
+        if audioEngine.isRunning, let tapFormat,
+           audioEngine.inputNode.outputFormat(forBus: 0) == tapFormat { return }
         // Only RAPID-FIRE changes (a genuinely broken route re-settling faster than we can re-arm)
         // count toward giving up; an occasional TTS/route settle >0.3s apart resets the burst and
         // recovers indefinitely. (A slow-but-persistent flap that still yields recognition also

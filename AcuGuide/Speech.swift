@@ -15,7 +15,21 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     // True while an utterance is rendering — the locate voice-confirm mic reads this (bridged in
     // ARCoachView) to ignore recognition while the app is speaking, so it can't transcribe and act
     // on its own cues (the self-confirmation loop; review-caught).
-    @Published private(set) var isSpeaking = false
+    @Published private(set) var isSpeaking = false {
+        didSet { if !isSpeaking { lastCueEnd = Date() } }
+    }
+    /// The line currently (or most recently) being spoken. Handed to LocateVoiceControl so the mic
+    /// can reject the app's OWN voice without rejecting the user's — see the echo gate in
+    /// LocateVoice.swift, which replaced a blanket mute that swallowed nearly every command.
+    private(set) var lastSpokenText: String? = nil
+
+    private var lastCueEnd = Date.distantPast
+    /// Minimum quiet gap between spoken cues WHILE THE MIC IS OPEN. stepLocate flips between
+    /// noPress/settling/offGuide inside a second (CoachConst.locateSteadyS 0.6 / locateWindowS 0.8)
+    /// and the zh clips for those states run ~1.8-5.0 s, so back-to-back cues left the recognizer
+    /// almost no clean audio to decode a command out of. This does not mute the coach — eyes-free
+    /// users still need the instruction — it just stops it holding the floor continuously.
+    private static let listeningCueGapS: TimeInterval = 2.0
 
     private let synth = AVSpeechSynthesizer()
     // Pre-rendered neural clip for this line when one is bundled (see VoiceClips); AVSpeech is the
@@ -41,6 +55,11 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
         lastSpokenPhase = nil
         lastSpokenLocate = nil
         stopSpeaking()
+        // NOT under a live mic. reset() is called from beginStudy (the freeze-the-frame command) while
+        // the mic is session-scoped and listening, and deactivating the shared session there pulled it
+        // out from under the input tap — so the very command that froze the frame killed the mic that
+        // would have unfrozen it, which is the one thing this hands-free feature cannot afford.
+        guard !LocateVoiceControl.micHoldsSession else { return }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -161,6 +180,15 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     }
 
     private func speak(_ text: String) {
+        // HOLD THE FLOOR LESS WHILE THE MIC IS OPEN. Barge-in (the echo gate in LocateVoice) makes
+        // the user's command survive a cue, but the recognizer still needs some audio that is not
+        // full-level coach speech to decode it out of. Cues that arrive inside the gap are dropped,
+        // not queued: they describe a state that is changing several times a second anyway, so a
+        // stale one is worse than none. `.ready` is exempt — it is the behaviour-changing line.
+        if LocateVoiceControl.micHoldsSession,
+           Date().timeIntervalSince(lastCueEnd) < Self.listeningCueGapS,
+           text != Self.locatePhrase(for: .ready, requiresDorsal: false, selfCoaching: true) { return }
+        lastSpokenText = text
         stopSpeaking()
         try? AVAudioSession.sharedInstance().setActive(true)
         // Pre-rendered neural clip when we have one (studio quality, no synthesis cost); otherwise
