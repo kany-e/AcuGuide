@@ -149,7 +149,22 @@ struct Hand {
     // nil when a required MCP landmark is missing — the caller must decide what an
     // unverifiable face means rather than silently defaulting to dorsal (which would let a
     // partially-detected palm pass the TE3 dorsal gate).
-    var isDorsal: Bool? {
+    var isDorsal: Bool? { isDorsal(assuming: chirality) }
+
+    // Same test, but against a CALLER-SUPPLIED handedness — so the coach can feed a label that has
+    // been held steady across frames instead of this frame's raw read. Vision's chirality is a
+    // per-hand image-side estimate, not an anatomical guarantee: it is least reliable exactly where
+    // this app looks (a close-up of two overlapping hands, no forearm or body in frame), and it is
+    // the ONLY handedness-dependent term in the whole coach, so a single misread frame inverts
+    // palm-vs-back and tells the user to turn over a hand that is already the right way up.
+    // Device report: "the hand orientation detection is reversed for the right and left hand."
+    func isDorsal(assuming hand: VNChirality) -> Bool? {
+        // UNKNOWN IS NOT LEFT. This used to be `(chirality == .right) ? cross : -cross`, whose else
+        // arm swallowed .unknown and silently returned the LEFT answer — a coin flip that reads as
+        // a confident verdict. Every other consumer of chirality refuses to guess (PointCalibration
+        // .canonicalFrame bails, settleVerdict reports .chiralityBlocked); this one now does too,
+        // and nil routes to the caller's "reuse the last verdict we could compute" path.
+        guard hand != .unknown else { return nil }
         guard let w = p(.wrist), let i = p(.indexMCP), let pk = p(.pinkyMCP) else { return nil }
         let cross = (i.x - w.x) * (pk.y - w.y) - (i.y - w.y) * (pk.x - w.x)
         // The old front/rear-camera "cancellation" claim assumed chirality flips with the mirror —
@@ -157,7 +172,7 @@ struct Hand {
         // changes). So the parity of the coordinates must enter the sign explicitly, or the
         // back-camera (un-mirrored) mode reads dorsal/palmar BACKWARDS. The calibrated flag below
         // was tuned in the mirrored convention; `mirroredCoords` maps other parities onto it.
-        let anatomical = (chirality == .right) ? cross : -cross
+        let anatomical = (hand == .right) ? cross : -cross
         let signed = mirroredCoords ? anatomical : -anatomical
         return HandCalibration.dorsalWhenSignedPositive ? signed > 0 : signed < 0
     }
@@ -166,9 +181,17 @@ struct Hand {
 // On-device calibration knobs, surfaced as debug toggles in the coach view so field
 // calibration happens in one place.
 enum HandCalibration {
-    // dorsal <=> signed < 0. On-device the gate fired backwards (palm-to-camera was read as
-    // dorsal / back), so the calibrated sign is inverted here. The single debug toggle in the
-    // coach view re-inverts it in one place if a given device disagrees. Re-verify on hardware.
+    // dorsal <=> signed < 0.
+    //
+    // THIS VALUE IS CORRECT — DO NOT FLIP IT to chase a wrong-face report. It is confirmed against
+    // real device captures, not derived on paper: all nine labels in
+    // claude-deliverables/data/te3_labels_2026-07-07.jsonl are TE3 (a DORSAL point), captured on
+    // device through this exact pipeline, five read .right and four .left — and every one of the
+    // nine yields signed < 0. The convention therefore holds for BOTH hands, which also rules out
+    // any systematic left/right inversion here. Flipping it would break the hand that works today.
+    //
+    // A wrong-face report is a bad chirality LABEL, not a bad sign convention; see
+    // Hand.isDorsal(assuming:) and CoachEngine's held handedness.
     static var dorsalWhenSignedPositive = false
 }
 
