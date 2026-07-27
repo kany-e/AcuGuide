@@ -192,11 +192,16 @@ final class AcuGuideTests: XCTestCase {
     // coordinate conventions match the trained head (no train/serve skew). Retrain the head on the
     // owned labels, then tighten TE3 back to 0.02.
     func testLearnedHeadMatchesAffineAnchors() {
-        let base: [HandJoint: CGPoint] = [
-            .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
-            .ringMCP: CGPoint(x: 0.56, y: 0.54), .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
-            .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30), .pinkyTip: CGPoint(x: 0.66, y: 0.36),
-            .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+        // NOTE THE FIXTURE. This is the only engine test that does NOT use HandFixture.dorsalRight,
+        // and the reason is a finding, not a convenience: the head was distilled on train.py hands
+        // built from the OLD synthetic base, which is the MIRROR IMAGE of what a device produces
+        // (a Vision-`.right` hand has its thumb at LARGER x in every one of the nine captures in
+        // te3_labels_2026-07-07.jsonl; the old base put it at smaller x). Feeding the head the real
+        // parity is therefore out of distribution — measured below in
+        // testLearnedHeadIsMirroredRelativeToDeviceParity. This case keeps testing what it was
+        // written to test: that the in-app pid path, feature order and scaling reproduce the affine
+        // formula, which they can only be judged on inside the head's own training distribution.
+        let base: [HandJoint: CGPoint] = HandFixture.palmarRight   // == the retired synthetic base
         guard ShadowLocalizer.shared.isAvailable else { XCTFail("AcupointHead model not bundled/loadable"); return }
         // Test BOTH handedness — the left case exercises the chirality fold (mirror base x + .left),
         // matching how train.py generated left hands. (Live front-camera mirror vs Vision chirality is
@@ -222,6 +227,49 @@ final class AcuGuideTests: XCTestCase {
                 XCTAssertLessThan(d, bound, "\(label) \(id) learned head diverges from the affine anchor by \(d) handSizes")
             }
         }
+    }
+
+    // THE TRAIN/SERVE SKEW THE TEST ABOVE WAS HIDING, measured rather than left as a footnote.
+    //
+    // The shadow head is fed the LIVE hand (Coach.swift, ShadowLocalizer.record) — which arrives in
+    // the device's parity: front-camera landmarks x-mirrored for the selfie preview, with Vision's
+    // chirality label unmirrored. The head was distilled on the opposite parity. So every shadow
+    // delta logged from a real session is measuring an out-of-distribution input, and the M1
+    // experiment's on-device numbers cannot be read at face value until the head is retrained.
+    //
+    // This is NOT a user-visible defect: ShadowLocalizer logs and never touches the ring or the
+    // state machine (Coach.swift: "Never alters the ring/state machine"). It is a measurement bug.
+    //
+    // The signature is unmistakable and is what this pins: anchor sets that straddle the hand's
+    // MIDLINE (PC6, SJ5, PC7 — wrist + middleMCP only) are mirror-invariant and still match, while
+    // every OFF-MIDLINE set (SI3 pinky-heavy, HT7 pinky, PC8 index-biased, TE4 ring) diverges.
+    // A head trained in the right parity would match both groups.
+    func testLearnedHeadIsMirroredRelativeToDeviceParity() {
+        guard ShadowLocalizer.shared.isAvailable else { XCTFail("AcupointHead model not bundled/loadable"); return }
+        let hand = Hand(points: HandFixture.dorsalRight, chirality: .right)   // what the device sends
+        var midline: [String: Double] = [:], offMidline: [String: Double] = [:]
+        for (pid, id) in ShadowLocalizer.points.enumerated() {
+            guard let anchors = Acupoint.byId[id]?.mediapipeTarget?.anchors,
+                  let affine = hand.weightedTarget(anchors),
+                  let learned = ShadowLocalizer.shared.predict(hand: hand, pointId: pid)?.target else {
+                XCTFail("\(id): could not compute learned/affine target"); continue }
+            let d = Double(hypot(learned.x - affine.x, learned.y - affine.y)) / Double(hand.handSize)
+            // Midline = every anchor lies on the hand's centre line (wrist / middleMCP).
+            let onMidline = anchors.allSatisfy { $0.landmark == .wrist || $0.landmark == .middleMCP }
+            (onMidline ? { midline[id] = d } : { offMidline[id] = d })()
+            print(String(format: "device-parity %@ %@: Δ=%.4f handSizes", id as NSString,
+                         (onMidline ? "(midline)" : "(off-midline)") as NSString, d))
+        }
+        for (id, d) in midline {
+            XCTAssertLessThan(d, 0.02, "\(id) is mirror-invariant and should still match (Δ=\(d))")
+        }
+        XCTAssertFalse(offMidline.isEmpty, "no off-midline points to measure — the fixture changed")
+        XCTAssertTrue(offMidline.values.contains { $0 > 0.02 },
+                      """
+                      No off-midline divergence. If the head has been RETRAINED in the device parity \
+                      this test has served its purpose — delete it and point \
+                      testLearnedHeadMatchesAffineAnchors at HandFixture.dorsalRight.
+                      """)
     }
 
     // SHADOW LOG, captured offline: replays the LIVE front-camera convention (CameraCoach.buildHand
@@ -368,9 +416,7 @@ final class AcuGuideTests: XCTestCase {
     // un-mirrored coordinates negate the cross product — mirroredCoords must compensate
     // (back-camera two-person mode read palm/back BACKWARDS before this).
     func testIsDorsalIsParityInvariant() {
-        let mirrored: [HandJoint: CGPoint] = [
-            .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55),
-            .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .middleMCP: CGPoint(x: 0.50, y: 0.52)]
+        let mirrored: [HandJoint: CGPoint] = HandFixture.dorsalRight
         let front = Hand(points: mirrored, chirality: .right)                       // selfie convention
         let back = Hand(points: mirrored.mapValues { CGPoint(x: 1 - $0.x, y: $0.y) },
                         chirality: .right, mirroredCoords: false)                   // same hand, rear camera
