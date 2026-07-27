@@ -261,3 +261,75 @@ extension VoiceCommandTableTests {
         XCTAssertNil(LocateVoiceCommand.parse("dont show commands"))
     }
 }
+
+// THE GATE THAT SWALLOWED NEARLY EVERY COMMAND.
+//
+// Device report: "voice recognition only works for 就是这里, and you have to say it very slow." The
+// first half was not a recognition failure at all — commands were being recognised correctly and
+// then DISCARDED. The old gate ignored all recognition while CoachVoice was speaking (plus a 0.6 s
+// tail), and `.ready` is the one cue withheld while the mic is open (Speech.updateLocate), so the
+// only quiet window in the whole locate step was the moment 就是这里 is said. Every other phrase
+// landed inside a 1.8-5.0 s spoken cue and was dropped.
+//
+// The decision now lives in a pure function precisely so this can be pinned.
+final class LocateVoiceGateTests: XCTestCase {
+    private func decide(_ transcript: String, saying: String? = nil, lastKind: LocateVoiceCommand? = nil,
+                        since: TimeInterval = 99, firedAt: Int = 0,
+                        blanket: Bool = false) -> LocateVoiceCommand? {
+        LocateVoiceGate.decide(transcript: transcript, firedAtLength: firedAt, lastKind: lastKind,
+                               sinceLastFire: since, appSaying: saying, blanketMute: blanket)?.kind
+    }
+
+    // THE REGRESSION. Each of these is spoken while the coach is mid-cue; all of them used to be
+    // thrown away, which is why only the one said during the silent .ready state ever worked.
+    func testUserCanBargeInOverACueTheAppIsSpeaking() {
+        let cue = "有点远了，回到虚线圈附近。"          // .offGuide — 3 s of speech
+        XCTAssertEqual(decide("怎么找", saying: cue), .study)
+        XCTAssertEqual(decide("跳过", saying: cue), .skip)
+        XCTAssertEqual(decide("能说什么", saying: cue), .help)
+        XCTAssertEqual(decide("就是这里", saying: cue), .confirm)
+    }
+
+    // …but the app still must not act on its OWN voice. The coach's .onTargetUnstable line literally
+    // contains 就是这里, so this is not hypothetical: without the echo check the app would confirm
+    // the spot for the user the moment it said "就是这里，轻轻稳住".
+    func testTheAppsOwnWordsAreStillRejected() {
+        XCTAssertNil(decide("就是这里", saying: "就是这里，轻轻稳住。"))
+        XCTAssertNil(decide("就是这里轻轻稳住", saying: "就是这里，轻轻稳住。"))
+        XCTAssertNil(decide("thats it", saying: "That's it — settle in."))
+        // Punctuation must not let the echo through — both sides are normalized the same way.
+        XCTAssertNil(decide("就是这里", saying: "就是这里"))
+    }
+
+    // A DIFFERENT command is new intent, not a repeat. The old single global debounce meant 找到了 —
+    // which parses as .resume and does NOTHING when no frame is frozen — burned the 2 s window and
+    // blocked the 就是这里 said right after it.
+    func testADifferentCommandIsNotDebouncedBehindASilentNoOp() {
+        XCTAssertEqual(decide("就是这里", lastKind: .resume, since: 0.4), .confirm)
+        XCTAssertNil(decide("继续", lastKind: .resume, since: 0.4), "a repeat of the same kind still damps")
+        XCTAssertEqual(decide("继续", lastKind: .resume, since: 3.0), .resume, "…and clears after the window")
+    }
+
+    // The commands sheet has no single spoken line — VoiceOver may read any of the phrases printed
+    // on it — so that one caller keeps the blunt gate.
+    func testBlanketMuteStillSuppressesEverything() {
+        XCTAssertNil(decide("就是这里", blanket: true))
+        XCTAssertNil(decide("skip", blanket: true))
+    }
+
+    // Consume-once: the transcript is cumulative within a task, so a command must not re-fire on
+    // every subsequent partial result.
+    func testACommandDoesNotRefireOnTheSameTranscript() {
+        XCTAssertNil(decide("就是这里", firedAt: 4))
+        XCTAssertEqual(decide("就是这里跳过", firedAt: 4), .skip)
+    }
+
+    // The lexical prior handed to the recognizer must be exactly what the parser can act on —
+    // biasing it toward a phrase the parser rejects would make the app hear a command and ignore it.
+    func testEveryContextualStringParses() {
+        for p in LocateVoiceCommand.allPhrases {
+            XCTAssertNotNil(LocateVoiceCommand.parse(p), "\(p) is offered to the recognizer but does not parse")
+        }
+        XCTAssertFalse(LocateVoiceCommand.allPhrases.isEmpty)
+    }
+}

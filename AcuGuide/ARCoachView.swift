@@ -201,7 +201,10 @@ struct ARCoachView: View {
         }
         // The app's own TTS goes out the speaker into the open mic — pause recognition while it
         // speaks so voice confirm can't transcribe and fire on the app's own cues.
-        .onChange(of: voice.isSpeaking) { locateVoice.setAppSpeaking($0) }
+        // …WITH the line, so the mic rejects only the app's own words instead of going deaf for the
+        // whole cue. The blanket version made 就是这里 the only command that could ever fire, because
+        // .ready is the one cue withheld while the mic is open (see LocateVoice's echo gate).
+        .onChange(of: voice.isSpeaking) { locateVoice.setAppSpeaking($0, saying: voice.lastSpokenText) }
         // The mic used to be shut on the way out of the locate step, because confirm-by-voice was
         // the only command. It now also drives freeze/resume, which are most useful mid-press —
         // so listening is session-scoped, and the top bar shows whether it is on (see topBar).
