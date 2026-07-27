@@ -459,6 +459,215 @@ extension BodyMeshProbeTests {
     }
 }
 
+// THE uv SPACE IS NOT SQUARE, and that is the whole bug behind "the hand acupoint location is way
+// off the palm". screenMarker aims a ray at (centre.x + u·ext.x, centre.y + v·ext.y) — u and v are
+// fractions of DIFFERENT world extents. HandSheet builds an orthonormal frame (distal ⟂ radial,
+// both unit length) inside that space, so "perpendicular in uv" is not perpendicular on the hand
+// and "one palm-length" is a different distance along each axis. This prints the numbers that
+// settle it, in screenMarker's OWN basis (the corner-transformed bounding box it actually uses —
+// not the triangle AABB testProbeDetailHandUVFrame reports, which is a tighter and different box).
+extension BodyMeshProbeTests {
+    func testDetailHandUVSpaceIsAnisotropic() throws {
+        guard let scene = loadScene("hand_low_poly"),
+              let mesh = AtlasMarkers.unitMesh(from: scene, material: AtlasMarkers.meshMaterial()) else {
+            XCTFail("no hand mesh"); return
+        }
+        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
+
+        // Exactly screenMarker's basis: the 8 LOCAL bbox corners pushed to world.
+        let (lo, hi) = mesh.boundingBox
+        var mn = SIMD3<Float>(repeating: .greatestFiniteMagnitude); var mx = -mn
+        for a in [lo.x, hi.x] { for b in [lo.y, hi.y] { for c in [lo.z, hi.z] {
+            let w = mesh.convertPosition(SCNVector3(a, b, c), to: nil)
+            mn = simd_min(mn, SIMD3(w.x, w.y, w.z)); mx = simd_max(mx, SIMD3(w.x, w.y, w.z))
+        } } }
+        let ext = mx - mn
+        print(String(format: "=== screenMarker basis: ext.x %.4f  ext.y %.4f  ext.x/ext.y %.4f",
+                     ext.x, ext.y, ext.x / ext.y))
+        print(String(format: "=== HandSheet.uvAspect is %.4f", HandSheet.uvAspect))
+
+        XCTAssertEqual(HandSheet.uvAspect, ext.x / ext.y, accuracy: 0.005,
+                       "HandSheet.uvAspect no longer matches the posed mesh — re-measure it")
+
+        // END-TO-END, through the public API rather than the internals: one palm-length ALONG and
+        // one palm-length ACROSS must come out perpendicular and equally long ON THE MESH.
+        func world(_ p: SIMD2<Float>) -> SIMD2<Float> { SIMD2(p.x * ext.x, p.y * ext.y) }
+        let o = world(HandSheet.uv(along: 0, across: 0))
+        let a = world(HandSheet.uv(along: 1, across: 0)) - o     // wrist crease → knuckle line
+        let b = world(HandSheet.uv(along: 0, across: 1)) - o     // one palm-length across
+        let deg = acos(max(-1, min(1, simd_dot(simd_normalize(a), simd_normalize(b))))) * 180 / .pi
+        print(String(format: "=== along∠across on the MESH: %.1f°  (90° = square)", deg))
+        print(String(format: "=== |across| / |along| = %.4f  (should be acrossScale %.2f)",
+                     simd_length(b) / simd_length(a), HandSheet.acrossScale))
+        XCTAssertEqual(deg, 90, accuracy: 1.0,
+                       "the hand frame is sheared on the mesh — moving across the palm also walks the point along it")
+        XCTAssertEqual(simd_length(b) / simd_length(a), HandSheet.acrossScale, accuracy: 0.02,
+                       "one palm-length across is not one palm-length on the mesh")
+    }
+}
+
+// MEASURE THE CENTRELINE, don't eyeball it. Reading marker positions off a render means comparing
+// them to a silhouette I judge by eye, in a perspective view, on a hand whose thumb occludes the
+// radial border — and the dorsal and palm renders are NOT mirror images of each other, so the two
+// estimates disagree and there is no way to tell which is lying.
+//
+// So sample the silhouette in the SAME uv space the markers are placed in: probe a grid of (u,v)
+// with screenMarker's own direct-hit test, and for each v take the WIDEST CONTIGUOUS run of hits.
+// At palm heights the thumb is a separate lobe with a gap between, so the widest run is the palm.
+// Its midpoint is the centreline and its half-width is how far `across` can reach — both measured,
+// not judged.
+extension BodyMeshProbeTests {
+    func testMeasureDetailHandCentreline() throws {
+        guard let scene = loadScene("hand_low_poly"),
+              let mesh = AtlasMarkers.unitMesh(from: scene, material: AtlasMarkers.meshMaterial()) else {
+            XCTFail("no hand mesh"); return
+        }
+        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
+
+        func directHit(_ u: Float, _ v: Float) -> Bool {
+            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v, farSide: false,
+                                                    id: "p", color: .white, core: 0.001, halo: 0.002)
+            else { return false }
+            return m.onSurface && !m.snapped
+        }
+
+        print("     v      palm u-span        centre   half-width")
+        var samples: [(v: Float, c: Float, hw: Float)] = []
+        for i in 0...24 {
+            let v = -0.45 + Float(i) / 24 * 0.60          // wrist stub → past the knuckle line
+            // Contiguous runs of hits across u.
+            var runs: [(lo: Float, hi: Float)] = []
+            var start: Float? = nil, prev: Float = 0
+            for j in 0...80 {
+                let u = -0.50 + Float(j) / 80 * 1.00
+                if directHit(u, v) { if start == nil { start = u }; prev = u }
+                else if let s = start { runs.append((s, prev)); start = nil }
+            }
+            if let s = start { runs.append((s, prev)) }
+            guard let widest = runs.max(by: { ($0.hi - $0.lo) < ($1.hi - $1.lo) }) else { continue }
+            let c = (widest.lo + widest.hi) / 2, hw = (widest.hi - widest.lo) / 2
+            samples.append((v, c, hw))
+            print(String(format: "  %+.3f   %+.3f…%+.3f   %+.3f    %.3f   (%d lobe%@)",
+                         v, widest.lo, widest.hi, c, hw, runs.count, runs.count == 1 ? "" : "s"))
+        }
+
+        // FIT ONLY THE ROWS WHERE THE THUMB IS NOT MERGED INTO THE PALM'S OUTLINE. It is absent below
+        // v ≈ −0.175 and a SEPARATE lobe above v ≈ +0.02 (so the widest run is the palm either way);
+        // in between it fuses and drags the measured midpoint radially. Above +0.15 the digits split
+        // and the widest run stops being the palm at all. Fitting only the low band is not enough —
+        // that band is mostly the constant-width forearm stub, whose lean differs from the palm's,
+        // and extrapolating it up to the knuckles is what put the knuckle end 0.1 too far radial.
+        let clean = samples.filter { $0.v <= -0.175 || ($0.v >= 0.02 && $0.v <= 0.15) }
+        let n = Float(clean.count)
+        let sv = clean.reduce(0) { $0 + $1.v }, sc = clean.reduce(0) { $0 + $1.c }
+        let svv = clean.reduce(0) { $0 + $1.v * $1.v }, svc = clean.reduce(0) { $0 + $1.v * $1.c }
+        let m = (n * svc - sv * sc) / (n * svv - sv * sv)
+        let b = (sc - m * sv) / n
+        print(String(format: "=== measured centreline: u = %.4f·v + %.4f  (from %d clean rows)", m, b, clean.count))
+        print(String(format: "=== HandSheet says wrist u %+.3f (measured %+.3f), knuckles u %+.3f (measured %+.3f)",
+                     HandSheet.wrist.x, m * HandSheet.wrist.y + b,
+                     HandSheet.knuckles.x, m * HandSheet.knuckles.y + b))
+
+        // THE INVARIANT. Both landmarks must sit on the hand's own midline, or every point inherits
+        // the lean — which is exactly what "the hand acupoint location is way off the palm" was.
+        XCTAssertEqual(HandSheet.wrist.x, m * HandSheet.wrist.y + b, accuracy: 0.03,
+                       "the frame's wrist end is off the measured centreline")
+        XCTAssertEqual(HandSheet.knuckles.x, m * HandSheet.knuckles.y + b, accuracy: 0.03,
+                       "the frame's knuckle end is off the measured centreline")
+
+        // …and the knuckle line must be where the FINGERS actually separate.
+        //
+        // "First v with more than one lobe" is NOT that: scanning up from the wrist, the first break
+        // is the THUMB peeling off the palm outline (it is a lobe on the far radial side, around
+        // u −0.25…−0.08, while the palm and all four fingers are still one mass). Counting it put the
+        // MCP line at v +0.025 when the digits do not actually separate until v +0.15 — a whole third
+        // of the hand — and an assertion built on it happily pinned the wrong anatomy. So ignore any
+        // lobe lying entirely radial of u −0.10; by the height the digits split, the palm's own
+        // radial edge is well inside that.
+        var split: Float? = nil
+        for i in 0...60 where split == nil {
+            let v = -0.10 + Float(i) / 60 * 0.40
+            var runs: [(lo: Float, hi: Float)] = []
+            var start: Float? = nil, prev: Float = 0
+            for j in 0...80 {
+                let u = -0.50 + Float(j) / 80 * 1.00
+                if directHit(u, v) { if start == nil { start = u }; prev = u }
+                else if let s = start { runs.append((s, prev)); start = nil }
+            }
+            if let s = start { runs.append((s, prev)) }
+            let digits = runs.filter { $0.hi > -0.10 }          // drop the thumb lobe
+            if digits.count > 1 { split = v }
+        }
+        XCTAssertNotNil(split, "the finger lobes never separate — the pose or the mesh changed")
+        if let split {
+            print(String(format: "=== digits separate at v %+.3f; HandSheet.knuckles.y %+.3f",
+                         split, HandSheet.knuckles.y))
+        }
+
+        // Where the PALM stops narrowing and the amputated forearm stub begins: scanning down, the
+        // half-width falls until it hits the stub's constant-width plateau. That knee is the wrist
+        // crease. (Placing the wrist below it puts the frame's origin on the stub, which shifts every
+        // marker proximally by a near-uniform offset instead of scaling them.)
+        var knee: Float? = nil
+        for i in stride(from: samples.count - 2, through: 1, by: -1) where knee == nil {
+            let s = samples[i]
+            guard s.v < -0.15 else { continue }
+            if samples[i + 1].hw - s.hw < 0.004 { knee = s.v }   // stopped widening going up = plateau
+        }
+        if let knee {
+            print(String(format: "=== palm/stub taper knee at v %+.3f; HandSheet.wrist.y %+.3f",
+                         knee, HandSheet.wrist.y))
+            XCTAssertGreaterThan(HandSheet.wrist.y, knee - 0.03,
+                                 "the frame's origin is down the amputated forearm stub, not at the wrist crease")
+        }
+    }
+}
+
+// DRAW THE FRAME, not the points. The labelled-point audit is too cluttered to answer the only
+// question that matters — does the hand frame's CENTRELINE run down the middle of the palm, and is
+// "across" actually across? So render the frame itself: the along-axis as a ladder of dots at
+// across = 0, and two rungs at across = ±0.30. If the ladder leans off the palm's midline, every
+// point inherits that lean, which is what "way off the palm" looks like.
+extension BodyMeshProbeTests {
+    func testRenderHandFrameLadder() throws {
+        guard let scene = loadScene("hand_low_poly"),
+              let mesh = AtlasMarkers.unitMesh(from: scene, material: AtlasMarkers.meshMaterial()) else {
+            XCTFail("no hand mesh"); return
+        }
+        let out = SCNScene()
+        out.background.contents = UIColor(white: 0.97, alpha: 1)
+        AtlasMarkers.addStudioLighting(to: out)
+        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
+        out.rootNode.addChildNode(mesh)
+        let cam = SCNNode(); cam.camera = SCNCamera()
+        cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
+        cam.position = SCNVector3(0, 0, 2.3)
+        out.rootNode.addChildNode(cam)
+
+        // Centreline in WHITE, across-rungs in BLUE (radial/thumb) and RED (ulnar).
+        var dots: [(Float, Float, UIColor)] = []
+        for i in 0...8 { dots.append((Float(i) / 8 * 1.1 - 0.05, 0, .white)) }
+        for a in [Float(0.0), 0.3, 0.6, 0.9] {
+            dots.append((a,  0.30, .systemBlue))
+            dots.append((a, -0.30, .systemRed))
+        }
+        for (along, across, color) in dots {
+            let uv = HandSheet.uv(along: along, across: across)
+            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: uv.x, v: uv.y,
+                                                    farSide: false, id: "f", color: color,
+                                                    core: 0.018, halo: 0.03) else { continue }
+            out.rootNode.addChildNode(m.node)
+        }
+        let r = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil)
+        r.scene = out; r.pointOfView = cam
+        let img = r.snapshot(atTime: 0, with: CGSize(width: 900, height: 1100), antialiasingMode: .multisampling4X)
+        let path = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("frame_ladder_hand.png")
+        try img.pngData()!.write(to: path)
+        print("LADDER wrote \(path.path)")
+    }
+}
+
 // FIT THE ACROSS-SCALE BY SEARCH, not by eye.
 //
 // The anatomy says the ulnar border sits ~0.45 palm-lengths off the centreline. This mesh is a
@@ -483,9 +692,7 @@ extension BodyMeshProbeTests {
             var direct = 0, bad: [String] = []
             for id in ids {
                 guard let sp = HandAnatomy.spots[id] else { continue }
-                let uv = HandSheet.wrist
-                    + HandSheet.distal * (sp.along * HandSheet.palmLength)
-                    + HandSheet.radial * (sp.across * scale * HandSheet.palmLength)
+                let uv = HandSheet.uv(along: sp.along, across: sp.across, scale: scale)
                 guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: uv.x, v: uv.y,
                                                         farSide: !sp.dorsal, id: id, color: .white,
                                                         core: 0.02, halo: 0.03) else { bad.append(id); continue }
