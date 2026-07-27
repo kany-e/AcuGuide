@@ -57,6 +57,7 @@ enum BodyAtlas {
     // routing) and Gallbladder (lateral). Torso keeps Ren (front midline) and Du (back midline).
     static func channels(on mesh: SCNNode) -> SCNNode {
         let root = SCNNode()
+        let surface = Surface(mesh: mesh)
         let ax: Float = 0.011, outer: Float = 0.016
         for side in [Side.right, .left] {
             let s = side.sign
@@ -70,22 +71,22 @@ enum BodyAtlas {
             let wristEnd = mix(b(side.k("LowerArm")), b(side.k("Hand")), 0.7)
             let arm = [b(side.k("Shoulder")), b(side.k("UpperArm")), b(side.k("LowerArm")), wristEnd]
             // Yin — anterior (palmar) surface: radial LU, middle PC, ulnar HT.
-            root.addChildNode(channel(arm, dx: -s * ax, meridian: "lung",  mesh: mesh, front: true))
-            root.addChildNode(channel(arm, dx:  0,      meridian: "pc",    mesh: mesh, front: true))
-            root.addChildNode(channel(arm, dx:  s * ax, meridian: "heart", mesh: mesh, front: true))
+            root.addChildNode(channel(arm, dx: -s * ax, meridian: "lung",  surface: surface, front: true))
+            root.addChildNode(channel(arm, dx:  0,      meridian: "pc",    surface: surface, front: true))
+            root.addChildNode(channel(arm, dx:  s * ax, meridian: "heart", surface: surface, front: true))
             // Yang — posterior (dorsal) surface: radial LI, middle SJ, ulnar SI.
-            root.addChildNode(channel(arm, dx: -s * ax, meridian: "li",    mesh: mesh, front: false))
-            root.addChildNode(channel(arm, dx:  0,      meridian: "sj",    mesh: mesh, front: false))
-            root.addChildNode(channel(arm, dx:  s * ax, meridian: "si",    mesh: mesh, front: false))
+            root.addChildNode(channel(arm, dx: -s * ax, meridian: "li",    surface: surface, front: false))
+            root.addChildNode(channel(arm, dx:  0,      meridian: "sj",    surface: surface, front: false))
+            root.addChildNode(channel(arm, dx:  s * ax, meridian: "si",    surface: surface, front: false))
             // Full leg chain: hip → thigh → knee → ankle.
             let leg = [b(side.k("UpperLeg")), b(side.k("LowerLeg")), mix(b(side.k("LowerLeg")), b(side.k("Foot")), 0.7)]
-            root.addChildNode(channel(leg, dx: s * outer * 0.8, meridian: "stomach", mesh: mesh, front: true)) // front-lateral
-            root.addChildNode(channel(leg, dx: s * outer * 1.5, meridian: "gb",      mesh: mesh, front: true)) // lateral / side
+            root.addChildNode(channel(leg, dx: s * outer * 0.8, meridian: "stomach", surface: surface, front: true)) // front-lateral
+            root.addChildNode(channel(leg, dx: s * outer * 1.5, meridian: "gb",      surface: surface, front: true)) // lateral / side
         }
         // Torso midlines: ren (front) and du (back) — single + central, always tappable.
         let spine = [b("Hips"), b("Spine"), b("Chest"), b("Neck")]
-        root.addChildNode(channel(spine, dx: 0, meridian: "ren", mesh: mesh, front: true))
-        root.addChildNode(channel(spine, dx: 0, meridian: "du",  mesh: mesh, front: false))
+        root.addChildNode(channel(spine, dx: 0, meridian: "ren", surface: surface, front: true))
+        root.addChildNode(channel(spine, dx: 0, meridian: "du",  surface: surface, front: false))
         // Everything built above is decoration: exclude it from the surface-snap raycasts (see
         // surfaceCategory). categoryBitMask is NOT inherited, so stamp every node in the tree —
         // but do NOT clobber the tap proxies, which carry their own bit so the camera can cull them.
@@ -110,12 +111,12 @@ enum BodyAtlas {
     // extending the stroke into the crude mitten hand made the depth projection unreliable. The dots are
     // drawn as separate markers; making the line pass exactly through them is a screenshot-verified TODO.)
     private static func channel(_ pts: [SIMD3<Float>], dx: Float, meridian: String,
-                                mesh: SCNNode, front: Bool, tappable: Bool = true) -> SCNNode {
+                                surface: Surface, front: Bool, tappable: Bool = true) -> SCNNode {
         let offset = pts.map { SIMD3<Float>($0.x + dx, $0.y, $0.z) }
         let dense = densify(offset, perSegment: 6)
         let smoothed = smoothPts(dense, iterations: 3)
         let curve = catmullRom(smoothed, perSegment: 6)
-        let path = projectAll(curve, mesh: mesh, front: front)
+        let path = projectAll(curve, surface: surface, front: front)
         let mats = channelMaterials(meridian)
         let node = SCNNode()
         if tappable { node.name = "mer:" + meridian }   // tap hit-test resolves the channel → card
@@ -179,25 +180,54 @@ enum BodyAtlas {
     // Project a whole path onto the body surface (raycast each sample along the depth axis). For
     // samples that MISS the thin limb, interpolate the surface depth from the neighbours that hit
     // (clamped at the ends), so a single miss never injects an off-surface vertex beside the limb.
-    private static func projectAll(_ pts: [SIMD3<Float>], mesh: SCNNode, front: Bool) -> [SIMD3<Float>] {
-        let ys = pts.map { projectY($0, mesh: mesh, front: front) }
+    private static func projectAll(_ pts: [SIMD3<Float>], surface: Surface, front: Bool) -> [SIMD3<Float>] {
+        let ys = pts.map { surface.depthY(at: $0, front: front) }
         guard ys.contains(where: { $0 != nil }) else { return pts }   // no hit anywhere → keep raw
         let filled = fillGaps(ys)
         return zip(pts, filled).map { SIMD3<Float>($0.x, $1, $0.z) }
     }
 
-    // The surface depth (y) at a sample, or nil if the ray misses the limb at that (x,z).
-    private static func projectY(_ p: SIMD3<Float>, mesh: SCNNode, front: Bool) -> Float? {
-        let depth: Float = 0.18
-        let a = SCNVector3(p.x, front ? p.y - depth : p.y + depth, p.z)   // start outside the body
-        let bb = SCNVector3(p.x, front ? p.y + depth : p.y - depth, p.z)  // through to the far side
-        let hits = mesh.hitTestWithSegment(from: a, to: bb, options: [
-            SCNHitTestOption.backFaceCulling.rawValue: false,
-            SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.closest.rawValue,
-            SCNHitTestOption.categoryBitMask.rawValue: surfaceCategory,   // body only, never tubes/markers
-        ])
-        guard let h = hits.first else { return nil }
-        return Float(h.localCoordinates.y) + (front ? -0.006 : 0.006)
+    // MARK: The body surface, as a raycastable triangle soup
+    //
+    // WHY THIS EXISTS. Both surface consumers here — channel projection and marker snapping — used
+    // to call `mesh.hitTestWithSegment`, which returns NOTHING for this project's GLB geometry. The
+    // failure was silent by construction: projectAll falls back to the raw route when nothing hits,
+    // and snapToSurface returns its input. So the channels were never projected onto the skin and
+    // the surface snap fired for 0 of 27 markers, while every test still passed.
+    // AtlasMarkers.screenMarker never had the problem because it has always done its own CPU
+    // triangle intersection; this reuses that (AtlasMarkers.triangles / rayHits).
+    //
+    // Built ONCE per mesh and passed down: the 18 channels raycast ~2,000 samples between them, and
+    // rebuilding a 1,388-triangle soup per sample would be the expensive part, not the intersection.
+    struct Surface {
+        let tris: [SIMD3<Float>]
+
+        // Only surfaceCategory geometry is skin. By the time markers snap, the channel tubes and
+        // their 0.03-radius invisible tap proxies are already children of the mesh.
+        init(mesh: SCNNode) {
+            tris = AtlasMarkers.triangles(of: mesh, in: mesh, categoryMask: BodyAtlas.surfaceCategory)
+        }
+
+        var isEmpty: Bool { tris.isEmpty }
+
+        /// First surface hit from `from` toward `to`, or nil if the segment misses.
+        func firstHit(from: SIMD3<Float>, to: SIMD3<Float>) -> (point: SIMD3<Float>, normal: SIMD3<Float>)? {
+            let v = to - from
+            let len = simd_length(v)
+            guard len > 1e-6 else { return nil }
+            let dir = v / len
+            guard let h = AtlasMarkers.rayHits(tris, origin: from, dir: dir, maxT: len).first else { return nil }
+            return (from + dir * h.t, h.n)
+        }
+
+        /// The surface depth (y) at a sample, or nil if the ray misses the limb at that (x,z).
+        func depthY(at p: SIMD3<Float>, front: Bool) -> Float? {
+            let depth: Float = 0.18
+            let a = SIMD3<Float>(p.x, front ? p.y - depth : p.y + depth, p.z)
+            let b = SIMD3<Float>(p.x, front ? p.y + depth : p.y - depth, p.z)
+            guard let h = firstHit(from: a, to: b) else { return nil }
+            return h.point.y + (front ? -0.006 : 0.006)
+        }
     }
 
     // Linear-interpolate the nil (missed) entries between known values; clamp leading/trailing nils.
@@ -276,9 +306,11 @@ enum BodyAtlas {
         Region(id: "foot",    zh: "足",   en: "Foot",    anchor: off(b("FootR"),     -0.03, -0.05, -0.02), center: b("FootR"),     radius: 0.11, isHand: false),
         Region(id: "hand",    zh: "手",   en: "Hand",    anchor: off(b("HandR"),     0,    -0.05,  0.00), center: handCenter,     radius: 0.12, isHand: true),
     ]
-    // Centre of the right hand/forearm marker cluster (between wrist and fingertips).
-    // Centroid of the four hand markers (TE3/SI3/PC8/HT7) so the hand zoom frames the hand itself.
-    private static let handCenter: SIMD3<Float> = [-0.371, -0.065, 0.884]
+    // Centre of the hand ITSELF (midway between the wrist crease and the knuckles), from the
+    // skeleton — not, as before, the centroid of the four hand markers. That centroid was a
+    // hostage to the placements: when they drifted onto the forearm, the zoom framed the forearm
+    // with them and the error was invisible, because the wrong points still looked centred.
+    private static var handCenter: SIMD3<Float> { HandFrame.right.hand(along: 0.5, across: 0) }
     // Navel-level belly point (between Hips 0.884 and Spine 1.053), front of the torso.
     private static let belly: SIMD3<Float> = [0, -0.005, 0.965]
     private static func off(_ p: SIMD3<Float>, _ dx: Float, _ dy: Float, _ dz: Float) -> SIMD3<Float> {
@@ -293,8 +325,11 @@ enum BodyAtlas {
     // on the body. LI4 is excluded (never in Acupoint.all).
     struct AcuMarker { let id: String; let meridian: String; let pos: SIMD3<Float> }
     static var acuMarkers: [AcuMarker] {
-        Acupoint.all.compactMap { pt in
-            guard let pos = AcupointPlacements.table[pt.id]?.body else { return nil }
+        // Hand + forearm points are DERIVED from the model's own skeleton (HandFrame) rather than
+        // authored; everything else still comes from the registry. See HandFrame for why.
+        let derived = HandFrame.right.placements
+        return Acupoint.all.compactMap { pt in
+            guard let pos = derived[pt.id] ?? AcupointPlacements.table[pt.id]?.body else { return nil }
             return AcuMarker(id: pt.id, meridian: pt.meridian, pos: pos)
         }
     }
@@ -305,8 +340,16 @@ enum BodyAtlas {
     static let markerBlack = UIColor(white: 0.08, alpha: 1)   // near-black, softer than pure black on parchment
     static func markers(on mesh: SCNNode) -> SCNNode {
         let root = SCNNode()
+        let surface = Surface(mesh: mesh)
+        // Hand/forearm points snap along the PALM NORMAL, not radially from the body axis — see
+        // snapToSurface. Which face each one belongs on is the point's own requiresDorsal flag,
+        // the same datum the camera coach's face gate uses.
+        let hand = HandFrame.right
+        let handCentre = hand.hand(along: 0.5, across: 0)
         for m in acuMarkers {
-            let pos = snapToSurface(m.pos, mesh: mesh)
+            let onHand = hand.placements[m.id] != nil
+            let axis = onHand ? (Acupoint.byId[m.id]?.requiresDorsal == true ? -hand.palmar : hand.palmar) : nil
+            let pos = snapToSurface(m.pos, along: axis, toward: onHand ? handCentre : nil, surface: surface)
             let node = AtlasMarkers.node(id: m.id, color: markerBlack, coreRadius: 0.0080,
                                          haloRadius: 0.0145, at: SCNVector3(pos.x, pos.y, pos.z))
             node.isHidden = true        // revealed by the body view's per-frame loop (now: always shown)
@@ -318,27 +361,45 @@ enum BodyAtlas {
         return root
     }
 
-    // Snap a first-pass marker estimate onto the body surface: raycast radially inward (in the x-y
-    // cross-section at the marker's height z) from outside the body toward the central axis, and place
-    // the marker just proud of the first surface hit — so an estimate that floated off the mesh lands
-    // on it. Points near the vertical axis (vertex/sole) have no radial direction, so keep the estimate.
-    // The raycast is category-masked to the body surface: by the time markers snap, the channel tubes
-    // and their fat invisible hit-proxies are already children of `mesh` and would otherwise be hit.
-    private static func snapToSurface(_ p: SIMD3<Float>, mesh: SCNNode) -> SIMD3<Float> {
-        let radial = SIMD3<Float>(p.x, p.y, 0)
-        let r = simd_length(radial)
-        guard r > 0.02 else { return p }
-        let dir = radial / r
-        let axisPt = SIMD3<Float>(0, 0, p.z)
-        let start = axisPt + dir * 0.45
-        let hits = mesh.hitTestWithSegment(from: SCNVector3(start), to: SCNVector3(axisPt), options: [
-            SCNHitTestOption.backFaceCulling.rawValue: false,
-            SCNHitTestOption.searchMode.rawValue: SCNHitTestSearchMode.closest.rawValue,
-            SCNHitTestOption.categoryBitMask.rawValue: surfaceCategory,   // body only, never tubes/markers
-        ])
-        guard let h = hits.first else { return p }
-        let hit = SIMD3<Float>(Float(h.localCoordinates.x), Float(h.localCoordinates.y), Float(h.localCoordinates.z))
-        return hit + dir * 0.006
+    // Snap a first-pass marker estimate onto the body surface: raycast INWARD from outside the body
+    // and place the marker just proud of the first hit, so an estimate that floated off the mesh
+    // lands on it.
+    //
+    // `along` is the OUTWARD direction to come in from. It defaults to radial-from-the-vertical-axis
+    // (right for a torso or a limb seen in cross-section), but the hand needs its own: this model's
+    // arms hang palms-medial, so the palmar/dorsal axis there is nothing like the body radius, and a
+    // radial ray reaches a palmar point through the back of the hand. Callers that know the point's
+    // face pass the palm normal (or its negative). Points near the vertical axis (vertex, sole) have
+    // no radial direction and keep their estimate.
+    private static func snapToSurface(_ p: SIMD3<Float>, along: SIMD3<Float>? = nil,
+                                      toward: SIMD3<Float>? = nil,
+                                      surface: Surface) -> SIMD3<Float> {
+        let dir: SIMD3<Float>
+        if let along, simd_length(along) > 1e-6 {
+            dir = simd_normalize(along)
+        } else {
+            let radial = SIMD3<Float>(p.x, p.y, 0)
+            let r = simd_length(radial)
+            guard r > 0.02 else { return p }
+            dir = radial / r
+        }
+        // Start outside the limb and aim THROUGH the estimate, so the hit is the surface nearest the
+        // outward side we came from — the point's own face, not whatever the body radius crosses.
+        //
+        // A point on a BORDER (HT7 at the ulnar end of the wrist crease, SI3 on the ulnar edge) can
+        // sit just outside the silhouette of a low-poly limb, and then the ray passes beside the
+        // mesh and hits nothing. Rather than pull the anatomy inward to suit the model, walk the
+        // SAMPLE a little toward `toward` (the limb's centreline) until it catches — the same
+        // "concede the minimum the mesh forces" rule AtlasMarkers.spiralSnap follows for the detail
+        // sheets, and the marker still lands at the border because that is where the surface is.
+        for step in stride(from: Float(0), through: 0.4, by: 0.05) {
+            let sample = toward.map { p + ($0 - p) * step } ?? p
+            if step > 0, toward == nil { break }
+            if let h = surface.firstHit(from: sample + dir * 0.20, to: sample - dir * 0.20) {
+                return h.point + dir * 0.006
+            }
+        }
+        return p
     }
 
     // MARK: helpers
