@@ -377,6 +377,19 @@ enum BodyAtlas {
         let dir: SIMD3<Float>
         if let along, simd_length(along) > 1e-6 {
             dir = simd_normalize(along)
+        } else if let axis = nearestBoneAxisPoint(to: p), simd_length(p - axis) > 1e-4 {
+            // Aim at the LIMB the point belongs to, not the body's vertical axis.
+            //
+            // The radial-from-the-spine ray is right for a torso point and wrong for everything on
+            // an arm or a leg: those points are authored relative to their own limb, which sits far
+            // off the central axis, so a ray aimed at the spine crosses the limb's cross-section
+            // obliquely — or misses it entirely. Measured on this model, the leg points sit 0.04 to
+            // 0.13 off the ray's line, against a shin barely 0.04 across, which is exactly why the
+            // shin points (ST36, GB34, ST35) missed while the thicker thigh ones (SP10, ST34) got
+            // away with it. Coming in perpendicular to the limb axis also lands the marker on the
+            // surface facing OUTWARD from the bone, which is the surface the point is described
+            // against ("front of the shin", "lateral to the tendon").
+            dir = simd_normalize(p - axis)
         } else {
             let radial = SIMD3<Float>(p.x, p.y, 0)
             let r = simd_length(radial)
@@ -400,6 +413,38 @@ enum BodyAtlas {
             }
         }
         return p
+    }
+
+    // The skeleton as line SEGMENTS, from the same bind-pose bone table the channels are routed
+    // along — so "which limb is this point on" is answered by the model, not by a hand-maintained
+    // region table that could disagree with the geometry.
+    private static let boneSegments: [(SIMD3<Float>, SIMD3<Float>)] = {
+        var out: [(SIMD3<Float>, SIMD3<Float>)] = []
+        func link(_ keys: [String]) {
+            for i in 0 ..< max(keys.count - 1, 0) {
+                out.append((BodyAtlas.b(keys[i]), BodyAtlas.b(keys[i + 1])))
+            }
+        }
+        link(["Hips", "Spine", "Chest", "Neck", "Head"])
+        for s in ["R", "L"] {
+            link(["Shoulder\(s)", "UpperArm\(s)", "LowerArm\(s)", "Hand\(s)"])
+            link(["UpperLeg\(s)", "LowerLeg\(s)", "Foot\(s)"])
+        }
+        return out
+    }()
+
+    /// Closest point on the skeleton to `p`, or nil if the skeleton is unavailable.
+    private static func nearestBoneAxisPoint(to p: SIMD3<Float>) -> SIMD3<Float>? {
+        var best: (d: Float, pt: SIMD3<Float>)? = nil
+        for (a, b) in boneSegments {
+            let ab = b - a
+            let len2 = simd_length_squared(ab)
+            let t = len2 > 1e-9 ? max(0, min(1, simd_dot(p - a, ab) / len2)) : 0
+            let q = a + ab * t
+            let d = simd_length(p - q)
+            if d < (best?.d ?? .greatestFiniteMagnitude) { best = (d, q) }
+        }
+        return best?.pt
     }
 
     // MARK: helpers

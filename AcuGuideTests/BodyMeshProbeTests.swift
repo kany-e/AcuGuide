@@ -174,13 +174,15 @@ final class BodyMeshProbeTests: XCTestCase {
             if simd_length(p - estimate) < 1e-6 { missed.append(id) } else { fired += 1 }
         }
         print("=== surface snap fired for \(fired), missed for \(missed.count): \(missed.sorted())")
-        // A miss means the marker hangs at its raw estimate instead of on the skin. Torso midline
-        // points (CV/GV) legitimately have no radial direction and keep their estimate by design,
-        // so this asserts the mechanism works at all rather than demanding a perfect score.
-        XCTAssertGreaterThan(fired, 20, "the surface snap is not firing — markers float at their estimates")
-        for id in ["PC8", "HT7", "TE3", "SI3", "PC7", "TE4"] {
-            XCTAssertFalse(missed.contains(id), "\(id) did not reach the hand surface")
-        }
+        // EVERY marker, with no allowance. It was 0 of 27 (hitTestWithSegment returns nothing for
+        // this GLB), then 21 of 27 once the CPU intersection was adopted — the six stragglers being
+        // the ones whose ray was aimed at the body's vertical axis rather than their own limb, so
+        // it crossed a shin obliquely or missed it outright. Aiming at the nearest bone fixed the
+        // rest, including GV20, whose ray now comes down through the top of the head instead of
+        // having no radial direction at all. A miss means a marker hanging in space beside the
+        // body, which is precisely the class of defect this file exists to catch.
+        XCTAssertEqual(missed, [], "these markers never reached the skin — they hang at their raw estimate")
+        XCTAssertEqual(fired, 27, "expected all 27 atlas markers to snap")
     }
 
     // Labelled render of the ATLAS HAND ZOOM, built exactly the way Body3DView builds it (same
