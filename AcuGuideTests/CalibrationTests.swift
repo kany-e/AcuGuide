@@ -35,11 +35,7 @@ final class PointCalibrationTests: XCTestCase {
         super.tearDown()
     }
 
-    private let base: [HandJoint: CGPoint] = [
-        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
-        .ringMCP: CGPoint(x: 0.56, y: 0.54), .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
-        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30), .pinkyTip: CGPoint(x: 0.66, y: 0.36),
-        .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+    private let base: [HandJoint: CGPoint] = HandFixture.dorsalRight
 
     func testStoreClampAndPersistence() {
         let name = "test.calibration.persist.\(UUID().uuidString)"
@@ -215,11 +211,7 @@ final class PointCalibrationTests: XCTestCase {
 // confirm stores the correction and hands over to the coach with the ring ON the user's spot.
 final class CoachEngineLocateTests: XCTestCase {
     private let dt = 1.0 / 30.0
-    private let base: [HandJoint: CGPoint] = [
-        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
-        .ringMCP: CGPoint(x: 0.56, y: 0.54), .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
-        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30), .pinkyTip: CGPoint(x: 0.66, y: 0.36),
-        .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+    private let base: [HandJoint: CGPoint] = HandFixture.dorsalRight
 
     override func tearDown() {
         PointCalibration.purgeEphemeral()
@@ -234,9 +226,6 @@ final class CoachEngineLocateTests: XCTestCase {
     }
 
     func testLocateConfirmStoresCorrectionAndMovesRing() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true      // synthetic right hand reads dorsal
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -283,9 +272,6 @@ final class CoachEngineLocateTests: XCTestCase {
     // finger must LIFT to tap the confirm button. .ready must survive the lift for the latch
     // window — with the CAPTURE-TIME candidate/anchors frozen — and decay after it.
     func testConfirmLatchSurvivesPressLift() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -328,9 +314,6 @@ final class CoachEngineLocateTests: XCTestCase {
     }
 
     func testLocateSkipKeepsStandardSpot() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -363,9 +346,6 @@ final class CoachEngineLocateTests: XCTestCase {
     // Distances are derived from the constants, not hard-coded: this test previously used a fixed
     // offset chosen against the old 0.30 gate and silently became a no-op when the gate widened.
     func testFarPressNeverUnlocksConfirm() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -391,9 +371,6 @@ final class CoachEngineLocateTests: XCTestCase {
     // guide must sit on the STANDARD spot (one datum with gate + clamp), the old correction shows
     // as the savedSpot dot, and a fresh confirm REPLACES the offset un-clamped.
     func testRecalibrateGuidesFromStandardSpotAndReplaces() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -429,9 +406,6 @@ final class CoachEngineLocateTests: XCTestCase {
 
     // Latch BREAK paths — the safety half of the latch design (only expiry was tested).
     func testLatchBreaksWhenReceiverLeavesOrFlips() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -454,24 +428,24 @@ final class CoachEngineLocateTests: XCTestCase {
         XCTAssertNotEqual(engine.locateState, .ready,
                           "a returning hand must re-settle a full window before confirm re-unlocks")
 
-        // (2) Face flips mid-offer: same voiding via the wrong-face break.
+        // (2) Face flips mid-offer: same voiding via the wrong-face break. The flip is the user
+        // TURNING THEIR HAND OVER — the mirrored landmark set — not a toggle of the calibration
+        // global, which is what this used to do. Toggling the global exercised the toggle; this
+        // exercises the gate. (The hold on the receiver's handedness debounces a flickering LABEL,
+        // not a change of geometry, so a real flip still lands within a frame or two.)
         let engine2 = CoachEngine(startLocating: true, calibration: .ephemeral())
         var t2 = 0.0
         for _ in 0..<30 { engine2.update(hands: [receiver, presser], point: te3, now: t2); t2 += dt }
         XCTAssertEqual(engine2.locateState, .ready)
-        HandCalibration.dorsalWhenSignedPositive = false   // same hand now reads WRONG face
-        for _ in 0..<3 { engine2.update(hands: [receiver, presser], point: te3, now: t2); t2 += dt }
+        let turnedOver = Hand(points: HandFixture.palmarRight, chirality: .right)
+        for _ in 0..<3 { engine2.update(hands: [turnedOver, presser], point: te3, now: t2); t2 += dt }
         XCTAssertEqual(engine2.locateState, .wrongFace)
         XCTAssertFalse(engine2.confirmLocate(point: te3, now: t2), "confirm must refuse on a flipped face")
-        HandCalibration.dorsalWhenSignedPositive = true
     }
 
     // A camera flip mid-locate is a coordinate-parity discontinuity: window/candidate/anchors are
     // void; a confirm must refuse; re-settling in the NEW parity works and stores a sane offset.
     func testCameraFlipMidLocateVoidsCaptureAndRecovers() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -512,9 +486,6 @@ final class CoachEngineLocateTests: XCTestCase {
     // A pause stops frames and the latch is frame-clocked: suspendLocate must void the offer so a
     // stale .ready is never confirmable behind the pause overlay / after resume.
     func testSuspendLocateVoidsPendingConfirm() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -536,9 +507,6 @@ final class CoachEngineLocateTests: XCTestCase {
     // Gate-unit / clamp-unit equivalence as a PROPERTY: any gate-accepted press stores its own
     // iso distance (never clamp-truncated); past the gate it never stores at all.
     func testGateAcceptedPressStoresUnclamped() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!

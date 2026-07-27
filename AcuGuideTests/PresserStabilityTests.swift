@@ -14,12 +14,7 @@ final class PresserStabilityTests: XCTestCase {
     private let dt = 1.0 / 30.0
 
     // A dorsal right hand at rest — same shape the other engine tests use.
-    private let receiverPts: [HandJoint: CGPoint] = [
-        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55),
-        .middleMCP: CGPoint(x: 0.50, y: 0.52), .ringMCP: CGPoint(x: 0.56, y: 0.54),
-        .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
-        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30),
-        .pinkyTip: CGPoint(x: 0.66, y: 0.36), .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+    private let receiverPts: [HandJoint: CGPoint] = HandFixture.dorsalRight
 
     private func makePresser(onTarget tip: CGPoint, pressFinger: HandJoint,
                              weak: Bool, wristOffset: CGVector = CGVector(dx: 0.20, dy: 0.28)) -> Hand {
@@ -37,9 +32,6 @@ final class PresserStabilityTests: XCTestCase {
     // "let the pressed hand show more" hint fires, until lonePresserGraceS (1.5s) expires and roles
     // reset — which is exactly the ~1.5s detect/lose/repeat cycle reported from the device.
     func testWeakPresserNeverCostsUsTheReceiver() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -104,9 +96,6 @@ final class PresserStabilityTests: XCTestCase {
     // That is the reported triad: unstable "when the pressing finger comes into the circle", the dot
     // flickering as anchors cross the confidence threshold, and the ring freezing then jumping.
     func testAnchorOccludedByThePressingFingerDoesNotKillTheDot() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -146,9 +135,6 @@ final class PresserStabilityTests: XCTestCase {
     // screen. Telling the user to "show the pressed hand more" when it is already fully visible is
     // the user-facing half of the same bug.
     func testNoOcclusionHintWhileAStrongReceiverIsVisible() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -216,17 +202,9 @@ final class LocateReachTests: XCTestCase {
 // hand, which comes in fingers-first and never passes the dorsal gate).
 final class RoleInversionTests: XCTestCase {
     private let dt = 1.0 / 30.0
-    private let receiverPts: [HandJoint: CGPoint] = [
-        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55),
-        .middleMCP: CGPoint(x: 0.50, y: 0.52), .ringMCP: CGPoint(x: 0.56, y: 0.54),
-        .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
-        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30),
-        .pinkyTip: CGPoint(x: 0.66, y: 0.36), .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+    private let receiverPts: [HandJoint: CGPoint] = HandFixture.dorsalRight
 
     func testWeakReceiverDoesNotHandTheRingToTheMassagingHand() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!

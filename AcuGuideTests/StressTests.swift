@@ -45,19 +45,16 @@ final class StressTests: XCTestCase {
     // -cross, signed < 0 ⇒ dorsal) — required for TE3 engagement paths; the geometry is identical.
     private func syntheticHand(cx: Double, cy: Double, s: Double = 1.0,
                                drop: Set<HandJoint> = [], weak: Bool = false) -> Hand {
-        let base: [HandJoint: CGPoint] = [
-            .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55),
-            .middleMCP: CGPoint(x: 0.50, y: 0.52), .ringMCP: CGPoint(x: 0.56, y: 0.54),
-            .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
-            .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30),
-            .pinkyTip: CGPoint(x: 0.66, y: 0.36), .thumbTip: CGPoint(x: 0.34, y: 0.62),
-            .indexPIP: CGPoint(x: 0.43, y: 0.42), .indexDIP: CGPoint(x: 0.425, y: 0.36),
-        ]
+        let base: [HandJoint: CGPoint] = HandFixture.dorsalRight
         var pts: [HandJoint: CGPoint] = [:]
         for (j, p) in base where !drop.contains(j) {
             pts[j] = CGPoint(x: (p.x - 0.5) * s + cx, y: (p.y - 0.8) * s + cy)
         }
-        return Hand(points: pts, chirality: .left, weak: weak)
+        // .right, matching the geometry: HandFixture.dorsalRight is a right hand in the device's
+        // parity, and the label is the sign multiplier inside isDorsal. Labelling it .left made it
+        // read PALMAR, which the old fixtures papered over by forcing the calibration flag — so the
+        // fuzzer was driving the engine through the wrong-face branch for every TE3 frame.
+        return Hand(points: pts, chirality: .right, weak: weak)
     }
 
     // ── A. CoachEngine frame fuzzer ────────────────────────────────────────────────────────────
@@ -361,10 +358,6 @@ final class StressTests: XCTestCase {
     // stored correction respects the safety clamp.
     func testLocateModeSurvivesAdversarialFrames() throws {
         guard let te3 = Acupoint.byId["TE3"] else { return XCTFail("TE3 missing") }
-        let savedFlag = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = savedFlag }
-
         var rng = Rng(state: 0x10CA7EF0)
         let cal = PointCalibration.ephemeral()
         let engine = CoachEngine(roundsTarget: 2, roundHoldS: 0.5, restS: 0.2,

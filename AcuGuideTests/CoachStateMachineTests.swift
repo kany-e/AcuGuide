@@ -13,18 +13,11 @@ import XCTest
 // crediting hold time, then clear cleanly once the finger is really gone.
 final class CoachEngineTipGraceTests: XCTestCase {
     private let dt = 1.0 / 30.0
-    private let base: [HandJoint: CGPoint] = [
-        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
-        .ringMCP: CGPoint(x: 0.56, y: 0.54), .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
-        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30), .pinkyTip: CGPoint(x: 0.66, y: 0.36),
-        .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+    private let base: [HandJoint: CGPoint] = HandFixture.dorsalRight
 
     func testTipGraceSurvivesBriefPresserDropout() {
         // This synthetic right hand reads dorsal only under the positive sign — pin the calibration
         // flag for the test (it's a device-calibration static) and restore it after.
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -70,16 +63,9 @@ final class CoachEngineTipGraceTests: XCTestCase {
 // Waiguan). While engaged, roles must stay locked no matter how long the preference disagrees.
 final class CoachEngineRoleLockTests: XCTestCase {
     private let dt = 1.0 / 30.0
-    private let base: [HandJoint: CGPoint] = [
-        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
-        .ringMCP: CGPoint(x: 0.56, y: 0.54), .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
-        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30), .pinkyTip: CGPoint(x: 0.66, y: 0.36),
-        .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+    private let base: [HandJoint: CGPoint] = HandFixture.dorsalRight
 
     func testRoleLockPreventsMidPressSwap() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true      // synthetic right hand reads dorsal
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let sj5 = Acupoint.byId["SJ5"]!
         let target = sj5.mediapipeTarget!
@@ -125,9 +111,6 @@ final class CoachEngineRoleLockTests: XCTestCase {
     // votes involved. A lone hand matching the sticky PRESSER anchor must be treated as
     // "receiver occluded", keeping the last ring and pausing within grace.
     func testLonePresserFrameDoesNotStealRing() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -164,9 +147,6 @@ final class CoachEngineRoleLockTests: XCTestCase {
     // must be able to PRESS — discarding them entirely was the "massaging hand cannot be detected"
     // report — but must never anchor the ring, alone or otherwise.
     func testWeakHandPressesButNeverAnchorsRing() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -190,9 +170,6 @@ final class CoachEngineRoleLockTests: XCTestCase {
     // A weak hand ALONE must never be promoted to receiver — past the lone-presser grace the
     // engine reads the frame as having no usable receiving hand.
     func testWeakOnlyHandNeverBecomesReceiver() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let weakOnly = Hand(points: base, chirality: .right, weak: true)
@@ -210,9 +187,6 @@ final class CoachEngineRoleLockTests: XCTestCase {
     // state was unbounded (stale ring + 'keep both hands in view' forever) and the presser anchor
     // followed the lone hand so the verdict could never flip.
     func testLonePresserAssumptionDecaysToReceiver() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -249,16 +223,9 @@ final class CoachEngineRoleLockTests: XCTestCase {
 // session COMPLETE. totalHeldS must never double-count a banked round.
 final class CoachEngineSessionTests: XCTestCase {
     private let dt = 1.0 / 30.0
-    private let base: [HandJoint: CGPoint] = [
-        .wrist: CGPoint(x: 0.50, y: 0.80), .indexMCP: CGPoint(x: 0.44, y: 0.55), .middleMCP: CGPoint(x: 0.50, y: 0.52),
-        .ringMCP: CGPoint(x: 0.56, y: 0.54), .pinkyMCP: CGPoint(x: 0.62, y: 0.58), .indexTip: CGPoint(x: 0.42, y: 0.30),
-        .middleTip: CGPoint(x: 0.50, y: 0.27), .ringTip: CGPoint(x: 0.58, y: 0.30), .pinkyTip: CGPoint(x: 0.66, y: 0.36),
-        .thumbTip: CGPoint(x: 0.34, y: 0.62)]
+    private let base: [HandJoint: CGPoint] = HandFixture.dorsalRight
 
     func testSessionRoundsRestThenComplete() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
@@ -298,9 +265,6 @@ final class CoachEngineSessionTests: XCTestCase {
 
     // Ending mid-session is a first-class outcome: partial rounds + live partial hold are reported.
     func testQuitAnytimeReportsPartialHonestly() {
-        let saved = HandCalibration.dorsalWhenSignedPositive
-        HandCalibration.dorsalWhenSignedPositive = true
-        defer { HandCalibration.dorsalWhenSignedPositive = saved }
 
         let te3 = Acupoint.byId["TE3"]!
         let target = te3.mediapipeTarget!
