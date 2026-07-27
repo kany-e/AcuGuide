@@ -96,11 +96,11 @@ struct CameraSetupCard: View {
                                 .font(.title3).foregroundStyle(Ink.gold).frame(width: 28)
                                 .accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(AppLocale.pick("用说的确认（可选）", "Confirm by voice (optional)"))
+                                Text(AppLocale.pick("语音控制（可选）", "Voice control (optional)"))
                                     .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.text)
                                 Text(AppLocale.pick(
-                                    "两只手都在用的时候，说一句「就是这里」就能确认，不用腾出手来点屏幕。现在开启会问你一次麦克风权限 — 不开也完全没问题，之后随时能在画面里打开。",
-                                    "With both hands busy, saying \"this is my spot\" confirms without freeing a hand. Turning it on now asks for microphone access once — skipping is completely fine, and you can switch it on later from the camera screen."))
+                                    "两只手都在用的时候，可以直接说话：确认位置、或者把画面定住看完整说明，都不用腾出手。完整指令表在相机画面顶部的问号里。现在开启会问你一次麦克风权限 — 不开也完全没问题，之后随时能在画面里打开。",
+                                    "With both hands busy you can just speak: confirm a spot, or freeze the picture to read the full guide — neither needs a free hand. The full list of phrases lives behind the question mark at the top of the camera screen. Turning it on now asks for microphone access once — skipping is completely fine, and you can switch it on later."))
                                     .font(.footnote).foregroundStyle(Ink.textDim)
                                     .fixedSize(horizontal: false, vertical: true)
                                 if voiceRequested {
@@ -111,7 +111,7 @@ struct CameraSetupCard: View {
                                         .font(.caption2)
                                         .foregroundStyle(vc.denied ? Ink.warn : Ink.jade)
                                 } else {
-                                    Button(AppLocale.pick("开启语音确认", "Turn on Voice confirm")) {
+                                    Button(AppLocale.pick("开启语音控制", "Turn on Voice control")) {
                                         voiceRequested = true
                                         vc.toggle()     // requests permission in context, once
                                     }

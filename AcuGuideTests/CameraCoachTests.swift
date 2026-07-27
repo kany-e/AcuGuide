@@ -193,3 +193,51 @@ final class ChannelHighlightTests: XCTestCase {
         XCTAssertEqual(c.proxy.diffuse.contents as? UIColor, .magenta)
     }
 }
+
+// THE ANTI-DRIFT GUARANTEE for the on-screen command list.
+//
+// VoiceCommandsView shows the user literal phrases, and it builds them from LocateVoiceCommand's
+// own tables rather than retyping them — so a table edit updates the sheet automatically. What that
+// does NOT cover is a phrase being added to a table that the PARSER then refuses (the Chinese
+// filler-stripping already killed two silently: 好了 reduces to 好 and 可以了 to 可以, so both were
+// dead entries before StudyVoiceCommandTests caught them). Advertising a phrase the app will not
+// act on is worse than not advertising it, so every entry we display must parse to its own command.
+final class VoiceCommandTableTests: XCTestCase {
+    func testEveryAdvertisedPhraseParsesToItsOwnCommand() {
+        let tables: [(String, [String], LocateVoiceCommand)] = [
+            ("confirmEn", LocateVoiceCommand.confirmEn, .confirm),
+            ("confirmZh", LocateVoiceCommand.confirmZh, .confirm),
+            ("studyEn",   LocateVoiceCommand.studyEn,   .study),
+            ("studyZh",   LocateVoiceCommand.studyZh,   .study),
+            ("resumeEn",  LocateVoiceCommand.resumeEn,  .resume),
+            ("resumeZh",  LocateVoiceCommand.resumeZh,  .resume),
+            ("skip",      ["skip", "跳过"],              .skip),
+        ]
+        for (name, phrases, expected) in tables {
+            XCTAssertFalse(phrases.isEmpty, "\(name) is empty — the sheet would show a command with no phrases")
+            for phrase in phrases {
+                XCTAssertEqual(LocateVoiceCommand.parse(phrase), expected,
+                               "\(name): the sheet advertises \"\(phrase)\" but the parser does not accept it")
+            }
+        }
+    }
+
+    // The tables must not collide either: a phrase that parses as two different commands would make
+    // the sheet a lie about at least one of them.
+    func testNoPhraseIsClaimedByTwoCommands() {
+        var seen: [String: LocateVoiceCommand] = [:]
+        let all: [([String], LocateVoiceCommand)] = [
+            (LocateVoiceCommand.confirmEn, .confirm), (LocateVoiceCommand.confirmZh, .confirm),
+            (LocateVoiceCommand.studyEn, .study),     (LocateVoiceCommand.studyZh, .study),
+            (LocateVoiceCommand.resumeEn, .resume),   (LocateVoiceCommand.resumeZh, .resume),
+        ]
+        for (phrases, cmd) in all {
+            for p in phrases {
+                if let other = seen[p], other != cmd {
+                    XCTFail("\"\(p)\" is listed under both \(other) and \(cmd)")
+                }
+                seen[p] = cmd
+            }
+        }
+    }
+}
