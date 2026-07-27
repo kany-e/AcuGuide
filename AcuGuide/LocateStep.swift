@@ -198,8 +198,14 @@ struct LocateCard: View {
                             // jargon and told the user nothing ("what does 免提 mean???"), while
                             // the accessibility label right below already said 语音确认. The
                             // visible label now matches that intent in both languages.
+                            // "Voice confirm" was accurate when confirm was the only command.
+                            // The mic now also freezes the frame, resumes, and skips, so a name
+                            // that promises one of the four undersells it and hides the freeze the
+                            // user went looking for. (The previous rename, 免提 → 语音确认, was
+                            // itself a user-reported fix: 免提 is speakerphone jargon. Keep it
+                            // plain — this says what it does, not how it works.)
                             Text(voiceControl.listening ? AppLocale.pick("在听", "Listening")
-                                                        : AppLocale.pick("语音确认", "Voice confirm"))
+                                                        : AppLocale.pick("语音控制", "Voice control"))
                         }
                         .font(.caption.bold())
                         .foregroundStyle(voiceControl.listening ? Ink.gold : Ink.textDim)
@@ -210,17 +216,17 @@ struct LocateCard: View {
                     }
                     .contentShape(Capsule())
                     .accessibilityLabel(voiceControl.listening
-                        ? AppLocale.pick("停止语音确认", "Stop voice confirm")
-                        : AppLocale.pick("开启语音确认", "Enable voice confirm"))
+                        ? AppLocale.pick("关闭语音控制", "Turn off voice control")
+                        : AppLocale.pick("开启语音控制", "Turn on voice control"))
                     // Generic (no literal phrase): VoiceOver reads this on focus, possibly while
                     // the mic is live — a matchable phrase here could self-trigger.
-                    .accessibilityHint(AppLocale.pick("开启后用一句话即可确认，无需腾出手",
-                                                      "When on, a short spoken phrase confirms without freeing a hand"))
+                    .accessibilityHint(AppLocale.pick("开启后可用语音确认位置或定住画面，无需腾出手",
+                                                      "When on, spoken phrases confirm a spot or freeze the picture without freeing a hand"))
                 }
             }
             if voiceControl.denied {
-                Text(AppLocale.pick("语音确认需要麦克风与语音识别权限（设置中开启）。",
-                                    "Voice confirm needs mic + speech permission (enable in Settings)."))
+                Text(AppLocale.pick("语音控制需要麦克风与语音识别权限（设置中开启）。",
+                                    "Voice control needs mic + speech permission (enable in Settings)."))
                     .font(.caption2).foregroundStyle(Ink.warn)
             } else if voiceControl.unavailable {
                 Text(AppLocale.pick("语音识别暂时不可用 — 请用按钮确认。",
@@ -247,8 +253,8 @@ struct LocateCard: View {
                      // having to switch it on first. Deliberately GENERIC — no literal confirm
                      // phrase here: VoiceOver may read this aloud while the mic is live, and a
                      // matchable phrase coming out of the speaker would self-confirm.
-                     : AppLocale.pick("几秒内点击即可 — 或开启「语音确认」，不用腾出手也能确认。",
-                                      "Tap within a few seconds — or turn on Voice confirm to confirm without freeing a hand."))
+                     : AppLocale.pick("几秒内点击即可 — 或开启「语音控制」，不用腾出手也能确认。",
+                                      "Tap within a few seconds — or turn on Voice control to confirm without freeing a hand."))
                     .font(.caption2).foregroundStyle(Ink.textDim)
             } else if calibration.hasCalibration(point.id) {
                 Text(AppLocale.pick("确认后会替换你保存的位置（小圆点）。",

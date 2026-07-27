@@ -33,6 +33,26 @@ struct ARCoachView: View {
     // nearly useless. The old card tried to serve both at once in one strip over the camera, which
     // is why the guide was truncated to .caption2 and still crowded the view.
     @State private var studyShot: UIImage? = nil
+    @State private var showVoiceCommands = false   // the "what can I say" sheet
+
+    // STUDY MODE, entered by voice or by the button. While coaching, freezing the picture must also
+    // stop the CLOCK: reading is not pressing, and letting the round keep crediting hold time
+    // behind a still image would bank progress the user never made. Stopping the camera is the
+    // path the explicit pause already uses — the engine's pause-grace and dt clamp read the gap as
+    // a pause and keep banked progress. The MIC deliberately stays on, because the way out of this
+    // screen is to say "continue".
+    private func beginStudy() {
+        studyShot = camera.studySnapshot()
+        guard studyShot != nil else { return }
+        if engine.mode == .coach {
+            camera.stop()
+            voice.reset()   // cut any coach cue mid-utterance; the guide is the point now
+        }
+    }
+    private func endStudy() {
+        studyShot = nil
+        if engine.mode == .coach, !userPaused { camera.start() }
+    }
 
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
          onNext: (label: String, action: () -> Void)? = nil,
@@ -135,27 +155,37 @@ struct ARCoachView: View {
         // retain the engine/camera graph into a leak (review-caught). Guarded on live locate state
         // + not paused, so a command delivered just as the step ends / pauses is dropped.
         .onChange(of: locateVoice.command) { cmd in
-            guard let cmd, engine.mode == .locate, !userPaused, !endedEarly else { return }
+            guard let cmd, !userPaused, !endedEarly else { return }
             switch cmd.kind {
+            // Confirm and skip only mean something while there is a spot to confirm or skip.
             case .confirm:
+                guard engine.mode == .locate else { return }
                 if engine.confirmLocate(point: acupoint) {
                     LocatedStore.shared.markLocated(acupoint.id)
-                    handleLocateConfirmed()   // mode → .coach flips the mic off via onChange below
+                    handleLocateConfirmed()
                 }
             case .skip:
+                guard engine.mode == .locate else { return }
                 engine.endLocate()
                 voice.handover()
+            // FREEZE AND RESUME WORK WHILE COACHING TOO. They used to be gated on .locate, which
+            // is the step a calibrated point SKIPS (see the initialiser) — so on every repeat
+            // session of a saved point the feature the user was hunting for simply did not exist.
+            // Nothing about the frozen frame is locate-specific; camera.studySnapshot() and the
+            // overlay were mode-agnostic already.
             case .study:
-                if studyShot == nil { studyShot = camera.studySnapshot() }
+                if studyShot == nil { beginStudy() }
             case .resume:
-                studyShot = nil
+                if studyShot != nil { endStudy() }
             }
         }
         // The app's own TTS goes out the speaker into the open mic — pause recognition while it
         // speaks so voice confirm can't transcribe and fire on the app's own cues.
         .onChange(of: voice.isSpeaking) { locateVoice.setAppSpeaking($0) }
-        // Leaving the locate step by ANY path shuts the mic — listening is locate-scoped.
-        .onChange(of: engine.mode) { if $0 == .coach { locateVoice.stop() } }
+        // The mic used to be shut on the way out of the locate step, because confirm-by-voice was
+        // the only command. It now also drives freeze/resume, which are most useful mid-press —
+        // so listening is session-scoped, and the top bar shows whether it is on (see topBar).
+        // It is still stopped on pause, on End, on background, and on disappear.
         // The .ready spoken cue is suppressed WHILE listening (so the app doesn't talk over the confirm)
         // and deliberately not marked as spoken. If the user turns the mic off while still settled at
         // .ready, re-speak it now — handleLocateChange only fires on a locateState CHANGE, so otherwise
@@ -290,6 +320,9 @@ struct ARCoachView: View {
         // End with banked progress → confirm first (the recap records honestly either way).
         .endSessionDialog(isPresented: $showEndConfirm, rounds: engine.roundsDone,
                           heldS: engine.totalHeldS) { endSession() }
+        .sheet(isPresented: $showVoiceCommands) {
+            VoiceCommandsView(voiceControl: locateVoice) { showVoiceCommands = false }
+        }
     }
 
     // Explicit pause: the camera stops (nothing is watched or credited); round progress is kept —
@@ -353,7 +386,7 @@ struct ARCoachView: View {
                     .padding(20)
                 }
                 HStack(spacing: 10) {
-                    Button(AppLocale.pick("继续", "Continue")) { studyShot = nil }
+                    Button(AppLocale.pick("继续", "Continue")) { endStudy() }
                         .buttonStyle(GoldButtonStyle())
                     Button {
                         AtlasSpeaker.shared.toggle(acupoint.spokenInfo)
@@ -398,6 +431,34 @@ struct ARCoachView: View {
     private var debugBar: some View {
         HStack(spacing: 10) {
             Spacer()
+            // VOICE, VISIBLE AND REACHABLE FROM EVERY STEP. Both of these used to live only on the
+            // LocateCard, which a calibrated point never sees — so on a repeat session the mic
+            // could not be turned on, its state was invisible, and a spoken command went nowhere
+            // with no indication why. The "?" is the only place in the app that ever names the
+            // phrases (device report: "the user has no idea what the voice prompts are").
+            if locateVoice.available {
+                Button { showVoiceCommands = true } label: {
+                    Image(systemName: "questionmark")
+                        .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
+                        .padding(8).background(Circle().fill(.black.opacity(0.35)))
+                }
+                .accessibilityLabel(AppLocale.pick("可以说的话", "What you can say"))
+                .accessibilityHint(AppLocale.pick("列出所有语音指令", "Lists every voice command"))
+
+                Button { locateVoice.toggle() } label: {
+                    Image(systemName: locateVoice.listening ? "mic.fill" : "mic.slash")
+                        .font(.callout)
+                        .foregroundStyle(locateVoice.listening ? Ink.gold : Ink.paper.opacity(0.85))
+                        .padding(8)
+                        .background(Circle().fill(.black.opacity(0.35)))
+                        .overlay(Circle().stroke(locateVoice.listening ? Ink.gold : .clear, lineWidth: 1.5))
+                }
+                .accessibilityLabel(locateVoice.listening
+                    ? AppLocale.pick("语音控制已开启", "Voice control on")
+                    : AppLocale.pick("语音控制已关闭", "Voice control off"))
+                .accessibilityHint(AppLocale.pick("开启后可以用说话定格画面或确认位置",
+                                                  "When on, you can freeze the picture or confirm a spot by speaking"))
+            }
             // Re-find the spot: back into the guided locate step from coaching — without this, a
             // bad confirm (or a ring that feels off) was only fixable by ending the whole session.
             if acupoint.hasFindGuide && engine.mode == .coach {
@@ -504,6 +565,20 @@ struct ARCoachView: View {
                         .accessibilityLabel(atlasSpeaker.speaking
                             ? AppLocale.pick("停止朗读", "Stop reading")
                             : AppLocale.pick("朗读找穴说明", "Read the finding guide aloud"))
+                    }
+                    // NAME THE FREEZE, where someone squinting at a truncated guide over a live
+                    // camera will actually look for it. Shown only while listening, because the
+                    // phrase is useless with the mic off — and only while the coach is still
+                    // hunting, so it can never grow the card mid-press.
+                    if locateVoice.listening {
+                        Text(AppLocale.pick("说「怎么找」可以定住画面看完整说明。",
+                                            "Say \"show me\" to freeze the picture and read the full guide."))
+                            .font(.caption2).foregroundStyle(Ink.textDim)
+                            .fixedSize(horizontal: false, vertical: true)
+                            // Paraphrased for VoiceOver: reading the literal phrase aloud into an
+                            // open mic is the self-trigger this app already guards against.
+                            .accessibilityLabel(AppLocale.pick("可以用语音定住画面看完整说明，指令列表在顶部的问号里。",
+                                                               "You can freeze the picture by voice to read the full guide; the command list is behind the question mark at the top."))
                     }
                 }
                 // The point's OWN caution, alongside the find guide and under the same
