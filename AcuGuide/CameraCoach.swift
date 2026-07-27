@@ -10,9 +10,10 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     let engine: CoachEngine
     var acupoint: Acupoint
 
-    // Portrait display aspect (width/height, <1) of the camera frame, published so the overlay can
-    // map normalized landmarks through the SAME aspect-fill crop the preview uses (otherwise the
-    // ring/press dot are offset+scaled from the visible video). Defaults to 9:16.
+    // Display aspect (width/height) of the camera frame as it is SHOWN, published so the overlay
+    // can map normalized landmarks through the SAME aspect-fill crop the preview uses (otherwise
+    // the ring/press dot are offset+scaled from the visible video). Under 1 in portrait, over 1 in
+    // landscape — it follows the capture rotation. Defaults to 9:16.
     @Published var frameAspect: CGFloat = 9.0 / 16.0
     private var lastAspect: CGFloat = 0
 
@@ -60,6 +61,10 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     }
     var mirrored: Bool { usingFront != mirrorFlip }   // XOR — main thread / preview
     private var queueMirrored = true                  // capture queue only
+    // Requested video rotation, queue-confined (the same main-thread/queue split as `mirrored`).
+    // Updated by setRotation(angle:) when the interface rotates; the preview layer's connection is
+    // driven from the main thread by CameraPreview with the identical value.
+    private var queueRotation: CGFloat = 90
     // Camera position, queue-confined copy (configureIfNeeded runs on the queue and must not read
     // the main-published `usingFront` — a data race, review-caught).
     private var queuePosition: AVCaptureDevice.Position = .front
@@ -134,10 +139,29 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             // Deliver portrait-upright buffers so landmark coords share the portrait overlay's
             // normalized space (the app is portrait-locked). Data output stays UN-mirrored; the
             // PREVIEW does the mirroring and buildHand flips landmark x to match.
-            conn.forcePortrait()
+            conn.setRotation(queueRotation)
             conn.setMirrored(false)
         }
         session.commitConfiguration()
+    }
+
+    /// The interface rotated: re-aim the capture connection so the delivered buffers stay upright
+    /// in the NEW layout, and reset everything measured in the old one. A rotation is a coordinate
+    /// discontinuity exactly like a camera flip — the ring, the smoothers and the sticky role
+    /// anchors are all in the previous frame's space — so it goes through the same scene-generation
+    /// machinery rather than letting stale-parity frames through.
+    func setRotation(angle: CGFloat) {
+        guard angle != queueRotation else { return }
+        mainSceneGen += 1
+        let gen = mainSceneGen
+        engine.cameraFlipped()
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.queueRotation = angle
+            self.videoConnection?.setRotation(angle)
+            self.queueSceneGen = gen
+            DispatchQueue.main.async { self.configGeneration += 1 }   // re-apply to the preview
+        }
     }
 
     // Queue-confined. Validate the replacement BEFORE touching the session's inputs, so a missing/
@@ -152,30 +176,23 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         return true
     }
 
-    // Derive the Vision orientation from the capture connection (NOT a hardcoded `.up`),
-    // handling the iOS 16 (`videoOrientation`) vs iOS 17+ (`videoRotationAngle`) API split.
-    // The connection is configured portrait + un-mirrored, so the upright orientation is `.up`;
-    // we still confirm it from the connection so a platform that ignored the portrait request is
-    // rotated correctly rather than silently wrong.
+    // Derive the Vision orientation from the capture connection (NOT a hardcoded `.up`).
+    //
+    // The target used to be "upright in PORTRAIT", because the app was portrait-locked. It is now
+    // "upright in the orientation the OVERLAY is laid out in" — the two must agree or the ring
+    // lands on the wrong pixels. So this is the RESIDUAL rotation: whatever the connection did not
+    // already do for us. When rotation is supported (the normal case) that residual is zero and
+    // Vision gets `.up`, exactly as before; when a platform ignores the request, the difference
+    // corrects it rather than being silently wrong.
     private func visionOrientation() -> CGImagePropertyOrientation {
         guard let conn = videoConnection else { return .up }
+        let actual: CGFloat
         if #available(iOS 17.0, *) {
-            switch Int(conn.videoRotationAngle.rounded()) {
-            case 90:  return .up      // portrait (configured)
-            case 0:   return .right   // sensor-native landscape, not rotated
-            case 180: return .left
-            case 270: return .down
-            default:  return .up
-            }
+            actual = conn.videoRotationAngle
         } else {
-            switch conn.videoOrientation {
-            case .portrait:           return .up      // configured
-            case .landscapeRight:     return .right   // not rotated to portrait
-            case .landscapeLeft:      return .left
-            case .portraitUpsideDown: return .down
-            @unknown default:         return .up
-            }
+            actual = 90   // setRotation pins iOS 16 to portrait
         }
+        return CaptureRotation.visionOrientation(desired: queueRotation, actual: actual)
     }
 
     func start() {
@@ -229,7 +246,7 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             }
             if let conn = self.session.outputs.compactMap({ $0.connection(with: .video) }).first {
                 self.videoConnection = conn
-                conn.forcePortrait()
+                conn.setRotation(self.queueRotation)
                 conn.setMirrored(false)   // data output stays un-mirrored; the PREVIEW mirrors
             }
             self.session.commitConfiguration()
@@ -247,7 +264,12 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
         lumaFrameCount += 1
         if lumaFrameCount % 15 == 0 { updateLowLight(pixel) }
         let w = CVPixelBufferGetWidth(pixel), h = CVPixelBufferGetHeight(pixel)
-        let aspect = CGFloat(min(w, h)) / CGFloat(max(w, h))   // portrait display aspect (W/H)
+        // The DISPLAYED aspect (W/H) of the rotated buffer — the connection has already rotated it,
+        // so the dimensions are the display dimensions. This used to be min/max, i.e. structurally
+        // incapable of exceeding 1, which silently forced a portrait aspect on a landscape frame
+        // and would have mis-scaled the ring, the isotropic hit-test and every saved calibration.
+        // The downstream math (mapFill, isoDist, PointCalibration.iso) already generalises.
+        let aspect = Self.displayAspect(width: w, height: h)
         if abs(aspect - lastAspect) > 0.001 {
             lastAspect = aspect
             DispatchQueue.main.async { self.frameAspect = aspect }
@@ -307,6 +329,14 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
             self.engine.frameAspect = aspect   // keeps the isotropic hit-test in step with the frame
             self.engine.update(hands: hands, point: self.acupoint, now: now)
         }
+    }
+
+    /// Displayed aspect (W/H) of an already-rotated buffer. Pure so the landscape case is testable:
+    /// this used to be min(w,h)/max(w,h), which cannot exceed 1 and so silently forced a portrait
+    /// aspect onto a landscape frame — mis-scaling the ring, the isotropic hit-test and every
+    /// stored calibration at once, while still looking like a plausible picture.
+    static func displayAspect(width: Int, height: Int) -> CGFloat {
+        CGFloat(max(width, 1)) / CGFloat(max(height, 1))
     }
 
     // Mean of a sparse luma-plane grid (every 32nd pixel), queue-confined. Thresholds are asymmetric
@@ -435,14 +465,65 @@ extension CameraCoach {
         studyLock.lock(); let pixel = lastPixelForStudy; studyLock.unlock()
         guard let pixel else { return nil }
         var ci = CIImage(cvPixelBuffer: pixel)
-        // The preview is portrait and (front camera) mirrored; match both or the frozen frame will
-        // not line up with the ring drawn over it.
-        ci = ci.oriented(.right)
+        // The buffer arrives ALREADY ROTATED by the capture connection (setRotation), so it is
+        // upright for the current layout and needs no rotation here. The old `.oriented(.right)`
+        // was compensating for a rotation the connection had already applied — harmless while the
+        // app was portrait-locked only because the two cancelled; in landscape it would tip the
+        // frozen still 90° away from the ring drawn over it. Mirroring still has to be matched,
+        // because the PREVIEW mirrors and the data output does not.
         if usingFront { ci = ci.transformed(by: CGAffineTransform(scaleX: -1, y: 1)
                                                 .translatedBy(x: -ci.extent.width, y: 0)) }
         let ctx = CIContext(options: [.useSoftwareRenderer: false])
         guard let cg = ctx.createCGImage(ci, from: ci.extent) else { return nil }
         return UIImage(cgImage: cg)
+    }
+}
+
+// Shared connection policy so the data output and the preview can't drift out of sync.
+// WHERE THE ROTATION ANGLE COMES FROM.
+//
+// NOT AVCaptureDevice.RotationCoordinator, which is the API Apple points you at. That is
+// accelerometer-driven — it keeps the image level with GRAVITY, independent of the interface. It is
+// the right answer for a camera app held in the hand, and the wrong one here: this app's whole
+// premise is a phone PROPPED UP on a table (see CameraSetupCard), often close to flat, which is
+// exactly where a gravity reading is ambiguous and flaps between orientations. Worse, it would
+// rotate the video out of step with the SwiftUI layout the overlay is measured against.
+//
+// The interface orientation is the stable choice: iOS already refuses to rotate the UI when the
+// device is flat, so the video inherits that hysteresis for free, and the video and the overlay can
+// never disagree because they are driven by the same number.
+enum CaptureRotation {
+    /// Video rotation angle, in degrees, for the current interface orientation.
+    static var currentAngle: CGFloat { angle(for: interfaceOrientation) }
+
+    /// Pure so the mapping is unit-testable — a landscape angle that collides with its opposite,
+    /// or one AVFoundation refuses, shows up as an upside-down picture and nothing else.
+    static func angle(for orientation: UIInterfaceOrientation) -> CGFloat {
+        switch orientation {
+        case .landscapeLeft:      return 180
+        case .landscapeRight:     return 0
+        case .portraitUpsideDown: return 270
+        default:                  return 90     // portrait, and the unknown case
+        }
+    }
+
+    static var interfaceOrientation: UIInterfaceOrientation {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?
+            .interfaceOrientation ?? .portrait
+    }
+
+    /// What Vision must apply to read a buffer delivered at `actual` as upright for `desired`.
+    /// Residual 0 means the connection already did the work.
+    static func visionOrientation(desired: CGFloat, actual: CGFloat) -> CGImagePropertyOrientation {
+        let residual = ((Int(desired.rounded()) - Int(actual.rounded())) % 360 + 360) % 360
+        switch residual {
+        case 90:  return .right
+        case 180: return .down
+        case 270: return .left
+        default:  return .up
+        }
     }
 }
 
@@ -453,11 +534,24 @@ extension AVCaptureConnection {
         automaticallyAdjustsVideoMirroring = false
         isVideoMirrored = on
     }
-    func forcePortrait() {
+
+    /// Pin to portrait. Kept for the two capture surfaces that are deliberately portrait-only:
+    /// CameraLocator, and the M3 LabelCapture harness — whose coordinate convention must stay
+    /// IDENTICAL to the coach's training-time convention (HandVision's zero train/serve skew rule),
+    /// so it must not start varying with how the phone happens to be held.
+    func forcePortrait() { setRotation(90) }
+
+    /// Rotate to `angle`; returns the angle actually in effect (unchanged if unsupported).
+    @discardableResult
+    func setRotation(_ angle: CGFloat) -> CGFloat {
         if #available(iOS 17.0, *) {
-            if isVideoRotationAngleSupported(90) { videoRotationAngle = 90 }
+            if isVideoRotationAngleSupported(angle) { videoRotationAngle = angle }
+            return videoRotationAngle
         } else {
+            // iOS 16 has only the four named orientations, and no landscape-aware overlay to feed
+            // anyway — keep the previous portrait behaviour rather than half-supporting rotation.
             if isVideoOrientationSupported { videoOrientation = .portrait }
+            return 90
         }
     }
 }
@@ -468,6 +562,7 @@ extension AVCaptureConnection {
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     let mirrored: Bool
+    var rotationAngle: CGFloat = 90   // same value the data output uses — see CaptureRotation
     var configGeneration = 0   // changes force updateUIView AFTER a flip's reconfigure (fresh connection)
 
     func makeUIView(context: Context) -> PreviewView {
@@ -481,7 +576,7 @@ struct CameraPreview: UIViewRepresentable {
 
     private func apply(_ v: PreviewView) {
         guard let conn = v.videoLayer.connection else { return }
-        conn.forcePortrait()
+        conn.setRotation(rotationAngle)
         conn.setMirrored(mirrored)
     }
 

@@ -57,7 +57,13 @@ targets:
         # lives behind the "?" on the camera screen (VoiceCommandsView).
         NSMicrophoneUsageDescription: "AcuGuide can listen for a few short voice commands so you can confirm a spot or pause to read the guide without lifting your hands."
         NSSpeechRecognitionUsageDescription: "AcuGuide recognizes a few short spoken commands — confirming a pressure point, freezing the picture to read the guide, and carrying on — so you can use it with both hands busy. It uses on-device recognition when your device supports it, and Apple's speech service otherwise."
-        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # The plist declares the SUPERSET; OrientationLock narrows it per screen (portrait
+        # everywhere except the camera coach, which is the screen people hold sideways — the phone
+        # is propped on a table and both hands are in front of it). Upside-down is excluded: it is
+        # the one orientation that makes a propped-up phone confusing.
+        UISupportedInterfaceOrientations:
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft,
+           UIInterfaceOrientationLandscapeRight]
         # The whole UI is bilingual at runtime (AppLocale.pick), but the bundle declared English
         # only, so the App Store listed the app as English-only and Chinese-language search never
         # surfaced it. CFBundleLocalizations is the store-facing (and system-facing) declaration of
