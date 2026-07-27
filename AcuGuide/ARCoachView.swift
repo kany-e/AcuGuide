@@ -139,6 +139,7 @@ struct ARCoachView: View {
                     // the stored answer with no UI once the user has answered, so a previous
                     // refusal just lands in `denied` (surfaced on the card) instead of nagging.
                     if locateVoice.available { locateVoice.start() }
+                    settings.coachSessions += 1   // drives the voice hint's decay (see voiceHint)
                 }, onUseTimer: onUseTimer) { coachLayer }
             }
         }
@@ -193,6 +194,9 @@ struct ARCoachView: View {
                 if studyShot == nil { beginStudy() }
             case .resume:
                 if studyShot != nil { endStudy() }
+            // Asking what you can say, WITHOUT touching anything — the whole point of the command.
+            case .help:
+                showVoiceCommands = true
             }
         }
         // The app's own TTS goes out the speaker into the open mic — pause recognition while it
@@ -319,57 +323,68 @@ struct ARCoachView: View {
         }
     }
 
-    // THE VOICE HINT — the thing the "?" button was not.
+    // THE VOICE HINT — rebuilt on evidence, after the first attempt was rejected.
     //
     // Device report: "adding a ? button for the voice control instructions does not at all solve how
     // the user is going to know the voice controls, it should be part of the process of finding the
-    // acupoint, for example, as a floating text." Correct: a sheet behind a button is opt-in
-    // discovery for a HANDS-FREE feature, which is a contradiction — to learn you can speak, you
-    // first have to touch. (The sheet stays, as the full reference; it is no longer the only way in.)
+    // acupoint… search on how other apps do it, we need to take reference of other good apps, not
+    // just create a button and call it a fix." That was right, and the contradiction is sharper than
+    // it first looks: a sheet behind a button is opt-in discovery for a HANDS-FREE feature, so to
+    // learn you can speak you first have to touch. Four things came out of actually looking:
     //
-    // So this follows the just-in-time pattern voice UIs converge on (Google's conversational-design
-    // guidance, Alexa's on-screen "Try saying…", iOS Voice Control's own hints): show ONE command,
-    // the one that is useful at this exact moment, phrased as the words to say — never a menu.
-    // It is keyed to the coaching state, so it teaches the vocabulary in the order the user meets it:
-    // freeze while hunting → save once settled → resume while reading.
+    //  1. Nielsen Norman Group: not knowing what to say is the SECOND-biggest obstacle in speech
+    //     interfaces after recognition accuracy, and it makes people abandon within the first few
+    //     interactions. So the hint has to land EARLY, not accumulate over a week.
+    //     https://www.nngroup.com/articles/voice-interfaces-assessing-the-potential/
+    //  2. Google's conversation-design guidance: for first-time users offer TWO OR THREE common
+    //     intents — not one, and not a menu — then let it recede. Phrase them as explicit verbal
+    //     signifiers ("You can say …"), concise and verb-first.
+    //     https://developers.google.com/assistant/conversation-design/chips
+    //  3. Progressive disclosure: core commands first, the rest as familiarity grows.
+    //  4. Apple's own Voice Control makes the command list reachable BY VOICE ("show me what to
+    //     say" / "what can I say") and scopes it to the current screen. That is the gap the "?"
+    //     button left, and LocateVoiceCommand.help now closes it.
+    //     https://support.apple.com/en-us/111778
     //
-    // Self-limiting rather than dismissible: it appears only while the mic is actually listening,
-    // and disappears the moment the press is on target, so it can never sit over a good hold. That
-    // also means a fluent returning user — who settles quickly — barely sees it.
-    private var voiceHint: String? {
+    // So: the first two sessions show a two-line "You can say" block (the researched 2–3, minus the
+    // one that is not useful yet); afterwards it decays to a single line for whatever is useful at
+    // this exact moment. It is never spoken — every spoken line in this app is a pre-rendered clip
+    // keyed by sha256 of its text (CLAUDE.md), so a spoken hint would cost a re-render; on-screen
+    // copy is free.
+    private struct VoiceHint { let lines: [String] }
+
+    private var voiceHint: VoiceHint? {
         guard locateVoice.listening, !userPaused else { return nil }
-        if studyShot != nil { return AppLocale.pick("说「继续」回到实时画面", "Say “continue” to go back") }
+        // Reading the frozen guide: only one thing matters, and it is how to get out.
+        if studyShot != nil {
+            return VoiceHint(lines: [AppLocale.pick("说「继续」回到实时画面", "Say “continue” to go back")])
+        }
+        let freeze = AppLocale.pick("说「怎么找」定住画面看说明", "Say “show me” to freeze and read the guide")
+        let ask    = AppLocale.pick("说「能说什么」看全部指令", "Say “what can I say” for all commands")
+        let save   = AppLocale.pick("说「就是这里」保存位置", "Say “this is my spot” to save it")
+
         if engine.mode == .locate {
             switch engine.locateState {
-            case .ready:    return AppLocale.pick("说「就是这里」保存位置", "Say “this is my spot” to save it")
-            case .settling: return nil                     // they are on it — do not talk over the moment
-            default:        return AppLocale.pick("说「怎么找」可定住画面看说明", "Say “show me” to freeze and read the guide")
+            case .ready:    return VoiceHint(lines: [save])   // one thing to do — do not bury it
+            case .settling: return nil                        // they are on it; do not talk over the moment
+            default:        break
+            }
+        } else {
+            // Coaching: silent during a hold, so the hint never competes with the press itself.
+            switch engine.phase {
+            case .holding, .onTargetUnstable, .resting, .complete: return nil
+            default: break
             }
         }
-        // Coaching: quiet during a hold, so the hint never competes with the press itself.
-        switch engine.phase {
-        case .holding, .onTargetUnstable, .resting, .complete: return nil
-        default: return AppLocale.pick("说「怎么找」可定住画面看说明", "Say “show me” to freeze and read the guide")
-        }
+        // First contact: the researched two. Afterwards, just the one that is useful here.
+        return settings.coachSessions <= 2 ? VoiceHint(lines: [freeze, ask]) : VoiceHint(lines: [freeze])
     }
 
     @ViewBuilder private var voiceHintChip: some View {
         if let hint = voiceHint {
-            HStack(spacing: 6) {
-                Image(systemName: "waveform").font(.caption2).accessibilityHidden(true)
-                Text(hint).font(.caption.weight(.medium))
-            }
-            .foregroundStyle(Ink.paper)
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(Capsule().fill(.black.opacity(0.45)))
-            .overlay(Capsule().stroke(Ink.gold.opacity(0.5), lineWidth: 1))
-            .transition(.opacity.combined(with: .move(edge: .top)))
-            .animation(.easeInOut(duration: 0.25), value: hint)
-            // PARAPHRASED for VoiceOver. The visible text is the literal phrase on purpose — that is
-            // what makes it teach — but VoiceOver would read it out of the speaker and into the open
-            // mic, which is the self-trigger LocateStep and VoiceCommandsView already guard against.
-            .accessibilityLabel(AppLocale.pick("提示：可以用语音操作，完整指令表在顶部的问号里。",
-                                               "Tip: you can use your voice here; the full command list is behind the question mark at the top."))
+            VoiceHintChip(lines: hint.lines)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .animation(.easeInOut(duration: 0.25), value: hint.lines)
         }
     }
 

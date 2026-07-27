@@ -26,6 +26,15 @@ final class AppSettings: ObservableObject {
     // Whether the mic permission has been requested automatically on entering the camera coach.
     // iOS asks once per install and never again after a refusal, so this only guards against
     // re-issuing a request that can no longer show a dialog — it is not a user preference.
+    // How many camera-coach sessions have been started. Drives the voice hint's DECAY: research on
+    // voice discoverability (NN/g) finds users abandon within the first few interactions when they
+    // cannot tell what to say, so the hint has to be loud EARLY — and Google's conversation-design
+    // guidance puts the first-run set at two or three intents, not one and not a menu. After that it
+    // shrinks to a single contextual line so a fluent user is not lectured every session.
+    @Published var coachSessions: Int {
+        didSet { UserDefaults.standard.set(coachSessions, forKey: Self.coachSessionsKey) }
+    }
+
     @Published var autoAskedMic: Bool {
         didSet { UserDefaults.standard.set(autoAskedMic, forKey: Self.autoAskedMicKey) }
     }
@@ -54,6 +63,7 @@ final class AppSettings: ObservableObject {
     private static let onboardingKey = "seenOnboarding"
     private static let cameraSetupKey = "seenCameraSetup"
     private static let autoAskedMicKey = "autoAskedMic"
+    private static let coachSessionsKey = "coachSessions"
     private static let voiceKey = "voiceMuted"
     private static let reminderOnKey = "reminderOn"
     private static let reminderMinKey = "reminderMinutes"
@@ -70,6 +80,7 @@ final class AppSettings: ObservableObject {
         seenOnboarding = UserDefaults.standard.bool(forKey: Self.onboardingKey)
         seenCameraSetup = UserDefaults.standard.bool(forKey: Self.cameraSetupKey)
         autoAskedMic = UserDefaults.standard.bool(forKey: Self.autoAskedMicKey)
+        coachSessions = UserDefaults.standard.integer(forKey: Self.coachSessionsKey)
         voiceMuted = UserDefaults.standard.bool(forKey: Self.voiceKey)
         reminderOn = UserDefaults.standard.bool(forKey: Self.reminderOnKey)
         reminderMinutes = UserDefaults.standard.object(forKey: Self.reminderMinKey) as? Int ?? 20 * 60

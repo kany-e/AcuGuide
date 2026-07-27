@@ -19,6 +19,12 @@ enum LocateVoiceCommand: Equatable {
     // continue"). Recognition, not synthesis, so these add no voice clips and nothing to re-render.
     case study     // "show me" / "怎么找" — freeze the frame and open the full guide
     case resume    // "continue" / "继续" — unfreeze and carry on
+    // ASK WHAT YOU CAN SAY, BY SAYING IT. This is the gap the first attempt at discoverability
+    // left: the command list was behind a "?" button, i.e. a TOUCH target in a feature whose whole
+    // premise is that both hands are busy. Apple's own Voice Control answers this with
+    // "show me what to say" / "show commands" / "what can I say", and makes the result
+    // context-sensitive to the current screen — that is the pattern being copied here.
+    case help
 
     // Whole-WORD confirm/skip phrases. English matches the trailing TOKENS (not a character
     // suffix, so "reconfirm" no longer matches "confirm"); Chinese matches the trailing chars
@@ -38,6 +44,12 @@ enum LocateVoiceCommand: Equatable {
     // survive stripping intact and stay specific. (Caught by StudyVoiceCommandTests before shipping —
     // both 好了 and 可以了 were silently dead.)
     static let resumeZh = ["继续", "找到", "开始"]
+    // Deliberately the phrasings people actually try, taken from Voice Control's own vocabulary.
+    // "show me what to say" does NOT collide with studyEn's "show me": English matching is anchored
+    // to the TRAILING tokens, so only an utterance ENDING in "show me" is a study request. Help is
+    // still checked first, and VoiceCommandTableTests pins both.
+    static let helpEn = ["what can i say", "show me what to say", "show commands", "what can you do"]
+    static let helpZh = ["能说什么", "可以说什么", "有什么指令", "语音指令"]
     private static let negationsEn: Set<String> = ["dont", "not", "no", "never", "cant", "cannot", "wont", "shouldnt"]
     private static let negationsZh = "不别没"
     private static let zhFillers = "吧了啊嗯呢的哦噢呀"
@@ -57,6 +69,7 @@ enum LocateVoiceCommand: Equatable {
             let before = words.dropLast(pw.count).suffix(2)
             return !before.contains(where: negationsEn.contains)
         }
+        for k in helpEn where trailingMatch(k) { return .help }   // before study: see helpEn
         for k in confirmEn where trailingMatch(k) { return .confirm }
         if trailingMatch("skip") { return .skip }
         for k in studyEn where trailingMatch(k) { return .study }
@@ -70,6 +83,7 @@ enum LocateVoiceCommand: Equatable {
             let before = zh.dropLast(k.count).suffix(2)          // 不要确认 / 先别确认 / 不就是这里
             return !before.contains(where: negationsZh.contains)
         }
+        for k in helpZh where zhSuffix(k) { return .help }
         for k in confirmZh where zhSuffix(k) { return .confirm }
         if zhSuffix("跳过") { return .skip }
         for k in studyZh where zhSuffix(k) { return .study }

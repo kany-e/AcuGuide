@@ -72,3 +72,39 @@ final class LandscapeLayoutTests: XCTestCase {
         print("LANDSCAPE recap: \(Int(size.width))×\(Int(size.height)) pt")
     }
 }
+
+// THE IN-FLOW VOICE HINT, rendered. The Simulator has no microphone, so `listening` never becomes
+// true there and the chip cannot be reached by driving the UI — but it is the thing the user
+// rejected the last version of, so it gets looked at rather than assumed.
+final class VoiceHintRenderTests: XCTestCase {
+    @MainActor
+    private func render(_ lines: [String], name: String) -> CGSize {
+        let renderer = ImageRenderer(content:
+            VoiceHintChip(lines: lines).padding(16).background(Color(white: 0.25)))
+        renderer.scale = 2
+        if let data = renderer.uiImage?.pngData() {
+            let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("voicehint_\(name).png")
+            try? data.write(to: out)
+            print("VOICEHINT wrote \(out.path)")
+        }
+        return renderer.uiImage?.size ?? .zero
+    }
+
+    @MainActor
+    func testHintFitsTheCameraScreen() {
+        // First contact: the two-line form (Google's conversation-design guidance puts the
+        // first-run set at two or three intents, not one and not a menu).
+        let two = render(["Say “show me” to freeze and read the guide",
+                          "Say “what can I say” for all commands"], name: "firstrun")
+        // Later sessions: one contextual line.
+        let one = render(["Say “show me” to freeze and read the guide"], name: "settled")
+
+        // It sits over a live camera in a 402 pt-wide portrait viewport and must not crowd the
+        // hands. Width bound is generous; the real constraint is that it stays a CHIP, not a panel.
+        XCTAssertLessThan(two.width, 402, "the first-run hint is wider than the screen")
+        XCTAssertLessThan(two.height, 90, "the first-run hint has grown into a panel")
+        XCTAssertLessThan(one.height, two.height, "the settled hint must be shorter than first-run")
+        print("VOICEHINT first-run \(Int(two.width))×\(Int(two.height)) pt · settled \(Int(one.width))×\(Int(one.height)) pt")
+    }
+}
