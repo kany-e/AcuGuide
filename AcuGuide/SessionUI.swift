@@ -93,7 +93,20 @@ struct SessionRecapView: View {
 
     var body: some View {
         let held = Int(heldS.rounded())
-        return VStack(spacing: 20) {
+        // SCROLLS. The content is a fixed stack of eight blocks — title, summary, per-round times,
+        // the feeling prompt and its caption, the button row, the stop guidance, the next-step
+        // button, the footer — and its own history records that the button row already overflowed a
+        // 375 pt screen HORIZONTALLY (hence the ViewThatFits below). Vertically it had no escape at
+        // all: at large Dynamic Type, or after a session that ends while the phone is sideways,
+        // the stop guidance and the next-step button simply fall off the bottom. Those are the two
+        // things that must never be unreachable — one is the safety response to "uncomfortable".
+        return ScrollView {
+            recapContent(held: held)
+        }
+    }
+
+    @ViewBuilder private func recapContent(held: Int) -> some View {
+        VStack(spacing: 20) {
             Text(sessionComplete ? AppLocale.pick("保持得很好", "Nicely held")
                                  : AppLocale.pick("练习结束", "Good session"))
                 .font(.title2).foregroundStyle(Ink.gold)

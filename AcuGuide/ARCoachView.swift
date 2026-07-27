@@ -34,6 +34,12 @@ struct ARCoachView: View {
     // is why the guide was truncated to .caption2 and still crowded the view.
     @State private var studyShot: UIImage? = nil
     @State private var showVoiceCommands = false   // the "what can I say" sheet
+    // LANDSCAPE. Device report: "the vertical orientation of the camera coach when the user is
+    // using it horizontally is just awful." The phone is propped on a table with both hands in
+    // front of it, so sideways is a natural way to leave it — and a portrait-shaped card strip over
+    // a landscape frame is not merely ugly, it eats the part of the picture the hands are in.
+    // Only THIS screen unlocks landscape (see OrientationLock); everything else stays portrait.
+    @State private var isLandscape = CaptureRotation.interfaceOrientation.isLandscape
 
     // STUDY MODE, entered by voice or by the button. While coaching, freezing the picture must also
     // stop the CLOCK: reading is not pressing, and letting the round keep crediting hold time
@@ -84,6 +90,14 @@ struct ARCoachView: View {
     }
 
     var body: some View {
+        GeometryReader { geo in
+            coachBody
+                .onChange(of: geo.size.width > geo.size.height) { syncRotation(landscape: $0) }
+                .onAppear { syncRotation(landscape: geo.size.width > geo.size.height) }
+        }
+    }
+
+    private var coachBody: some View {
         ZStack {
             ShanshuiBackground()
             if !acknowledged {
@@ -198,6 +212,24 @@ struct ARCoachView: View {
             }
         }
         .onDisappear { locateVoice.stop(); camera.stop(); voice.reset() }
+        // Landscape is permitted only while the CAMERA is the point of the screen. The recap and
+        // the safety gate are reading screens — long prose and a pinned button — so the lock drops
+        // back to portrait there rather than reflowing text nobody wants sideways.
+        .landscapeCapable(acknowledged && engine.phase != .complete && !endedEarly && feeling == nil)
+    }
+
+    // Drive rotation off the view's OWN SIZE, not UIDevice.orientationDidChangeNotification.
+    //
+    // Two reasons. The device notification fires on the accelerometer's reading, which is not the
+    // same event as the interface rotating: it arrives BEFORE the window has actually turned, so
+    // reading interfaceOrientation from that callback can hand back the old value and leave the
+    // video a quarter-turn out of step with the overlay. And it fires for .faceUp / .faceDown,
+    // which this app — a phone propped on a table — will produce constantly and which mean nothing
+    // for layout. A size change is definitionally post-layout and cannot disagree with what is on
+    // screen, which is the whole property the overlay geometry depends on.
+    private func syncRotation(landscape: Bool) {
+        if isLandscape != landscape { isLandscape = landscape }
+        camera.setRotation(angle: CaptureRotation.currentAngle)
     }
 
     private func handleLocateChange(to state: LocateState) {
@@ -270,6 +302,33 @@ struct ARCoachView: View {
         practiceRecordId = rec.id
     }
 
+    // Extracted so the portrait stack and the landscape column render the SAME card rather than
+    // two copies that could drift.
+    @ViewBuilder private var activeCard: some View {
+        if engine.mode == .locate {
+            LocateCard(point: acupoint, engine: engine, voiceControl: locateVoice,
+                       hint: hintLine,
+                       onPause: { pauseSession() },
+                       onEnd: { endSession() },   // nothing banked during locate → no confirm needed
+                       onConfirmed: { handleLocateConfirmed() },
+                       onSkipped: { voice.handover() })   // let the first coach cue speak
+        } else {
+            feedbackCard
+        }
+    }
+
+    @ViewBuilder private var savedChipView: some View {
+        if let chip = savedChip {
+            Text(chip)
+                .font(.caption.weight(.semibold)).foregroundStyle(.black)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Capsule().fill(Ink.gold.opacity(0.92)))
+                .transition(.opacity)
+                .task { try? await Task.sleep(nanoseconds: 2_800_000_000)
+                        withAnimation(.easeOut(duration: 0.4)) { savedChip = nil } }
+        }
+    }
+
     private var coachLayer: some View {
         ZStack {
             // Preview + overlay share a FULL-SCREEN coordinate space (ignoresSafeArea), so the
@@ -277,6 +336,7 @@ struct ARCoachView: View {
             // kept OUTSIDE this and respects the safe area (status bar / home indicator).
             ZStack {
                 CameraPreview(session: camera.session, mirrored: camera.mirrored,
+                              rotationAngle: CaptureRotation.currentAngle,
                               configGeneration: camera.configGeneration)
                     .accessibilityHidden(true)
                 // The 30 Hz ring/dot stream renders in its OWN subview observing CoachOverlay, so
@@ -287,27 +347,29 @@ struct ARCoachView: View {
             }
             .ignoresSafeArea()
 
-            VStack {
-                debugBar
-                if let chip = savedChip {
-                    Text(chip)
-                        .font(.caption.weight(.semibold)).foregroundStyle(.black)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Capsule().fill(Ink.gold.opacity(0.92)))
-                        .transition(.opacity)
-                        .task { try? await Task.sleep(nanoseconds: 2_800_000_000)
-                                withAnimation(.easeOut(duration: 0.4)) { savedChip = nil } }
+            // PORTRAIT: chrome on top, card pinned to the bottom — the shape the whole design was
+            // drawn for. LANDSCAPE: the card moves to a TRAILING COLUMN instead. A bottom strip in
+            // landscape is the worst of both worlds — the viewport is barely 390 pt tall, so the
+            // card (a wrapping guide, a cue, a button row, up to three footnotes) would cover most
+            // of the frame, and the part it covers is the middle, which is exactly where a pair of
+            // hands sits. A side column takes width, which landscape has to spare, and leaves the
+            // centre of the picture clear.
+            if isLandscape {
+                HStack(alignment: .top, spacing: 0) {
+                    VStack { debugBar; Spacer(); savedChipView }
+                    Spacer(minLength: 0)
+                    // Scrollable, because the tallest card (LocateCard with the guide expanded, at
+                    // large Dynamic Type) can still exceed a 390 pt viewport, and a card that runs
+                    // off the bottom takes the confirm button with it.
+                    ScrollView(.vertical, showsIndicators: false) { activeCard }
+                        .frame(maxWidth: 380)
                 }
-                Spacer()
-                if engine.mode == .locate {
-                    LocateCard(point: acupoint, engine: engine, voiceControl: locateVoice,
-                               hint: hintLine,
-                               onPause: { pauseSession() },
-                               onEnd: { endSession() },   // nothing banked during locate → no confirm needed
-                               onConfirmed: { handleLocateConfirmed() },
-                               onSkipped: { voice.handover() })   // let the first coach cue speak
-                } else {
-                    feedbackCard
+            } else {
+                VStack {
+                    debugBar
+                    savedChipView
+                    Spacer()
+                    activeCard
                 }
             }
 

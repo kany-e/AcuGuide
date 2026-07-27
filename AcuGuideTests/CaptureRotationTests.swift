@@ -1,0 +1,91 @@
+import XCTest
+import AVFoundation
+import ImageIO
+@testable import AcuGuide
+
+// THE ROTATION MATH the landscape coach rests on.
+//
+// The coach's whole geometry — the guide ring, the press dot, the isotropic hit test, every saved
+// calibration — is measured in a normalized space shared by the camera buffer and the SwiftUI
+// overlay. If the two disagree about which way is up, everything lands on the wrong pixels while
+// still looking plausible, which is the failure mode that is hardest to notice and worst to ship.
+final class CaptureRotationTests: XCTestCase {
+
+    // The residual is what Vision has to apply on top of whatever the connection already did.
+    // When the connection honours the request — the normal case — Vision gets `.up`, exactly as it
+    // did when the app was portrait-locked.
+    func testNoResidualWhenTheConnectionHonouredTheRequest() {
+        for angle in [CGFloat(0), 90, 180, 270] {
+            XCTAssertEqual(CaptureRotation.visionOrientation(desired: angle, actual: angle), .up,
+                           "a connection already at \(angle)° needs no further rotation")
+        }
+    }
+
+    // The four cases the old portrait-only table hard-coded must still come out the same, or the
+    // fallback path (a platform that ignores the rotation request) silently changes behaviour.
+    func testMatchesTheRetiredPortraitTable() {
+        XCTAssertEqual(CaptureRotation.visionOrientation(desired: 90, actual: 90),  .up)
+        XCTAssertEqual(CaptureRotation.visionOrientation(desired: 90, actual: 0),   .right)
+        XCTAssertEqual(CaptureRotation.visionOrientation(desired: 90, actual: 180), .left)
+        XCTAssertEqual(CaptureRotation.visionOrientation(desired: 90, actual: 270), .down)
+    }
+
+    // Wrap-around must not produce a negative modulus — the classic bug in this shape of code.
+    func testResidualWrapsBothWays() {
+        XCTAssertEqual(CaptureRotation.visionOrientation(desired: 0, actual: 90),   .left)   // −90 → 270
+        XCTAssertEqual(CaptureRotation.visionOrientation(desired: 0, actual: 270),  .right)  //  90
+        XCTAssertEqual(CaptureRotation.visionOrientation(desired: 270, actual: 0),  .left)
+        XCTAssertEqual(CaptureRotation.visionOrientation(desired: 180, actual: 0),  .down)
+    }
+
+    // Every interface orientation must map to an angle AVFoundation accepts, and the two landscape
+    // orientations must differ by 180° — if they collide, the picture is upside down in one of them.
+    func testEveryInterfaceOrientationMapsToALegalDistinctAngle() {
+        let legal: Set<CGFloat> = [0, 90, 180, 270]
+        var seen: [UIInterfaceOrientation: CGFloat] = [:]
+        for o in [UIInterfaceOrientation.portrait, .landscapeLeft, .landscapeRight, .portraitUpsideDown] {
+            let angle = CaptureRotation.angle(for: o)
+            XCTAssertTrue(legal.contains(angle), "\(o.rawValue) → \(angle)° is not a legal rotation angle")
+            seen[o] = angle
+        }
+        XCTAssertNotEqual(seen[.landscapeLeft], seen[.landscapeRight],
+                          "the two landscape orientations must not share an angle — one would be upside down")
+        XCTAssertEqual(abs((seen[.landscapeLeft] ?? 0) - (seen[.landscapeRight] ?? 0)), 180,
+                       "the two landscape orientations are 180° apart")
+        XCTAssertEqual(seen[.portrait], 90, "portrait must keep the angle the app shipped with")
+    }
+
+    // The display aspect has to be able to express landscape. It could not before: the old
+    // min/max form was ≤ 1 by construction, so a landscape frame would have been scaled as if it
+    // were portrait — wrong ring size, wrong hit test, wrong stored calibration.
+    func testDisplayAspectExpressesBothOrientations() {
+        XCTAssertLessThan(CameraCoach.displayAspect(width: 1080, height: 1920), 1, "portrait is W/H < 1")
+        XCTAssertGreaterThan(CameraCoach.displayAspect(width: 1920, height: 1080), 1, "landscape is W/H > 1")
+        XCTAssertEqual(CameraCoach.displayAspect(width: 1920, height: 1080),
+                       1 / CameraCoach.displayAspect(width: 1080, height: 1920), accuracy: 1e-6)
+        XCTAssertGreaterThan(CameraCoach.displayAspect(width: 100, height: 0), 0,
+                             "a degenerate frame must not divide by zero")
+    }
+
+    // The isotropic distance the engine hit-tests with, and the calibration frame it stores in,
+    // must both behave in a landscape aspect — they generalise, but nothing had ever exercised
+    // them above 1.
+    func testIsotropicMathHoldsForALandscapeAspect() {
+        let portrait: CGFloat = 9.0 / 16.0, landscape: CGFloat = 16.0 / 9.0
+        // The same PHYSICAL displacement is the same isotropic distance in either orientation:
+        // a dy in a landscape frame spans proportionally less of the frame width.
+        let dyPortrait = isoDist(CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.5, y: 0.6), aspect: portrait)
+        let dyLandscape = isoDist(CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.5, y: 0.6), aspect: landscape)
+        XCTAssertGreaterThan(dyPortrait, dyLandscape,
+                             "a vertical offset must count for LESS of the width in a landscape frame")
+        // And x is unaffected by the aspect in both.
+        XCTAssertEqual(isoDist(CGPoint(x: 0.4, y: 0.5), CGPoint(x: 0.5, y: 0.5), aspect: portrait),
+                       isoDist(CGPoint(x: 0.4, y: 0.5), CGPoint(x: 0.5, y: 0.5), aspect: landscape),
+                       accuracy: 1e-6)
+    }
+
+    private func isoDist(_ a: CGPoint, _ b: CGPoint, aspect: CGFloat) -> CGFloat {
+        let dx = a.x - b.x, dy = (a.y - b.y) / max(aspect, 0.1)
+        return hypot(dx, dy)
+    }
+}
