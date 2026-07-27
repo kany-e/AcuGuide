@@ -10,7 +10,10 @@
 //
 // Spaces:
 //  • body      — full-body atlas, mesh-local coords (z-up, right = −x, front = −y); markers are
-//                surface-snapped by Meridians.snapToSurface, so slightly-off estimates land on it.
+//                surface-snapped by BodyAtlas.snapToSurface, so slightly-off estimates land on it.
+//                ABSENT for the eight hand/forearm points: those are derived from the model's
+//                skeleton in HandFrame instead (the authored ones had seven of eight on the wrong
+//                FACE of the hand — read HandFrame's header before re-authoring any of them).
 //  • detailUV  — the point's detail sheet (hand sheet for region "hand", PartDetail sheets for
 //                head/arm/foot), normalized (u,v) in [-0.5…0.5] of the model's on-screen bounding
 //                box in its canonical pose (u→right, v→up); raycast onto the surface by
@@ -26,19 +29,26 @@ struct Placement3D {
 enum AcupointPlacements {
     static let table: [String: Placement3D] = [
         // ── Hand (detail = the fingered hand sheet, dorsal pose) ─────────────────────────────
-        "TE3": Placement3D(body: [-0.370, -0.043, 0.883], detailUV: [ 0.222, -0.144]),  // 4th/5th MC groove behind the knuckles (audited: was riding the MCP heads — moved proximal)
+        //
+        // NOTE ON THE MISSING `body` VALUES. The eight hand/forearm points (TE3 SI3 HT7 PC8 PC6 SJ5
+        // TE4 PC7) no longer carry a full-body coordinate here: BodyAtlas derives them from the
+        // model's skeleton via HandFrame, because the authored ones put seven of the eight on the
+        // WRONG FACE of the hand. `detailUV` is unaffected — the detail sheet is a different mesh in
+        // a different pose, and its values were audited separately and are placed by a raycast that
+        // always worked. Do not re-add `body:` here; change the anatomical fractions in HandFrame.
+        "TE3": Placement3D(                               detailUV: [ 0.222, -0.144]),  // 4th/5th MC groove behind the knuckles (audited: was riding the MCP heads — moved proximal)
         "TE2": Placement3D(                               detailUV: [ 0.305,  0.040]),  // 4th/5th web margin
         // SI3/SI4 pulled onto the mesh (were 0.288/-0.066 and 0.160/-0.280): both sat just off
         // the ulnar silhouette, so their rays missed and the markers survived only via the spiral
         // snap — the snapped==false test assertion now pins every registry uv to a DIRECT hit
         // (probed: the ulnar edge runs u≈0.28 at the 5th MCP and u≈0.15 at the wrist band).
-        "SI3": Placement3D(body: [-0.398, -0.055, 0.848], detailUV: [ 0.267, -0.105]),  // ulnar border, behind 5th MCP
+        "SI3": Placement3D(                               detailUV: [ 0.267, -0.105]),  // ulnar border, behind 5th MCP
         // SI4 sits in the depression between the 5th-metacarpal BASE and the triquetral, at the
         // edge of the wrist crease (WHO; iaomai) — the retired map had it floating mid-hand
         // (user-reported; was [0.200, -0.202]).
         "SI4": Placement3D(                               detailUV: [ 0.195, -0.186]),
-        "HT7": Placement3D(body: [-0.352, -0.075, 0.922], detailUV: [ 0.105, -0.282], detailFarSide: true),  // ulnar palmar wrist, pisiform
-        "PC8": Placement3D(body: [-0.365, -0.088, 0.885], detailUV: [ 0.095, -0.112], detailFarSide: true),  // palm centre, 2nd/3rd MC (audited: was too ulnar — moved toward the 3rd MC)
+        "HT7": Placement3D(                               detailUV: [ 0.105, -0.282], detailFarSide: true),  // ulnar palmar wrist, pisiform
+        "PC8": Placement3D(                               detailUV: [ 0.095, -0.112], detailFarSide: true),  // palm centre, 2nd/3rd MC (audited: was too ulnar — moved toward the 3rd MC)
         "HT8": Placement3D(                               detailUV: [ 0.207, -0.138], detailFarSide: true),  // where the pinky tip lands in a fist (audited: nudged distal)
         // LU9/LU10 pulled IN toward the palm centreline (was u −0.10/−0.137): their old rays fell
         // off the radial silhouette into empty space, so the far-side raycast missed and the
@@ -48,8 +58,8 @@ enum AcupointPlacements {
         "LU9": Placement3D(                               detailUV: [-0.044, -0.271], detailFarSide: true),  // radial end of palmar wrist crease (audited: v -0.35 landed on the stub CUT FACE — invisible from the palm)
         "LI5": Placement3D(                               detailUV: [-0.052, -0.267]),                       // anatomical snuffbox (audited: was mid-wrist — pulled onto the radial border)
         // ── Forearm (full-body atlas only — no detail sheet reaches them) ────────────────────
-        "PC6": Placement3D(body: [-0.323, -0.050, 1.002]),  // palmar forearm, 2 cun above the crease
-        "SJ5": Placement3D(body: [-0.323, -0.004, 1.002]),  // dorsal forearm, opposite PC6
+        // PC6 / SJ5 carry no detail sheet and no authored body coord — HandFrame places both, 2 cun
+        // proximal to the wrist crease on the palmar and dorsal forearm respectively.
         // ── Head & face (detail = frontal head sheet) ─────────────────────────────────────────
         "EX-HN3": Placement3D(body: [ 0.000, -0.085, 1.630], detailUV: [ 0.000,  0.030]),  // glabella (audited: nudged down between the brows)
         "EX-HN5": Placement3D(body: [-0.080, -0.025, 1.630], detailUV: [ 0.415,  0.075]),  // temple hollow (audited: was ON the eye corner — moved lateral/up into the temporal fossa)
@@ -67,8 +77,8 @@ enum AcupointPlacements {
         // ── Arm (detail = horizontal arm sheet, dorsum to camera) ─────────────────────────────
         "LI11": Placement3D(body: [-0.295, -0.010, 1.155], detailUV: [ 0.160,  0.040]),                       // lateral elbow crease
         "LU5":  Placement3D(body: [-0.265, -0.050, 1.150], detailUV: [ 0.130,  0.000], detailFarSide: true),  // cubital crease (far side)
-        "TE4":  Placement3D(body: [-0.345,  0.005, 0.960], detailUV: [-0.230,  0.030]),                       // dorsal wrist crease
-        "PC7":  Placement3D(body: [-0.350, -0.085, 0.952], detailUV: [-0.215,  0.005], detailFarSide: true),  // palmar wrist crease (audited: far-ray at the old uv exited through the THUMB)
+        "TE4":  Placement3D(                               detailUV: [-0.230,  0.030]),                       // dorsal wrist crease
+        "PC7":  Placement3D(                               detailUV: [-0.215,  0.005], detailFarSide: true),  // palmar wrist crease (audited: far-ray at the old uv exited through the THUMB)
         // ── Leg (full-body atlas only) ────────────────────────────────────────────────────────
         "ST36": Placement3D(body: [-0.115, -0.060, 0.400]),
         "GB34": Placement3D(body: [-0.135, -0.045, 0.480]),

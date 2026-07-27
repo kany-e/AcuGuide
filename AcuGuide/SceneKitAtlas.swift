@@ -201,8 +201,27 @@ enum AtlasMarkers {
     // AABB above and the camera ray live in. Reads the CPU-side geometry sources directly, so it
     // works identically for GLB-loaded meshes and SCN primitives, rendered or not.
     private static func worldTriangles(_ node: SCNNode) -> [SIMD3<Float>] {   // flat v0,v1,v2 triples
+        triangles(of: node, in: nil, categoryMask: nil)
+    }
+
+    // The triangle soup of `node`'s subtree, expressed in `reference`'s coordinate space (nil =
+    // world, which is what screenMarker wants for a detail sheet).
+    //
+    // BodyAtlas needs BOTH extra parameters, which is why this is no longer private:
+    //  • `reference` — the body mesh carries a `pivot`, and coordinate conversion does NOT honour
+    //    pivot (the same trap unitMesh documents above). Its acupoint coordinates are mesh-LOCAL,
+    //    so its rays must be too; converting to world would cast against a phantom, offset body.
+    //  • `categoryMask` — by the time markers snap, the meridian channels and their fat invisible
+    //    tap proxies are already children of the mesh. Only surfaceCategory geometry is skin.
+    //
+    // This exists because SCNNode.hitTestWithSegment returns NOTHING for either GLB in this
+    // project — which is why BodyAtlas's surface snap silently fired for 0 of 27 markers and its
+    // channel projection silently kept the raw bone route. The detail sheets never hit that
+    // because screenMarker has always done its own CPU intersection; BodyAtlas now shares it.
+    static func triangles(of node: SCNNode, in reference: SCNNode?, categoryMask: Int?) -> [SIMD3<Float>] {
         var tris: [SIMD3<Float>] = []
         node.enumerateHierarchy { n, _ in
+            if let categoryMask, n.categoryBitMask & categoryMask == 0 { return }
             guard let geo = n.geometry, let src = geo.sources(for: .vertex).first,
                   src.componentsPerVector >= 3, src.bytesPerComponent == 4 else { return }
             var verts = [SIMD3<Float>](); verts.reserveCapacity(src.vectorCount)
@@ -216,7 +235,7 @@ enum AtlasMarkers {
                 }
             }
             let world = verts.map { p -> SIMD3<Float> in
-                let w = n.convertPosition(SCNVector3(p.x, p.y, p.z), to: nil)
+                let w = n.convertPosition(SCNVector3(p.x, p.y, p.z), to: reference)
                 return SIMD3(Float(w.x), Float(w.y), Float(w.z))
             }
             for el in geo.elements where el.primitiveType == .triangles {
@@ -251,9 +270,9 @@ enum AtlasMarkers {
     }
 
     // Möller–Trumbore over the triangle soup: every intersection along the ray, sorted near→far
-    // (first = visible surface, last = the far side for palm/sole points).
-    private static func rayHits(_ tris: [SIMD3<Float>], origin: SIMD3<Float>, dir: SIMD3<Float>,
-                                maxT: Float) -> [(t: Float, n: SIMD3<Float>)] {
+    // (first = visible surface, last = the far side for palm/sole points). Shared with BodyAtlas.
+    static func rayHits(_ tris: [SIMD3<Float>], origin: SIMD3<Float>, dir: SIMD3<Float>,
+                        maxT: Float) -> [(t: Float, n: SIMD3<Float>)] {
         var hits: [(t: Float, n: SIMD3<Float>)] = []
         var i = 0
         while i + 2 < tris.count {
