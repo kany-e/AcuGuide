@@ -98,6 +98,20 @@ enum AcupointPlacements {
     static func detailLayout(region: String) -> (layout: [String: SIMD2<Float>], back: Set<String>) {
         var layout: [String: SIMD2<Float>] = [:]
         var back: Set<String> = []
+        // HAND: derived from HandAnatomy through HandSheet's measured frame, NOT from the authored
+        // detailUV below. Those authored values were eyeballed and then nudged until the raycast
+        // landed, which is how TE3, SI3 and SI4 ended up stacked on one spot when SI4 belongs a
+        // whole palm away at the wrist (user-reported: the hand "didn't even change"). The body
+        // atlas and this sheet now read the SAME anatomy; only the frame differs.
+        if region == "hand" {
+            let derived = HandSheet.detailUV
+            for pt in Acupoint.all where pt.region == region {
+                guard let uv = derived[pt.id] else { continue }
+                layout[pt.id] = uv
+                if !pt.requiresDorsal { back.insert(pt.id) }   // palmar points raycast from behind
+            }
+            return (layout, back)
+        }
         for pt in Acupoint.all where pt.region == region {
             guard let p = table[pt.id], let uv = p.detailUV else { continue }
             layout[pt.id] = uv

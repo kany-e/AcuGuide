@@ -127,16 +127,18 @@ struct ARCoachView: View {
                 // the user's press gets labeled, and their confirmed spot corrects the ring.
                 CameraGate(onAuthorized: {
                     camera.start()
-                    // MIC AT ENTRY, not buried in the locate card and not only on the once-shown
-                    // setup card. Study mode's exit is a spoken "continue" — the screen's whole
-                    // premise is that both hands are occupied — so the mic is now load-bearing, not
-                    // a nicety, and asking for it after the user is already mid-press is too late.
-                    // Asked ONCE per install (autoAskedMic): iOS never re-prompts after a refusal,
-                    // so re-firing it every session would only produce a no-op that looks broken.
-                    if locateVoice.available, !settings.autoAskedMic {
-                        settings.autoAskedMic = true
-                        locateVoice.start()
-                    }
+                    // MIC ON, EVERY SESSION. Device report: "the allow microphone should be
+                    // immediately enabled if the user agrees when they enter the camera coach, no
+                    // more pressing the microphone button." Right: both hands are on the point, so
+                    // reaching for a mic button is the exact thing voice control exists to avoid —
+                    // and gating the auto-start on `autoAskedMic` meant it happened ONCE per
+                    // install and never again, so from session two the user had to tap.
+                    //
+                    // Calling start() unconditionally is safe and is NOT a repeated prompt:
+                    // SFSpeechRecognizer.requestAuthorization and requestRecordPermission return
+                    // the stored answer with no UI once the user has answered, so a previous
+                    // refusal just lands in `denied` (surfaced on the card) instead of nagging.
+                    if locateVoice.available { locateVoice.start() }
                 }, onUseTimer: onUseTimer) { coachLayer }
             }
         }
@@ -317,6 +319,60 @@ struct ARCoachView: View {
         }
     }
 
+    // THE VOICE HINT — the thing the "?" button was not.
+    //
+    // Device report: "adding a ? button for the voice control instructions does not at all solve how
+    // the user is going to know the voice controls, it should be part of the process of finding the
+    // acupoint, for example, as a floating text." Correct: a sheet behind a button is opt-in
+    // discovery for a HANDS-FREE feature, which is a contradiction — to learn you can speak, you
+    // first have to touch. (The sheet stays, as the full reference; it is no longer the only way in.)
+    //
+    // So this follows the just-in-time pattern voice UIs converge on (Google's conversational-design
+    // guidance, Alexa's on-screen "Try saying…", iOS Voice Control's own hints): show ONE command,
+    // the one that is useful at this exact moment, phrased as the words to say — never a menu.
+    // It is keyed to the coaching state, so it teaches the vocabulary in the order the user meets it:
+    // freeze while hunting → save once settled → resume while reading.
+    //
+    // Self-limiting rather than dismissible: it appears only while the mic is actually listening,
+    // and disappears the moment the press is on target, so it can never sit over a good hold. That
+    // also means a fluent returning user — who settles quickly — barely sees it.
+    private var voiceHint: String? {
+        guard locateVoice.listening, !userPaused else { return nil }
+        if studyShot != nil { return AppLocale.pick("说「继续」回到实时画面", "Say “continue” to go back") }
+        if engine.mode == .locate {
+            switch engine.locateState {
+            case .ready:    return AppLocale.pick("说「就是这里」保存位置", "Say “this is my spot” to save it")
+            case .settling: return nil                     // they are on it — do not talk over the moment
+            default:        return AppLocale.pick("说「怎么找」可定住画面看说明", "Say “show me” to freeze and read the guide")
+            }
+        }
+        // Coaching: quiet during a hold, so the hint never competes with the press itself.
+        switch engine.phase {
+        case .holding, .onTargetUnstable, .resting, .complete: return nil
+        default: return AppLocale.pick("说「怎么找」可定住画面看说明", "Say “show me” to freeze and read the guide")
+        }
+    }
+
+    @ViewBuilder private var voiceHintChip: some View {
+        if let hint = voiceHint {
+            HStack(spacing: 6) {
+                Image(systemName: "waveform").font(.caption2).accessibilityHidden(true)
+                Text(hint).font(.caption.weight(.medium))
+            }
+            .foregroundStyle(Ink.paper)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Capsule().fill(.black.opacity(0.45)))
+            .overlay(Capsule().stroke(Ink.gold.opacity(0.5), lineWidth: 1))
+            .transition(.opacity.combined(with: .move(edge: .top)))
+            .animation(.easeInOut(duration: 0.25), value: hint)
+            // PARAPHRASED for VoiceOver. The visible text is the literal phrase on purpose — that is
+            // what makes it teach — but VoiceOver would read it out of the speaker and into the open
+            // mic, which is the self-trigger LocateStep and VoiceCommandsView already guard against.
+            .accessibilityLabel(AppLocale.pick("提示：可以用语音操作，完整指令表在顶部的问号里。",
+                                               "Tip: you can use your voice here; the full command list is behind the question mark at the top."))
+        }
+    }
+
     @ViewBuilder private var savedChipView: some View {
         if let chip = savedChip {
             Text(chip)
@@ -356,7 +412,7 @@ struct ARCoachView: View {
             // centre of the picture clear.
             if isLandscape {
                 HStack(alignment: .top, spacing: 0) {
-                    VStack { debugBar; Spacer(); savedChipView }
+                    VStack { debugBar; voiceHintChip; Spacer(); savedChipView }
                     Spacer(minLength: 0)
                     // Scrollable, because the tallest card (LocateCard with the guide expanded, at
                     // large Dynamic Type) can still exceed a 390 pt viewport, and a card that runs
@@ -367,6 +423,7 @@ struct ARCoachView: View {
             } else {
                 VStack {
                     debugBar
+                    voiceHintChip
                     savedChipView
                     Spacer()
                     activeCard

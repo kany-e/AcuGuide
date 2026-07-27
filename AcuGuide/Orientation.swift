@@ -28,12 +28,32 @@ enum OrientationLock {
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive })
         else { return }
-        // Two calls, and both are needed. requestGeometryUpdate ROTATES a window that is currently
-        // in an orientation the new mask forbids (leaving the coach in landscape must snap back to
-        // portrait, not strand the atlas sideways). setNeedsUpdate… re-asks the delegate so the
-        // system honours a WIDENED mask, which the geometry request alone does not do.
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: new))
-        scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+
+        // THE WHOLE PRESENTATION CHAIN, not just the root. This is why the first attempt did
+        // nothing on device: the camera coach is presented in a `.fullScreenCover`, and UIKit asks
+        // the TOPMOST PRESENTED view controller — telling only the root to re-read its orientations
+        // leaves the controller that is actually being consulted holding its stale answer. (A
+        // widely-reported SwiftUI trap; the preference-key variants of this fix fail for the same
+        // reason.) Walking the chain also covers sheets stacked on top of the cover.
+        var vc = scene.keyWindow?.rootViewController
+        while let current = vc {
+            current.setNeedsUpdateOfSupportedInterfaceOrientations()
+            vc = current.presentedViewController
+        }
+
+        // THEN the geometry request — after the system has re-read the mask, or it evaluates the
+        // request against the old one. This is what actually rotates a window that is currently in
+        // an orientation the new mask forbids (leaving the coach in landscape must snap the atlas
+        // back to portrait, not strand it sideways).
+        //
+        // The errorHandler is not decoration: this call fails SILENTLY otherwise, and the two ways
+        // it fails here are both plausible on a real phone — the mask being incompatible with the
+        // Info.plist, and the scene not being in a state that permits a resize.
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: new)) { error in
+            // Not a crash and not user-facing: rotation is a nicety, and the most common cause is
+            // the user's own Portrait Orientation Lock, which is their choice, not a bug.
+            print("[OrientationLock] geometry update to \(new.rawValue) refused: \(error.localizedDescription)")
+        }
     }
 }
 

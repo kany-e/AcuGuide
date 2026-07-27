@@ -17,8 +17,14 @@ enum AtlasMarkers {
         m.diffuse.contents = color
         m.emission.contents = color
         m.transparency = opacity
+        // READ depth so the body/mesh occludes a marker on its far side…
         m.readsFromDepthBuffer = depthTested
-        m.writesToDepthBuffer = depthTested
+        // …but NEVER write it. A marker is a core sphere inside a wider halo sphere, and the halo
+        // draws FIRST (renderingOrder 14 vs 15). When the halo wrote depth it stamped its own front
+        // surface — which sits further out than the core — so the core then failed the depth test
+        // and was culled: the dot rendered as a pale halo with its solid centre missing. Writing
+        // also has no upside here; nothing needs to be occluded BY a marker.
+        m.writesToDepthBuffer = false
         return m
     }
 

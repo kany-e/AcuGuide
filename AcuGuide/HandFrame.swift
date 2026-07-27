@@ -73,41 +73,21 @@ struct HandFrame {
         origin + forearm * (cunProximal * cun) + radial * (across * palmLength)
     }
 
-    // WHERE EACH POINT SITS, in the terms its source uses. Fractions of the palm length across the
-    // hand: the MCP heads span roughly +0.30 (index) to −0.36 (little finger), so adjacent
-    // metacarpals are about 0.22 apart and the ulnar border is near −0.45.
-    // Sources: WHO Standard Acupuncture Point Locations in the Western Pacific Region (2008), and
-    // claude-deliverables/references/acuguide_source_upgrade.md. The surface offset is NOT here —
-    // BodyAtlas.markers raycasts each point onto the skin along ±palmar, using the point's own
-    // requiresDorsal flag to pick the side.
+    // The body atlas's share of HandAnatomy: the eight points that surface carries, resolved into
+    // mesh coordinates through this frame. Everything anatomical lives in HandAnatomy, so the body
+    // and the detail sheet cannot drift apart. The surface offset is NOT here — BodyAtlas.markers
+    // raycasts each point onto the skin along ±palmar, using the point's own requiresDorsal.
     var placements: [String: SIMD3<Float>] {
-        [
-            // ── Palmar ───────────────────────────────────────────────────────────────────────
-            // Daling: middle of the palmar wrist crease, between the two central tendons.
-            "PC7": hand(along:  0.00, across:  0.00),
-            // Shenmen: ulnar end of the palmar wrist crease, at the pisiform.
-            "HT7": hand(along:  0.03, across: -0.32),
-            // Laogong: centre of the palm, between the 2nd and 3rd metacarpals, nearer the 3rd —
-            // where the middle fingertip lands when the fingers curl. (WHO also admits a reading
-            // just proximal to the MCP joint, ≈0.85; the app's own location text and find-guide
-            // both say "the centre of the palm", and that is what the user expects to see.)
-            "PC8": hand(along:  0.62, across:  0.10),
-            // Neiguan: palmar forearm, 2 cun proximal to the wrist crease, between the tendons.
-            "PC6": forearmPoint(cunProximal: 2, across: 0.00),
-            // ── Dorsal ───────────────────────────────────────────────────────────────────────
-            // Yangchi: dorsal wrist crease, in the depression just ulnar of the extensor tendon.
-            "TE4": hand(along:  0.00, across: -0.06),
-            // Zhongzhu: the groove proximal to the heads of the 4th and 5th metacarpals.
-            "TE3": hand(along:  0.80, across: -0.25),
-            // Houxi: ulnar border, proximal to the head of the 5th metacarpal — the end of the
-            // palm crease when a loose fist is made. This is a red-white-flesh BORDER point: it
-            // straddles the palmar and dorsal skin, so "which face" is genuinely ambiguous. Placed
-            // a little inside the border (−0.40 rather than the anatomical −0.45) so the snap lands
-            // it on the DORSAL side, which is the side the point is filed under (requiresDorsal)
-            // and the side the camera coach asks the user to show.
-            "SI3": hand(along:  0.86, across: -0.40),
-            // Waiguan: dorsal forearm, 2 cun proximal to the crease, directly opposite Neiguan.
-            "SJ5": forearmPoint(cunProximal: 2, across: 0.00),
-        ]
+        var out: [String: SIMD3<Float>] = [:]
+        // Only the points the FULL-BODY atlas draws; the rest are detail-sheet only (the low-poly
+        // body hand is a mitten with no fingers to place them against).
+        for id in ["PC7", "HT7", "PC8", "TE4", "TE3", "SI3"] {
+            guard let s = HandAnatomy.spots[id] else { continue }
+            out[id] = hand(along: s.along, across: s.across)
+        }
+        for (id, f) in HandAnatomy.forearmSpots {
+            out[id] = forearmPoint(cunProximal: f.cun, across: f.across)
+        }
+        return out
     }
 }

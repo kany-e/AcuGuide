@@ -263,3 +263,289 @@ final class BodyMeshProbeTests: XCTestCase {
     }
 }
 
+
+// Full-body render at the DEFAULT atlas camera, with channels + markers, exactly as Body3DView
+// assembles the scene. Device report: "why does the chest meridian have two dips on it" and "the
+// body should be solid, not transparent so that the front and back arm meridians are not
+// simultaneously visible when you are at front angles".
+extension BodyMeshProbeTests {
+    func testRenderWholeBodyForAudit() throws {
+        guard let gltfScene = loadScene("model"), let geometry = bodyGeometry(gltfScene) else {
+            XCTFail("no body geometry"); return
+        }
+        for (tag, yaw) in [("front", Float(0)), ("q45", Float.pi / 4)] {
+            let scene = SCNScene()
+            scene.background.contents = UIColor(white: 0.97, alpha: 1)
+            AtlasMarkers.addStudioLighting(to: scene)
+            let geo = geometry.copy() as! SCNGeometry
+            geo.materials = [BodyAtlas.auditBodyMaterial()]   // the app's own sage material
+            let mesh = SCNNode(geometry: geo)
+            let (lo, hi) = mesh.boundingBox
+            mesh.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2)
+            mesh.addChildNode(BodyAtlas.channels(on: mesh))
+            let markers = BodyAtlas.markers(on: mesh)
+            markers.enumerateHierarchy { n, _ in n.isHidden = false }
+            mesh.addChildNode(markers)
+            let pose = SCNNode(); pose.addChildNode(mesh)
+            pose.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+            let spin = SCNNode(); spin.addChildNode(pose); spin.eulerAngles = SCNVector3(0, yaw, 0)
+            scene.rootNode.addChildNode(spin)
+
+            let radius = pose.boundingSphere.radius
+            let cam = SCNNode(); cam.camera = SCNCamera()
+            cam.camera?.fieldOfView = 50; cam.camera?.zNear = 0.01
+            cam.camera?.zFar = Double(radius) * 400 + 100
+            cam.camera?.categoryBitMask = ~BodyAtlas.proxyCategory
+            cam.position = SCNVector3(0, 0, radius * 3.4)
+            scene.rootNode.addChildNode(cam)
+
+            let r = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil)
+            r.scene = scene; r.pointOfView = cam
+            let img = r.snapshot(atTime: 0, with: CGSize(width: 620, height: 1000),
+                                 antialiasingMode: .multisampling4X)
+            let out = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("audit_body_\(tag).png")
+            try img.pngData()!.write(to: out)
+            print("BODY AUDIT wrote \(out.path)")
+        }
+    }
+}
+
+// LANDMARK DERIVATION for the DETAIL hand mesh (hand_low_poly.glb), which — unlike model.glb — has
+// NO SKELETON (0 skins, 0 bones; only Sketchfab wrapper nodes). Its acupoint placements were the
+// second thing the user called out as unchanged, and eyeballing a probe grid is the method this
+// codebase repudiates. So derive the landmarks from the GEOMETRY: the five digits are the five
+// local extremities of distance-from-the-wrist-stub, and the wrist is the flat cut face at the
+// proximal end.
+extension BodyMeshProbeTests {
+    func testProbeDetailHandLandmarks() throws {
+        guard let scene = loadScene("hand_low_poly") else { return }
+        var verts: [SIMD3<Float>] = []
+        scene.rootNode.enumerateHierarchy { n, _ in
+            guard let g = n.geometry, let src = g.sources(for: .vertex).first,
+                  src.componentsPerVector >= 3, src.bytesPerComponent == 4 else { return }
+            src.data.withUnsafeBytes { raw in
+                for i in 0..<src.vectorCount {
+                    let b = src.dataOffset + i * src.dataStride
+                    guard b + 12 <= raw.count else { break }
+                    let p = SIMD3<Float>(raw.loadUnaligned(fromByteOffset: b, as: Float.self),
+                                         raw.loadUnaligned(fromByteOffset: b + 4, as: Float.self),
+                                         raw.loadUnaligned(fromByteOffset: b + 8, as: Float.self))
+                    let w = n.convertPosition(SCNVector3(p.x, p.y, p.z), to: nil)
+                    verts.append(SIMD3(Float(w.x), Float(w.y), Float(w.z)))
+                }
+            }
+        }
+        print("=== hand_low_poly: \(verts.count) vertices ===")
+        guard !verts.isEmpty else { XCTFail("no vertices — the source is GPU-backed"); return }
+        var lo = verts[0], hi = verts[0]
+        for v in verts { lo = simd_min(lo, v); hi = simd_max(hi, v) }
+        print(String(format: "  bbox x %.3f…%.3f  y %.3f…%.3f  z %.3f…%.3f", lo.x, hi.x, lo.y, hi.y, lo.z, hi.z))
+        let ext = hi - lo
+        let longAxis = ext.x > ext.y ? (ext.x > ext.z ? 0 : 2) : (ext.y > ext.z ? 1 : 2)
+        print("  longest axis =", ["x","y","z"][longAxis], "extent", ext[longAxis])
+        // Slice along the long axis and report the cross-section width + vertex count, so the wrist
+        // (narrow, flat cut) and the finger fan (many small clusters) are readable from the numbers.
+        let steps = 24
+        for i in 0..<steps {
+            let a = lo[longAxis] + ext[longAxis] * Float(i) / Float(steps)
+            let b = lo[longAxis] + ext[longAxis] * Float(i + 1) / Float(steps)
+            let band = verts.filter { $0[longAxis] >= a && $0[longAxis] < b }
+            guard !band.isEmpty else { continue }
+            let o1 = (longAxis + 1) % 3, o2 = (longAxis + 2) % 3
+            let w1 = (band.map { $0[o1] }.max()! - band.map { $0[o1] }.min()!)
+            let w2 = (band.map { $0[o2] }.max()! - band.map { $0[o2] }.min()!)
+            print(String(format: "  %.3f…%.3f  n=%4d  width(%@)=%.3f  width(%@)=%.3f",
+                         a, b, band.count, ["x","y","z"][o1] as NSString, w1, ["x","y","z"][o2] as NSString, w2))
+        }
+    }
+}
+
+// The DETAIL hand sheet's own anatomical frame, in the (u,v) space the registry authors in.
+//
+// hand_low_poly.glb has no skeleton, so the landmarks come from the GEOMETRY: slice the posed mesh
+// along its long axis and read off the fingertip plane, the knuckle line (where the finger fan
+// merges into a single wide mass) and the wrist crease (where the palm+thumb mass narrows into the
+// forearm stub). Those three, plus the thumb's lateral extreme, give the same frame HandFrame
+// derives from the body's bones — so BOTH surfaces can be placed from ONE set of anatomical
+// fractions instead of two unrelated tables.
+extension BodyMeshProbeTests {
+    func testProbeDetailHandUVFrame() throws {
+        guard let scene = loadScene("hand_low_poly"),
+              let mesh = AtlasMarkers.unitMesh(from: scene, material: AtlasMarkers.meshMaterial()) else {
+            XCTFail("no hand mesh"); return
+        }
+        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)      // == HandModel3DView's chart pose
+
+        // World-space vertices of the POSED mesh, and the same world AABB screenMarker maps uv onto.
+        let tris = AtlasMarkers.triangles(of: mesh, in: nil, categoryMask: nil)
+        XCTAssertFalse(tris.isEmpty, "no triangles — cannot derive a frame")
+        var mn = tris[0], mx = tris[0]
+        for v in tris { mn = simd_min(mn, v); mx = simd_max(mx, v) }
+        let centre = (mn + mx) / 2, ext = mx - mn
+        func uv(_ p: SIMD3<Float>) -> SIMD2<Float> {
+            SIMD2((p.x - centre.x) / ext.x, (p.y - centre.y) / ext.y)
+        }
+        print(String(format: "=== posed AABB  x %.3f…%.3f  y %.3f…%.3f  z %.3f…%.3f", mn.x, mx.x, mn.y, mx.y, mn.z, mx.z))
+
+        // Slice along SCREEN-Y (v), which after the chart pose runs fingertips → wrist.
+        print("  v-band      n    x-span   z-span   centroid(u,v)")
+        let steps = 20
+        var bands: [(v: Float, n: Int, xs: Float, cu: Float, cv: Float)] = []
+        for i in 0..<steps {
+            let a = mn.y + ext.y * Float(i) / Float(steps)
+            let b = mn.y + ext.y * Float(i + 1) / Float(steps)
+            let band = tris.filter { $0.y >= a && $0.y < b }
+            guard band.count > 2 else { continue }
+            let xs = band.map(\.x).max()! - band.map(\.x).min()!
+            let zs = band.map(\.z).max()! - band.map(\.z).min()!
+            let c = band.reduce(SIMD3<Float>.zero, +) / Float(band.count)
+            let cuv = uv(c)
+            bands.append((b, band.count, xs, cuv.x, cuv.y))
+            let umin = uv(SIMD3(band.map(\.x).min()!, 0, 0)).x, umax = uv(SIMD3(band.map(\.x).max()!, 0, 0)).x
+            print(String(format: "  %+.3f  %5d   u %+.3f…%+.3f  (span %.3f)  z-span %.3f  centroid u %+.3f",
+                         cuv.y, band.count, umin, umax, xs, zs, cuv.x))
+        }
+    }
+}
+
+// A labelled uv GRID on the detail hand. Inferring the frame from slice statistics put the v axis
+// upside down (LI5, a radial WRIST point, landed on the middle finger), so read it off a picture:
+// each dot is drawn at a known (u,v), so the wrist crease, the knuckle line and the thumb side can
+// be located by looking rather than by argument.
+extension BodyMeshProbeTests {
+    func testRenderDetailHandUVGrid() throws {
+        guard let scene = loadScene("hand_low_poly"),
+              let mesh = AtlasMarkers.unitMesh(from: scene, material: AtlasMarkers.meshMaterial()) else {
+            XCTFail("no hand mesh"); return
+        }
+        let out = SCNScene()
+        out.background.contents = UIColor(white: 0.97, alpha: 1)
+        AtlasMarkers.addStudioLighting(to: out)
+        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
+        out.rootNode.addChildNode(mesh)
+        let cam = SCNNode(); cam.camera = SCNCamera()
+        cam.camera?.fieldOfView = 45; cam.camera?.zNear = 0.01; cam.camera?.zFar = 100
+        cam.position = SCNVector3(0, 0, 2.3)
+        out.rootNode.addChildNode(cam)
+
+        let us: [Float] = [-0.30, -0.15, 0, 0.15, 0.30]
+        let vs: [Float] = [-0.40, -0.20, 0, 0.20, 0.40]
+        for v in vs {
+            for u in us {
+                guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v,
+                                                        farSide: false, id: "g", color: .systemRed,
+                                                        core: 0.016, halo: 0.026) else { continue }
+                out.rootNode.addChildNode(m.node)
+                let t = SCNText(string: String(format: "%.2f,%.2f", u, v), extrusionDepth: 0.001)
+                t.font = .systemFont(ofSize: 1.4); t.flatness = 0.05
+                t.firstMaterial?.diffuse.contents = UIColor.systemRed
+                t.firstMaterial?.lightingModel = .constant
+                let tn = SCNNode(geometry: t)
+                tn.scale = SCNVector3(0.030, 0.030, 0.030)
+                tn.position = SCNVector3(m.node.position.x + 0.03, m.node.position.y + 0.02,
+                                         m.node.position.z + 0.35)
+                tn.constraints = [SCNBillboardConstraint()]
+                out.rootNode.addChildNode(tn)
+            }
+        }
+        let r = SCNRenderer(device: MTLCreateSystemDefaultDevice()!, options: nil)
+        r.scene = out; r.pointOfView = cam
+        let img = r.snapshot(atTime: 0, with: CGSize(width: 900, height: 1100), antialiasingMode: .multisampling4X)
+        let path = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("uv_grid_hand.png")
+        try img.pngData()!.write(to: path)
+        print("UVGRID wrote \(path.path)")
+    }
+}
+
+// FIT THE ACROSS-SCALE BY SEARCH, not by eye.
+//
+// The anatomy says the ulnar border sits ~0.45 palm-lengths off the centreline. This mesh is a
+// stylised hand: its fingers are splayed (so its knuckle line is far WIDER than a real hand's) while
+// its wrist stub is far NARROWER, so no single stretch puts every point on the silhouette. Pick the
+// largest scale at which every hand point still lands DIRECTLY on the mesh — measured once, here,
+// rather than nudged per point until a render looks acceptable (the method that produced the
+// placements this replaced).
+extension BodyMeshProbeTests {
+    func testFitDetailHandAcrossScale() throws {
+        guard let scene = loadScene("hand_low_poly"),
+              let mesh = AtlasMarkers.unitMesh(from: scene, material: AtlasMarkers.meshMaterial()) else {
+            XCTFail("no hand mesh"); return
+        }
+        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
+        let ids = HandAnatomy.spots.keys.sorted()
+
+        print("  scale   direct hits / \(ids.count)   misses")
+        var best: Float? = nil
+        for i in stride(from: 40, through: 210, by: 5) {
+            let scale = Float(i) / 100
+            var direct = 0, bad: [String] = []
+            for id in ids {
+                guard let sp = HandAnatomy.spots[id] else { continue }
+                let uv = HandSheet.wrist
+                    + HandSheet.distal * (sp.along * HandSheet.palmLength)
+                    + HandSheet.radial * (sp.across * scale * HandSheet.palmLength)
+                guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: uv.x, v: uv.y,
+                                                        farSide: !sp.dorsal, id: id, color: .white,
+                                                        core: 0.02, halo: 0.03) else { bad.append(id); continue }
+                if m.onSurface && !m.snapped { direct += 1 } else { bad.append(id) }
+            }
+            print(String(format: "  %.2f     %2d              %@", scale, direct, bad.joined(separator: " ") as NSString))
+            if direct == ids.count { best = scale }
+        }
+        if let best { print("=== largest all-direct across-scale: \(best)") }
+        else { print("=== no scale puts every point directly on the mesh") }
+    }
+}
+
+// The shared anatomy table is the app's ONE statement of where a hand point is. These pin the two
+// things that made it necessary: that it agrees with the coach's face gate, and that the detail
+// sheet it now feeds still puts every point on the mesh.
+final class HandAnatomyTests: XCTestCase {
+
+    // Every spot's `dorsal` must equal the point's own requiresDorsal — the flag the camera coach
+    // uses to decide "turn your hand over". If these disagree, the atlas draws a point on one face
+    // while the coach asks the user to show the other.
+    func testAnatomyAgreesWithTheCoachFaceGate() {
+        for (id, spot) in HandAnatomy.spots.sorted(by: { $0.key < $1.key }) {
+            guard let pt = Acupoint.byId[id] else { XCTFail("\(id) is not in the atlas"); continue }
+            XCTAssertEqual(spot.dorsal, pt.requiresDorsal,
+                           "\(id): HandAnatomy says dorsal=\(spot.dorsal) but requiresDorsal=\(pt.requiresDorsal)")
+        }
+        for (id, f) in HandAnatomy.forearmSpots {
+            guard let pt = Acupoint.byId[id] else { XCTFail("\(id) is not in the atlas"); continue }
+            XCTAssertEqual(f.dorsal, pt.requiresDorsal, "\(id): forearm spot disagrees with requiresDorsal")
+        }
+    }
+
+    // Every hand-region point must have anatomy SOMEWHERE, or it silently vanishes from the chart
+    // (detailLayout skips ids it cannot resolve). PC6 and SJ5 are filed under region "hand" but are
+    // FOREARM points — 2 cun above the wrist crease, past the end of the hand sheet's mesh — so
+    // they belong to forearmSpots and are correctly absent from the chart, as they always were.
+    func testEveryHandRegionPointHasAnatomy() {
+        for pt in Acupoint.all where pt.region == "hand" {
+            let placed = HandAnatomy.spots[pt.id] != nil || HandAnatomy.forearmSpots[pt.id] != nil
+            XCTAssertTrue(placed, "\(pt.id) is a hand-region point with no entry in HandAnatomy")
+        }
+        // …and the two forearm ones must stay OFF the sheet rather than being drawn at its edge.
+        XCTAssertNil(HandSheet.detailUV["PC6"], "PC6 is on the forearm — the hand sheet does not reach it")
+        XCTAssertNil(HandSheet.detailUV["SJ5"], "SJ5 is on the forearm — the hand sheet does not reach it")
+    }
+
+    // THE DEFECT THIS ROUND FIXED, as an assertion. SI4 is at the ulnar WRIST and TE3/SI3 are up by
+    // the knuckles; the detail sheet had all three within a few percent of one spot. Anything that
+    // collapses them again — a bad frame, a bad scale — fails here.
+    func testWristAndKnucklePointsAreNotOnTopOfEachOther() {
+        let uv = HandSheet.detailUV
+        guard let si4 = uv["SI4"], let te3 = uv["TE3"], let si3 = uv["SI3"] else {
+            XCTFail("missing derived uv"); return
+        }
+        // SI4 is a wrist point; TE3/SI3 sit near the knuckle line. On this sheet the palm spans
+        // ~0.33 uv, so a correct layout separates them by most of that.
+        XCTAssertGreaterThan(simd_distance(si4, te3), 0.20, "SI4 and TE3 have collapsed together")
+        XCTAssertGreaterThan(simd_distance(si4, si3), 0.20, "SI4 and SI3 have collapsed together")
+        // TE3 and SI3 ARE genuinely close (both proximal to the 4th/5th MCP heads) — but not equal.
+        XCTAssertGreaterThan(simd_distance(te3, si3), 0.02, "TE3 and SI3 are the same point")
+    }
+}
