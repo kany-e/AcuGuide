@@ -43,6 +43,10 @@ enum BodyAtlas {
     ]
     static func b(_ k: String) -> SIMD3<Float> { bone[k] ?? .zero }
 
+    /// The body's own material, exposed so the offscreen audit renders what the APP renders rather
+    /// than a bare default — the transparency and depth settings are exactly what was wrong.
+    static func auditBodyMaterial() -> SCNMaterial { sageMaterial() }
+
     // MARK: Channels
 
     // Build the channels under one container node, routed along the FULL skeleton chains and
@@ -69,7 +73,13 @@ enum BodyAtlas {
             // stroke THROUGH the hand dots was tried in R14.15/16 and twisted — the mitten hand's crude
             // mesh makes the depth projection unreliable there; reverted to the stable bone route.)
             let wristEnd = mix(b(side.k("LowerArm")), b(side.k("Hand")), 0.7)
-            let arm = [b(side.k("Shoulder")), b(side.k("UpperArm")), b(side.k("LowerArm")), wristEnd]
+            // Start at the SHOULDER JOINT (UpperArm), not the clavicle-ish Shoulder bone. The
+            // Shoulder bone sits beside the NECK, so six laterally-offset arm channels used to fan
+            // diagonally across the upper chest and read as two hatched wedges — device report:
+            // "why does the chest meridian have two dips on it". They are arm channels; every point
+            // they carry is on the arm or hand. (The classical pathways do continue onto the chest
+            // and neck, but drawing that on a low-poly torso buys noise, not information.)
+            let arm = [b(side.k("UpperArm")), b(side.k("LowerArm")), wristEnd]
             // Yin — anterior (palmar) surface: radial LU, middle PC, ulnar HT.
             root.addChildNode(channel(arm, dx: -s * ax, meridian: "lung",  surface: surface, front: true))
             root.addChildNode(channel(arm, dx:  0,      meridian: "pc",    surface: surface, front: true))
@@ -350,8 +360,12 @@ enum BodyAtlas {
             let onHand = hand.placements[m.id] != nil
             let axis = onHand ? (Acupoint.byId[m.id]?.requiresDorsal == true ? -hand.palmar : hand.palmar) : nil
             let pos = snapToSurface(m.pos, along: axis, toward: onHand ? handCentre : nil, surface: surface)
+            // depthTested: the body now occludes a marker on its far side, same as the channels.
+            // Glow-through was tolerable when the torso was translucent; against a solid body it is
+            // just wrong — a right-hand point must not shine through the chest from the front.
             let node = AtlasMarkers.node(id: m.id, color: markerBlack, coreRadius: 0.0080,
-                                         haloRadius: 0.0145, at: SCNVector3(pos.x, pos.y, pos.z))
+                                         haloRadius: 0.0145, at: SCNVector3(pos.x, pos.y, pos.z),
+                                         depthTested: true)
             node.isHidden = true        // revealed by the body view's per-frame loop (now: always shown)
             root.addChildNode(node)
         }
@@ -567,8 +581,15 @@ enum BodyAtlas {
         m.diffuse.contents = color
         m.transparency = opacity
         m.isDoubleSided = true
-        m.writesToDepthBuffer = false          // sits on top of the translucent body cleanly
-        m.readsFromDepthBuffer = false
+        // READS depth, so the BODY OCCLUDES a channel on its far side. This used to be false, with
+        // renderingOrder 12 on top — i.e. every channel drew over everything, and the front and back
+        // arm channels were both visible from the front no matter how opaque the body was
+        // (user-reported). The stroke is projected 0.006 proud of the skin, so depth testing still
+        // shows it everywhere it should be.
+        m.readsFromDepthBuffer = true
+        // Still does not WRITE depth: the core and the wash halo are coincident tubes, and letting
+        // them write would make them z-fight with each other along every segment.
+        m.writesToDepthBuffer = false
         return m
     }
 

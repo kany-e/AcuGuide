@@ -859,7 +859,7 @@ struct SceneKitBody: UIViewRepresentable {
 // Fully MATTE sage body (no specular highlight), slightly translucent — per the round-2 note.
 // PBR with roughness 1 / metalness 0 / clearCoat 0 has no glossy hotspot; combined with the soft
 // ambient+fill lighting (and default lighting OFF) it reads as flat ink, not shiny plastic.
-private func sageMaterial() -> SCNMaterial {
+func sageMaterial() -> SCNMaterial {
     let m = SCNMaterial()
     m.lightingModel = .physicallyBased
     m.metalness.contents = 0.0
@@ -868,9 +868,16 @@ private func sageMaterial() -> SCNMaterial {
     m.diffuse.contents = UIColor(Ink.bodySage)
     m.emission.contents = UIColor(Ink.bodyEmission)
     m.emission.intensity = 0.12
-    m.transparency = 0.92               // a touch see-through, but solid enough that an overlapping
-                                        // hand reads against the torso instead of blending in
-    m.isDoubleSided = true
+    // SOLID. Device report: "the body should be solid, not transparent so that the front and back
+    // arm meridians are not simultaneously visible when you are at front angles." Transparency was
+    // only half the reason they both showed — the channels also ignored depth entirely (see
+    // BodyAtlas.lineMaterial) — but a see-through torso is the other half, and an opaque body is
+    // what makes the depth test mean anything.
+    m.transparency = 1.0
+    // Single-sided now that the body is opaque: with double-sided faces the INTERIOR of the torso
+    // renders too, and back-facing interior triangles can win the depth test over the far wall,
+    // punching holes that read as exactly the see-through the user is objecting to.
+    m.isDoubleSided = false
     return m
 }
 
