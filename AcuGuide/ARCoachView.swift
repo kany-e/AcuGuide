@@ -103,8 +103,12 @@ struct ARCoachView: View {
                 // looked entirely correct, and nothing re-drove it for the rest of the session.
                 // Driven off the ORIENTATION because the size is the very thing that cannot see it;
                 // the layout still owns `isLandscape`.
-                .onChange(of: orientation.interfaceOrientation) { _ in
-                    syncRotation(landscape: geo.size.width > geo.size.height)
+                // Pass the DRIVER'S target through rather than letting syncRotation re-read the
+                // scene: at the moment this fires the scene is still on the old orientation, so a
+                // re-read installs the angle already in place and the early-out swallows it. See
+                // syncRotation.
+                .onChange(of: orientation.interfaceOrientation) { target in
+                    syncRotation(landscape: geo.size.width > geo.size.height, orientation: target)
                 }
         }
     }
@@ -258,9 +262,23 @@ struct ARCoachView: View {
     // which this app — a phone propped on a table — will produce constantly and which mean nothing
     // for layout. A size change is definitionally post-layout and cannot disagree with what is on
     // screen, which is the whole property the overlay geometry depends on.
-    private func syncRotation(landscape: Bool) {
+    /// `orientation` is the orientation to aim the capture at. Callers driven by a SIZE change pass
+    /// nil, because a size change is post-layout and the scene is already settled — reading it is
+    /// then the most trustworthy thing available. The DRIVER-driven caller must pass its own target,
+    /// and that distinction is load-bearing:
+    ///
+    /// OrientationDriver publishes its target BEFORE it asks the window to turn (it has to — the
+    /// guard that proves the scene is still on the old orientation is what lets the request happen at
+    /// all). So a hook triggered by that publish and then reading `CaptureRotation.currentAngle`
+    /// reads the OLD scene, by construction, every time. It installs the angle that is already
+    /// installed, `setRotation`'s early-out returns with no side effect, and nothing re-drives after
+    /// the window settles. Portrait↔landscape got away with it because the size hook fires a moment
+    /// later against a settled scene — but landscapeLeft↔landscapeRight changes no size, so the
+    /// capture kept the previous landscape's angle for the rest of the session: 180° out, which is a
+    /// correct-looking picture with the ring and press dot mirrored through the centre of the frame.
+    private func syncRotation(landscape: Bool, orientation: UIInterfaceOrientation? = nil) {
         if isLandscape != landscape { isLandscape = landscape }
-        camera.setRotation(angle: CaptureRotation.currentAngle)
+        camera.setRotation(angle: orientation.map(CaptureRotation.angle(for:)) ?? CaptureRotation.currentAngle)
     }
 
     private func handleLocateChange(to state: LocateState) {
@@ -452,7 +470,24 @@ struct ARCoachView: View {
             // centre of the picture clear.
             if isLandscape {
                 HStack(alignment: .top, spacing: 0) {
-                    VStack { debugBar; voiceHintChip; Spacer(); savedChipView }
+                    // LEADING COLUMN, anchored to the leading EDGE and sized to its content.
+                    //
+                    // The chrome bar used to right-align itself with an internal Spacer, and that
+                    // made this column horizontally GREEDY — with two consequences. The icons could
+                    // reach neither edge (this column's Spacer pushed them right, the Spacer below
+                    // held them off the card), so they floated over the middle of the live frame:
+                    // exactly the region the trailing-column layout exists to keep clear. And a
+                    // greedy column competes with the card for width, so the card could be served
+                    // less than the 380 pt its .frame(maxWidth:) merely PERMITS — squeezing the
+                    // guide text a second time. Sizing this column to its content fixes both.
+                    VStack(alignment: .leading, spacing: 8) {
+                        chromeBar
+                        voiceHintChip
+                        Spacer(minLength: 0)
+                        savedChipView
+                    }
+                    .frame(maxWidth: 300, alignment: .leading)
+                    .padding(.leading, 12).padding(.top, 8)
                     Spacer(minLength: 0)
                     // Scrollable, because the tallest card (LocateCard with the guide expanded, at
                     // large Dynamic Type) can still exceed a 390 pt viewport, and a card that runs
@@ -461,8 +496,12 @@ struct ARCoachView: View {
                         .frame(maxWidth: 380)
                 }
             } else {
-                VStack {
-                    debugBar
+                VStack(spacing: 8) {
+                    // Anchored to the top-TRAILING corner — the opposite corner from the
+                    // NavigationStack's own "Close" button, so the screen reads as two distinct
+                    // controls rather than one row scattered across the top of the picture.
+                    HStack(spacing: 0) { Spacer(minLength: 0); chromeBar }
+                        .padding(.horizontal, 12).padding(.top, 8)
                     voiceHintChip
                     savedChipView
                     Spacer()
@@ -587,47 +626,54 @@ struct ARCoachView: View {
 
     // On-device field-calibration toggles (Phase 1): flip the mirror or invert the
     // face gate in one place if they fire backwards on a given device.
-    private var debugBar: some View {
-        HStack(spacing: 10) {
-            Spacer()
+    // THE TOP CONTROL CLUSTER. (Still called `debugBar` for one more round would have been wrong —
+    // only the #if DEBUG menu at the end is debug chrome, and the comment further up already refers
+    // to a `topBar` that never existed. It is `chromeBar` now.)
+    //
+    // Device report: "the button on the top looks out of place." It was six BARE glyphs, each
+    // `Image(...).font(.callout).padding(8).background(Circle())` with no `.frame` — and a Circle
+    // inscribes min(width, height) of its box. SF Symbols share a layout HEIGHT at a given size but
+    // not a WIDTH, so `questionmark` drew a small circle while `arrow.triangle.2.circlepath.camera`
+    // drew a height-sized circle adrift inside a much wider box: six different diameters, uneven
+    // apparent gaps, and a ~35 pt tap target on every one against this app's own 44 pt standard.
+    // They were also on a 0.35 black scrim — the lightest in the app, and it was carrying the only
+    // interactive controls that sit over arbitrary live video.
+    //
+    // Now ONE capsule of uniform 44×44 targets. A group reads as a group, and can be anchored to a
+    // corner as a unit instead of scattering across the top of the picture.
+    //
+    // CONTENT-SIZED on purpose: the old version right-aligned itself with an internal `Spacer()`,
+    // which is what made the landscape leading column greedy — the icons could then reach neither
+    // edge and floated over the middle of the frame, which is the one region the landscape layout
+    // exists to keep clear. Alignment is the caller's job now.
+    private var chromeBar: some View {
+        HStack(spacing: 2) {
             // VOICE, VISIBLE AND REACHABLE FROM EVERY STEP. Both of these used to live only on the
             // LocateCard, which a calibrated point never sees — so on a repeat session the mic
             // could not be turned on, its state was invisible, and a spoken command went nowhere
             // with no indication why. The "?" is the only place in the app that ever names the
             // phrases (device report: "the user has no idea what the voice prompts are").
             if locateVoice.available {
-                Button { showVoiceCommands = true } label: {
-                    Image(systemName: "questionmark")
-                        .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
-                        .padding(8).background(Circle().fill(.black.opacity(0.35)))
-                }
-                .accessibilityLabel(AppLocale.pick("可以说的话", "What you can say"))
-                .accessibilityHint(AppLocale.pick("列出所有语音指令", "Lists every voice command"))
+                chromeButton("questionmark") { showVoiceCommands = true }
+                    .accessibilityLabel(AppLocale.pick("可以说的话", "What you can say"))
+                    .accessibilityHint(AppLocale.pick("列出所有语音指令", "Lists every voice command"))
 
-                Button { locateVoice.toggle() } label: {
-                    Image(systemName: locateVoice.listening ? "mic.fill" : "mic.slash")
-                        .font(.callout)
-                        .foregroundStyle(locateVoice.listening ? Ink.gold : Ink.paper.opacity(0.85))
-                        .padding(8)
-                        .background(Circle().fill(.black.opacity(0.35)))
-                        .overlay(Circle().stroke(locateVoice.listening ? Ink.gold : .clear, lineWidth: 1.5))
-                }
-                .accessibilityLabel(locateVoice.listening
-                    ? AppLocale.pick("语音控制已开启", "Voice control on")
-                    : AppLocale.pick("语音控制已关闭", "Voice control off"))
-                .accessibilityHint(AppLocale.pick("开启后可以用说话定格画面或确认位置",
-                                                  "When on, you can freeze the picture or confirm a spot by speaking"))
+                // The ON state is GOLD ON THE SAME DARK GROUND, not a darker fill: over live video
+                // the only reliable state signal is luminance and a ring, not hue.
+                chromeButton(locateVoice.listening ? "mic.fill" : "mic.slash",
+                             on: locateVoice.listening) { locateVoice.toggle() }
+                    .accessibilityLabel(AppLocale.pick("语音控制", "Voice control"))
+                    .accessibilityValue(locateVoice.listening ? AppLocale.pick("已开启", "On")
+                                                              : AppLocale.pick("已关闭", "Off"))
+                    .accessibilityHint(AppLocale.pick("开启后可以用说话定格画面或确认位置",
+                                                      "When on, you can freeze the picture or confirm a spot by speaking"))
             }
             // Re-find the spot: back into the guided locate step from coaching — without this, a
             // bad confirm (or a ring that feels off) was only fixable by ending the whole session.
             if acupoint.hasFindGuide && engine.mode == .coach {
-                Button {
+                chromeButton("target") {
                     engine.beginLocate()
                     voice.handover()   // cut any coach cue; the locate cues take over
-                } label: {
-                    Image(systemName: "target")
-                        .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
-                        .padding(8).background(Circle().fill(.black.opacity(0.35)))
                 }
                 .accessibilityLabel(AppLocale.pick("重新找位", "Re-find the spot"))
                 .accessibilityHint(AppLocale.pick("重新进入找位步骤，更新你保存的位置",
@@ -635,20 +681,12 @@ struct ARCoachView: View {
             }
             // Front ⇄ back camera. Back camera = two-person mode: point the phone at the OTHER
             // person's hand while they receive the press.
-            Button { camera.flipCamera() } label: {
-                Image(systemName: "arrow.triangle.2.circlepath.camera")
-                    .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
-                    .padding(8).background(Circle().fill(.black.opacity(0.35)))
-            }
-            .accessibilityLabel(AppLocale.pick("切换前后摄像头", "Switch camera"))
-            .accessibilityHint(AppLocale.pick("后置摄像头适合为他人按压", "Use the back camera to coach someone else's hand"))
-            Button { voice.muted.toggle() } label: {
-                Image(systemName: voice.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
-                    .padding(8).background(Circle().fill(.black.opacity(0.35)))
-            }
-            .accessibilityLabel(voice.muted ? AppLocale.pick("开启语音提示", "Unmute voice cues")
-                                            : AppLocale.pick("关闭语音提示", "Mute voice cues"))
+            chromeButton("arrow.triangle.2.circlepath.camera") { camera.flipCamera() }
+                .accessibilityLabel(AppLocale.pick("切换前后摄像头", "Switch camera"))
+                .accessibilityHint(AppLocale.pick("后置摄像头适合为他人按压", "Use the back camera to coach someone else's hand"))
+            chromeButton(voice.muted ? "speaker.slash.fill" : "speaker.wave.2.fill") { voice.muted.toggle() }
+                .accessibilityLabel(AppLocale.pick("语音提示", "Voice cues"))
+                .accessibilityValue(voice.muted ? AppLocale.pick("已关闭", "Off") : AppLocale.pick("已开启", "On"))
             #if DEBUG
             // Field-calibration switches (debug builds only): flip the landmark mirroring or invert
             // the palm/dorsal gate in one place if either fires backwards on a given device.
@@ -660,27 +698,96 @@ struct ARCoachView: View {
                     set: { dorsalPositive = $0; HandCalibration.dorsalWhenSignedPositive = $0 }))
             } label: {
                 Image(systemName: "slider.horizontal.3")
-                    .font(.callout).foregroundStyle(Ink.paper.opacity(0.8))
-                    .padding(8).background(Circle().fill(.black.opacity(0.35)))
+                    .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
+                    .frame(width: 44, height: 44)
             }
             .accessibilityLabel("Calibration")
             #endif
         }
-        .padding(.horizontal).padding(.top, 8)
+        .padding(.horizontal, 4)
+        .background(
+            Capsule().fill(.black.opacity(0.55))
+                .overlay(Capsule().stroke(Ink.gold.opacity(0.35), lineWidth: 1))
+        )
     }
 
+    /// Pause and End. Hoisted into the card's HEADER row, beside the ring, so they stop competing
+    /// with the prose for width — they are fixed-size chrome and the guide is not.
+    private var sessionControls: some View {
+        HStack(spacing: 8) {
+            Button { pauseSession() } label: {
+                Image(systemName: "pause.fill")
+                    .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
+                    .padding(.horizontal, 10).frame(height: 34)
+                    .background(Capsule().stroke(Ink.line, lineWidth: 1))
+                    .contentShape(Capsule())
+            }
+            .accessibilityLabel(AppLocale.pick("暂停", "Pause"))
+            .accessibilityHint(AppLocale.pick("暂停练习，进度保留", "Pauses the session; progress is kept"))
+            Button {
+                // With real progress banked, confirm; a just-started session ends immediately.
+                if engine.roundsDone > 0 || engine.totalHeldS >= 5 { showEndConfirm = true } else { endSession() }
+            } label: {
+                Text(AppLocale.pick("结束", "End"))
+                    .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
+                    .padding(.horizontal, 12).frame(height: 34)
+                    .background(Capsule().stroke(Ink.line, lineWidth: 1))
+                    .contentShape(Capsule())
+            }
+            .accessibilityHint(AppLocale.pick("随时结束本次练习并查看小结", "End this session now and see your recap"))
+        }
+    }
+
+    /// One control in the cluster: a FIXED 44×44 target with the glyph centred in it, so every
+    /// button is the same size whatever the width of its symbol — which is exactly what the bare
+    /// `Circle()` backgrounds could not do. `on` draws the mic's listening treatment: gold on the
+    /// SAME dark ground plus a ring, because over arbitrary live video luminance and shape read
+    /// where a hue change does not.
+    private func chromeButton(_ symbol: String, on: Bool = false,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.callout)
+                .foregroundStyle(on ? Ink.gold : Ink.paper.opacity(0.85))
+                .frame(width: 44, height: 44)
+                .overlay(Circle().stroke(on ? Ink.gold : .clear, lineWidth: 1.5).padding(5))
+                .contentShape(Rectangle())
+        }
+    }
+
+    // THE COACHING CARD — one COLUMN, not one row.
+    //
+    // It used to be a single HStack: [ring][text column][Spacer][pause][End], with the read-aloud
+    // button as a further horizontal sibling INSIDE the text column, right beside the guide. Every
+    // one of those except the prose is fixed-size, so the prose got whatever was LEFT OVER. On a
+    // 402 pt portrait screen the card's content box is 342 pt (screen − .padding() 16×2 −
+    // .padding(14) 14×2; panel() adds none of its own), and 46 (ring) + 4×14 (row gaps) + 44
+    // (read-aloud) + 8 was spent before the text saw a single character — with two flexible Spacers
+    // still to be served. Device report: "the text description is too cramped together in BOTH
+    // views", and the gold guide was indeed wrapping at 6-7 Chinese characters. The landscape column
+    // (≤380 pt, so 320 pt of content) is 22 pt worse again.
+    //
+    // So the fix is structural, not typographic: the ring and the session controls become a HEADER
+    // row of fixed-size chrome, and every line of prose sits UNDER it at the card's full content
+    // width. The read-aloud button becomes a named capsule below the guide rather than a 44 pt
+    // column stealing width from it.
     private var feedbackCard: some View {
-        HStack(spacing: 14) {
-            HoldProgressRing(overlay: engine.overlay, color: engine.color)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            // HEADER: the fixed-size chrome, all of it, on one row of its own.
+            HStack(spacing: 14) {
+                HoldProgressRing(overlay: engine.overlay, color: engine.color)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(acupoint.id + " · " + acupoint.zh).font(.caption).foregroundStyle(Ink.gold)
                     Text(AppLocale.pick("第 \(min(engine.roundsDone + 1, engine.roundsTarget))/\(engine.roundsTarget) 轮",
                                         "Round \(min(engine.roundsDone + 1, engine.roundsTarget)) of \(engine.roundsTarget)"))
                         .font(.caption2).foregroundStyle(Ink.textDim)
                 }
+                Spacer(minLength: 8)
+                sessionControls
+            }
+            VStack(alignment: .leading, spacing: 6) {
                 Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
-                    .lineLimit(3).minimumScaleFactor(0.7)
+                    .fixedSize(horizontal: false, vertical: true)
                 // HOW TO FIND IT, on the camera screen, while the coach is still hunting.
                 //
                 // The spoken cue tells the user to find the point "around the outlined area", but the
@@ -693,7 +800,9 @@ struct ARCoachView: View {
                 // and it must never grow the card mid-press. No tap needed — both hands are busy.
                 if acupoint.hasFindGuide,
                    engine.phase == .searching || engine.phase == .noHand || engine.phase == .wrongFace {
-                    HStack(alignment: .top, spacing: 8) {
+                    // FULL WIDTH — no horizontal siblings. The guide used to share its row with a
+                    // 44 pt read-aloud button, on top of everything the outer row had already taken.
+                    VStack(alignment: .leading, spacing: 6) {
                         // .footnote, wrapping in full. Was .caption2 with lineLimit(3) and
                         // minimumScaleFactor(0.75): the app's smallest type, shrunk further, then
                         // TRUNCATED — over a live camera feed. Device report was that the detailed
@@ -703,23 +812,32 @@ struct ARCoachView: View {
                         Text(acupoint.findHow)
                             .font(.footnote).foregroundStyle(Ink.gold)
                             .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityLabel(AppLocale.pick("这样找：", "How to find it: ") + acupoint.findHow)
-                        Spacer(minLength: 0)
                         // HEAR it instead of reading it. The request was to see the instructions
                         // while interacting with the marker — but interacting means both hands are
                         // on the point and the eyes are on the hand, not the screen, so the honest
                         // answer is audio. Every point already ships a pre-rendered spokenInfo clip
                         // (VoiceClips indexes Acupoint.all), so this plays existing audio: no new
                         // line, no key change, no orphaned clip, nothing to re-render.
+                        //
+                        // A NAMED CAPSULE UNDER the guide, not a bare glyph beside it. Beside it,
+                        // it cost the prose 44 pt of every line for a control most people never
+                        // noticed; under it, it costs one row and finally says what it does.
                         Button {
                             AtlasSpeaker.shared.toggle(acupoint.spokenInfo)
                         } label: {
-                            Image(systemName: atlasSpeaker.speaking
-                                  ? "speaker.wave.2.fill" : "speaker.wave.2")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(Ink.gold)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
+                            HStack(spacing: 6) {
+                                Image(systemName: atlasSpeaker.speaking
+                                      ? "speaker.wave.2.fill" : "speaker.wave.2")
+                                Text(atlasSpeaker.speaking ? AppLocale.pick("停止", "Stop")
+                                                           : AppLocale.pick("朗读", "Listen"))
+                            }
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Ink.gold)
+                            .padding(.horizontal, 12).frame(height: 34)
+                            .background(Capsule().stroke(Ink.gold.opacity(0.5), lineWidth: 1))
+                            .contentShape(Capsule())
                         }
                         .accessibilityLabel(atlasSpeaker.speaking
                             ? AppLocale.pick("停止朗读", "Stop reading")
@@ -768,23 +886,6 @@ struct ARCoachView: View {
                                                       "Ignores the camera's palm-or-back reading for this session"))
                 }
             }
-            Spacer()
-            Button { pauseSession() } label: {
-                Image(systemName: "pause.fill")
-                    .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
-                    .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(Capsule().stroke(Ink.line, lineWidth: 1))
-            }
-            .accessibilityLabel(AppLocale.pick("暂停", "Pause"))
-            .accessibilityHint(AppLocale.pick("暂停练习，进度保留", "Pauses the session; progress is kept"))
-            Button(AppLocale.pick("结束", "End")) {
-                // With real progress banked, confirm; a just-started session ends immediately.
-                if engine.roundsDone > 0 || engine.totalHeldS >= 5 { showEndConfirm = true } else { endSession() }
-            }
-                .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
-                .padding(.horizontal, 12).padding(.vertical, 7)
-                .background(Capsule().stroke(Ink.line, lineWidth: 1))
-                .accessibilityHint(AppLocale.pick("随时结束本次练习并查看小结", "End this session now and see your recap"))
         }
         .padding(14).panel().padding()
         // One VoiceOver element that re-announces the cue + hold progress as the phase changes.

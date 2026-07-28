@@ -153,30 +153,52 @@ enum HandSheet {
     }
     static var palmLength: Float { simd_length(iso(knuckles) - iso(wrist)) }
 
-    /// How far the anatomy's `across` fractions stretch on THIS mesh. Fitted by search, not by eye:
-    /// BodyMeshProbeTests.testFitDetailHandAcrossScale walks the scale and reports the largest value
-    /// at which all twelve hand points still land DIRECTLY on the silhouette (no spiral snap). 0.60
-    /// is that value; SI4 — the most ulnar, at the narrow wrist — is the first to fall off above it.
-    ///
-    /// Why it is BELOW 1 when the fingers are splayed WIDER than a real hand's: the constraint is
-    /// the wrist, not the knuckles. This model's stub is much narrower than a real wrist, and the
-    /// camera-ray placement grazes off the silhouette near the edges, so the widest scale the whole
-    /// set survives is set by its narrowest part. Points therefore sit slightly inboard of their
-    /// true anatomy — a measured, uniform concession to the model, made once, instead of twelve
-    /// per-point nudges. The RELATIVE arrangement, which is what was broken, is preserved exactly.
-    ///
-    /// It dropped 0.90 → 0.60 when the landmarks above were corrected, and that is a CONSISTENCY
-    /// CHECK rather than a new concession: `across` is measured in palm-lengths, and the corrected
-    /// frame is 1.50× longer, so 0.90/1.50 = 0.60 leaves the absolute width of the hand's point
-    /// spread almost exactly where the old fit had put it. The old numbers had the right span drawn
-    /// along the wrong line.
-    static let acrossScale: Float = 0.60
+    // HOW FAR THE ANATOMY'S `across` FRACTIONS STRETCH ON THIS MESH — and why it cannot be ONE
+    // number, which is the second half of the device report "PC8 looks right, the others look maybe
+    // slightly off".
+    //
+    // Measured palm half-width (BodyMeshProbeTests.testReportHandPointsAcrossThePalm): 0.131 u at the
+    // wrist crease, ~0.200 u at the knuckle line — this hand widens by half again along its length,
+    // far more than a real one, because the model's forearm stub is a narrow cylinder. The anatomy
+    // puts the ulnar border at across −0.45, which is 0.221 u through the frame above. So the scale
+    // that lands a BORDER point exactly on the mesh's border is 0.131/0.221 = 0.60 at the wrist and
+    // 0.200/0.221 = 0.90 at the knuckles.
+    //
+    // A single constant has to take the SMALLER of those or the wrist points fall off the model —
+    // so the old 0.60 was really the wrist's number applied to the whole hand. That is exactly the
+    // reported pattern: the wrist points (HT7, LI5, SI4) sit correctly on their borders, while the
+    // knuckle row is pulled inboard — SI3, a red-white-flesh BORDER point, rendered at 0.65 of the
+    // half-width, out on the dorsum instead of on the edge. And it is why PC8 was the one point the
+    // user could vouch for: its `across` is only 0.10, so no plausible scale moves it far. The point
+    // that looked right was the one point incapable of revealing the bug.
+    //
+    // Interpolating between the two MEASURED ends removes the compromise instead of splitting it.
+    //
+    // The wrist end ships at 0.55 rather than its measured 0.60, and the knuckle end ships at exactly
+    // its measured 0.90. That asymmetry is not a fudge, it is the same all-direct-hit criterion this
+    // file has always used, now applied where it actually bites: at the wrist the stub is a narrow
+    // cylinder and the camera ray GRAZES the silhouette, so SI4 and LI5 — the two most lateral wrist
+    // points — need a few percent of margin to stay direct hits instead of being spiral-snapped to
+    // wherever the fallback lands. At the knuckle line the mesh is wide and flat-on to the camera and
+    // needs none. DetailSnapshotTests.testHandViewPlacesMarkersOnModel is what enforces this.
+    static let wristAcrossScale: Float = 0.55
+    static let knuckleAcrossScale: Float = 0.90
 
-    /// `scale` is the across-scale to apply; it is a parameter only so the fitting probe
-    /// (BodyMeshProbeTests.testFitDetailHandAcrossScale) can sweep it through the SAME arithmetic
-    /// the app uses instead of re-deriving the frame and drifting from it.
-    static func uv(along: Float, across: Float, scale: Float = acrossScale) -> SIMD2<Float> {
-        unIso(iso(wrist) + distal * (along * palmLength) + radial * (across * scale * palmLength))
+    /// Clamped, so the forearm (negative `along`) and TE2 (1.06, just past the knuckle line) stay
+    /// inside the range that was actually measured rather than extrapolating off the end of it.
+    static func acrossScale(atAlong along: Float) -> Float {
+        let t = max(0, min(1, along))
+        return wristAcrossScale + (knuckleAcrossScale - wristAcrossScale) * t
+    }
+
+    /// `boost` multiplies the measured across-profile; it exists only so the fitting probe
+    /// (BodyMeshProbeTests.testFitDetailHandAcrossScale) can sweep it through the SAME arithmetic the
+    /// app uses instead of re-deriving the frame and drifting from it. A boost of 1 means "exactly
+    /// the profile measured off the mesh", so the sweep is now a CHECK on that measurement — if the
+    /// largest all-direct boost is not ≈1, the profile no longer matches the model.
+    static func uv(along: Float, across: Float, boost: Float = 1) -> SIMD2<Float> {
+        let scale = acrossScale(atAlong: along) * boost
+        return unIso(iso(wrist) + distal * (along * palmLength) + radial * (across * scale * palmLength))
     }
 
     /// Every hand-sheet point, resolved from the shared anatomy. Consumed by AcupointPlacements.

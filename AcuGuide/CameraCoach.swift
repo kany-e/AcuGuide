@@ -65,6 +65,9 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     // Updated by setRotation(angle:) when the interface rotates; the preview layer's connection is
     // driven from the main thread by CameraPreview with the identical value.
     private var queueRotation: CGFloat = 90
+    // MAIN-thread mirror of the last angle setRotation was asked for — the dedupe compares against
+    // this instead of reaching across to `queueRotation`. Starts at the same 90 the connection does.
+    private var lastRequestedRotation: CGFloat = 90
     // Camera position, queue-confined copy (configureIfNeeded runs on the queue and must not read
     // the main-published `usingFront` — a data race, review-caught).
     private var queuePosition: AVCaptureDevice.Position = .front
@@ -151,7 +154,14 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     /// anchors are all in the previous frame's space — so it goes through the same scene-generation
     /// machinery rather than letting stale-parity frames through.
     func setRotation(angle: CGFloat) {
-        guard angle != queueRotation else { return }
+        // The dedupe used to read `queueRotation` — capture-queue-confined state — from the MAIN
+        // thread. Besides being a race, it made a wrong reading permanent: a caller that computed
+        // the angle from a stale source would match whatever was installed, return with no side
+        // effect at all (no queue hop, no configGeneration bump, no trace), and nothing would
+        // re-drive it. Compare against the last angle this method was ASKED for, which is main-
+        // thread state and is what the dedupe is actually about.
+        guard angle != lastRequestedRotation else { return }
+        lastRequestedRotation = angle
         mainSceneGen += 1
         let gen = mainSceneGen
         engine.cameraFlipped()
@@ -498,6 +508,33 @@ enum CaptureRotation {
 
     /// Pure so the mapping is unit-testable — a landscape angle that collides with its opposite,
     /// or one AVFoundation refuses, shows up as an upside-down picture and nothing else.
+    ///
+    /// THESE VALUES ARE CORRECT. A device report of "the landscape view is inverted" nearly got the
+    /// two landscape entries swapped in R17; they were reverted before shipping, and this is the
+    /// derivation that settles it — written down precisely so the next inversion report does not
+    /// spend its first hour here.
+    ///
+    /// The argument that needs no enum names at all, and is therefore immune to the naming traps
+    /// below: PORTRAIT = 90 IS DEVICE-CONFIRMED, on the same front camera the reports come from.
+    /// Whatever that camera's native sensor zero is, it is already absorbed into that 90. The two
+    /// landscape values are then forced to 90 ∓ 90 by differential geometry — the only remaining
+    /// freedom is the SIGN of videoRotationAngle, i.e. whether increasing it turns the picture
+    /// clockwise or anticlockwise.
+    ///
+    /// That sign is pinned INSIDE this repo, by two portrait-only tables written before landscape
+    /// existed and never edited since: CameraLocator and LabelCapture both map angle 0 → Vision
+    /// `.right` (CGImagePropertyOrientation 6, "rotate 90° clockwise"), so going 0 → 90 adds 90°
+    /// CLOCKWISE. Interface .landscapeRight is the device turned 90° ANTICLOCKWISE from portrait, so
+    /// its corrective angle is 90 − 90 = 0, and .landscapeLeft is 90 + 90 = 180. Exactly the below.
+    ///
+    /// Two naming traps, both of which point the wrong way if half-remembered:
+    ///   • UIDeviceOrientation and UIInterfaceOrientation ARE opposite for landscape — the SDK says
+    ///     `UIInterfaceOrientationLandscapeRight = UIDeviceOrientationLandscapeLeft`. But that
+    ///     inversion belongs to OrientationDriver.target (Orientation.swift), which already applies
+    ///     it. It must NOT be applied a second time here.
+    ///   • UIInterfaceOrientation and AVCaptureVideoOrientation are NOT opposite — they are the same
+    ///     pose and even the same raw value (.landscapeRight = 3 in both, "home button on the
+    ///     right"). So this table maps interface → angle with no inversion of its own.
     static func angle(for orientation: UIInterfaceOrientation) -> CGFloat {
         switch orientation {
         case .landscapeLeft:      return 180
