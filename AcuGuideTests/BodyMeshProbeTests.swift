@@ -507,6 +507,59 @@ extension BodyMeshProbeTests {
     }
 }
 
+// A SILHOUETTE PROBE THAT DOES NOT REBUILD THE MESH FOR EVERY RAY.
+//
+// The scanning probes below fire thousands of rays, and calling AtlasMarkers.screenMarker for each
+// one is quadratic in disguise: screenMarker rebuilds the whole triangle soup from the geometry
+// sources on EVERY call, and then allocates a node. Written that way, one probe took **2651 seconds**
+// — it turned `make test`, which is the gate, into a 45-minute job. Same arithmetic as screenMarker's
+// own ray construction, with the soup and the bounds hoisted out of the loop.
+struct HandSilhouette {
+    let tris: [SIMD3<Float>]
+    let centre: SIMD3<Float>
+    let ext: SIMD3<Float>
+    let cameraZ: Float
+
+    init(mesh: SCNNode, cameraZ: Float = 2.3) {
+        self.cameraZ = cameraZ
+        tris = AtlasMarkers.triangles(of: mesh, in: nil, categoryMask: nil)
+        let (lo, hi) = mesh.boundingBox
+        var mn = SIMD3<Float>(repeating: .greatestFiniteMagnitude); var mx = -mn
+        for a in [lo.x, hi.x] { for b in [lo.y, hi.y] { for c in [lo.z, hi.z] {
+            let w = mesh.convertPosition(SCNVector3(a, b, c), to: nil)
+            mn = simd_min(mn, SIMD3(w.x, w.y, w.z)); mx = simd_max(mx, SIMD3(w.x, w.y, w.z))
+        } } }
+        centre = (mn + mx) / 2; ext = mx - mn
+    }
+
+    /// Does a camera ray through this (u,v) meet the mesh? Equivalent to screenMarker's DIRECT hit
+    /// (no spiral snap), which is what the probes are asking about.
+    func hits(_ u: Float, _ v: Float) -> Bool {
+        let cam = SIMD3<Float>(0, 0, cameraZ)
+        let target = SIMD3<Float>(centre.x + u * ext.x, centre.y + v * ext.y, centre.z)
+        let dir = simd_normalize(target - cam)
+        let reach = simd_length(target - cam) + ext.z + 1.0
+        return !AtlasMarkers.rayHits(tris, origin: cam, dir: dir, maxT: reach).isEmpty
+    }
+
+    /// Widest contiguous run of surface at this height — the palm (the thumb is a separate lobe).
+    func palmSpan(at v: Float, samples: Int = 80) -> (lo: Float, hi: Float)? {
+        runs(at: v, samples: samples).max(by: { ($0.hi - $0.lo) < ($1.hi - $1.lo) })
+    }
+
+    func runs(at v: Float, samples: Int = 80) -> [(lo: Float, hi: Float)] {
+        var out: [(lo: Float, hi: Float)] = []
+        var start: Float? = nil, prev: Float = 0
+        for j in 0...samples {
+            let u = -0.50 + Float(j) / Float(samples) * 1.00
+            if hits(u, v) { if start == nil { start = u }; prev = u }
+            else if let s = start { out.append((s, prev)); start = nil }
+        }
+        if let s = start { out.append((s, prev)) }
+        return out
+    }
+}
+
 // MEASURE THE CENTRELINE, don't eyeball it. Reading marker positions off a render means comparing
 // them to a silhouette I judge by eye, in a perspective view, on a hand whose thumb occludes the
 // radial border — and the dorsal and palm renders are NOT mirror images of each other, so the two
@@ -525,26 +578,13 @@ extension BodyMeshProbeTests {
         }
         mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
 
-        func directHit(_ u: Float, _ v: Float) -> Bool {
-            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v, farSide: false,
-                                                    id: "p", color: .white, core: 0.001, halo: 0.002)
-            else { return false }
-            return m.onSurface && !m.snapped
-        }
+        let sil = HandSilhouette(mesh: mesh)          // triangle soup built ONCE — see HandSilhouette
 
         print("     v      palm u-span        centre   half-width")
         var samples: [(v: Float, c: Float, hw: Float)] = []
         for i in 0...24 {
             let v = -0.45 + Float(i) / 24 * 0.60          // wrist stub → past the knuckle line
-            // Contiguous runs of hits across u.
-            var runs: [(lo: Float, hi: Float)] = []
-            var start: Float? = nil, prev: Float = 0
-            for j in 0...80 {
-                let u = -0.50 + Float(j) / 80 * 1.00
-                if directHit(u, v) { if start == nil { start = u }; prev = u }
-                else if let s = start { runs.append((s, prev)); start = nil }
-            }
-            if let s = start { runs.append((s, prev)) }
+            let runs = sil.runs(at: v)
             guard let widest = runs.max(by: { ($0.hi - $0.lo) < ($1.hi - $1.lo) }) else { continue }
             let c = (widest.lo + widest.hi) / 2, hw = (widest.hi - widest.lo) / 2
             samples.append((v, c, hw))
@@ -588,15 +628,7 @@ extension BodyMeshProbeTests {
         var split: Float? = nil
         for i in 0...60 where split == nil {
             let v = -0.10 + Float(i) / 60 * 0.40
-            var runs: [(lo: Float, hi: Float)] = []
-            var start: Float? = nil, prev: Float = 0
-            for j in 0...80 {
-                let u = -0.50 + Float(j) / 80 * 1.00
-                if directHit(u, v) { if start == nil { start = u }; prev = u }
-                else if let s = start { runs.append((s, prev)); start = nil }
-            }
-            if let s = start { runs.append((s, prev)) }
-            let digits = runs.filter { $0.hi > -0.10 }          // drop the thumb lobe
+            let digits = sil.runs(at: v).filter { $0.hi > -0.10 }   // drop the thumb lobe
             if digits.count > 1 { split = v }
         }
         XCTAssertNotNil(split, "the finger lobes never separate — the pose or the mesh changed")
@@ -641,24 +673,8 @@ extension BodyMeshProbeTests {
         }
         mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
 
-        func directHit(_ u: Float, _ v: Float) -> Bool {
-            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v, farSide: false,
-                                                    id: "p", color: .white, core: 0.001, halo: 0.002)
-            else { return false }
-            return m.onSurface && !m.snapped
-        }
-        /// Widest contiguous run of surface at this height = the palm (the thumb is a separate lobe).
-        func palmSpan(at v: Float) -> (lo: Float, hi: Float)? {
-            var runs: [(lo: Float, hi: Float)] = []
-            var start: Float? = nil, prev: Float = 0
-            for j in 0...80 {
-                let u = -0.50 + Float(j) / 80 * 1.00
-                if directHit(u, v) { if start == nil { start = u }; prev = u }
-                else if let s = start { runs.append((s, prev)); start = nil }
-            }
-            if let s = start { runs.append((s, prev)) }
-            return runs.max(by: { ($0.hi - $0.lo) < ($1.hi - $1.lo) })
-        }
+        let sil = HandSilhouette(mesh: mesh)          // triangle soup built ONCE — see HandSilhouette
+        func palmSpan(at v: Float) -> (lo: Float, hi: Float)? { sil.palmSpan(at: v) }
 
         let drawn = Set(AcupointPlacements.detailLayout(region: "hand").layout.keys)
         print("  id    along  across |    u       v    | palm u-span      | across/half-width | drawn")

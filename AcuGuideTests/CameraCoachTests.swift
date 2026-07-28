@@ -333,3 +333,60 @@ final class LocateVoiceGateTests: XCTestCase {
         XCTAssertFalse(LocateVoiceCommand.allPhrases.isEmpty)
     }
 }
+
+// REGRESSIONS THE R16/R17 VOICE WORK INTRODUCED, as assertions.
+//
+// Each of these is a case where a fix for one problem quietly broke a guarantee the code had already
+// written down for itself, and none of them was catchable by the existing suite.
+final class VoiceGateRegressionTests: XCTestCase {
+
+    // A COACH CUE MUST NOT CANCEL THE COMMANDS SHEET'S MUTE. The sheet prints every literal phrase on
+    // screen so VoiceOver can read them — straight into the open mic — which is why it mutes
+    // recognition wholesale. It used to claim that mute through setAppSpeaking(true), so the next
+    // cue's setAppSpeaking(false) cleared it and re-opened the self-trigger behind the open sheet.
+    @MainActor
+    func testACoachCueCannotLiftTheCommandSheetsMute() {
+        let c = LocateVoiceControl()
+        c.setBlanketMute(true)                       // sheet opens
+        c.setAppSpeaking(true, saying: "很好 — 现在可以保存这个位置了。")
+        c.setAppSpeaking(false, saying: nil)         // …cue ends behind the sheet
+        XCTAssertTrue(c.blanketMuteForTesting, "a coach cue lifted the sheet's mute")
+        c.setBlanketMute(false)                      // only the sheet lifts it
+        XCTAssertFalse(c.blanketMuteForTesting)
+    }
+
+    // A MISSED setAppSpeaking(false) MUST NOT DEAFEN THE MIC FOREVER. appSayingUntil is
+    // .distantFuture while a cue plays; if the "stopped" call never arrives (view torn down
+    // mid-utterance, cue cancelled by a route change) that phrase is rejected for the rest of the
+    // session. Turning the mic on is the known-good reset point.
+    @MainActor
+    func testTurningTheMicOnClearsAStuckEchoGate() {
+        let c = LocateVoiceControl()
+        c.setAppSpeaking(true, saying: "就是这里，轻轻稳住。")   // …and never stops
+        XCTAssertNotNil(c.appSayingForTesting)
+        c.start()
+        XCTAssertNil(c.appSayingForTesting, "a stuck echo window survived turning the mic on")
+    }
+}
+
+// THE LISTENING CUE-GAP MUST NEVER EAT A BEHAVIOUR-CHANGING LINE.
+//
+// The gap exists so the recognizer gets audio that is not full-level coach speech. It was first
+// written to exempt one hard-coded string, which silently swallowed the rest: "Saved — the ring now
+// sits on your spot" (the one moment the app promises never to pass in silence), and the
+// .complete / .resting instructions that update(phase:) has its own comment promising never to drop.
+final class SpeechPriorityTests: XCTestCase {
+    func testTheLinesThatMustNeverBeDroppedAreDistinctAndPresent() {
+        // If any of these ever becomes rate-limitable, it is because someone reintroduced a
+        // string-equality exemption instead of the `priority:` flag on the CALL.
+        let saved = CoachVoice.savedLine
+        XCTAssertFalse(saved.isEmpty)
+        let resting = CoachVoice.phrase(for: .resting, requiresDorsal: false)
+        let complete = CoachVoice.phrase(for: .complete, requiresDorsal: false)
+        let ready = CoachVoice.locatePhrase(for: .ready, requiresDorsal: false, selfCoaching: true)
+        for line in [resting, complete, ready] { XCTAssertNotNil(line) }
+        // They must be distinct from each other — a string-equality exemption on one would otherwise
+        // silently cover another and mask the bug.
+        XCTAssertEqual(Set([saved, resting!, complete!, ready!]).count, 4)
+    }
+}

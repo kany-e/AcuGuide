@@ -83,7 +83,7 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
                                       selfCoaching: selfCoaching) else { return }
         // .ready is the behavior-changing line (the confirm just unlocked) — never drop it.
         if speaking && state != .ready { return }
-        speak(line)
+        speak(line, priority: state == .ready)
     }
 
     // Locate → coach handover (confirm or skip): cut any stale locate line mid-utterance — the
@@ -101,7 +101,7 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
     func locateSaved() {
         handover()
         guard !muted else { return }
-        speak(Self.savedLine)
+        speak(Self.savedLine, priority: true)
     }
 
     // The saved-it line, hoisted out of locateSaved() so VoiceScript can enumerate it too.
@@ -144,7 +144,9 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
         // dropped: COMPLETE (the finish cue) and RESTING ("release" — without preemption a round
         // completing mid-utterance left eyes-free users pressing through the whole rest gap).
         if speaking && phase != .complete && phase != .resting { return }
-        speak(line)
+        // …and the same two survive the listening cue-gap, or the rule above would hold only against
+        // an in-progress utterance and not against the rate limit.
+        speak(line, priority: phase == .complete || phase == .resting)
     }
 
     static func phrase(for phase: CoachPhase, requiresDorsal: Bool,
@@ -179,15 +181,21 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
         clip.stop()
     }
 
-    private func speak(_ text: String) {
-        // HOLD THE FLOOR LESS WHILE THE MIC IS OPEN. Barge-in (the echo gate in LocateVoice) makes
-        // the user's command survive a cue, but the recognizer still needs some audio that is not
-        // full-level coach speech to decode it out of. Cues that arrive inside the gap are dropped,
-        // not queued: they describe a state that is changing several times a second anyway, so a
-        // stale one is worse than none. `.ready` is exempt — it is the behaviour-changing line.
-        if LocateVoiceControl.micHoldsSession,
-           Date().timeIntervalSince(lastCueEnd) < Self.listeningCueGapS,
-           text != Self.locatePhrase(for: .ready, requiresDorsal: false, selfCoaching: true) { return }
+    /// `priority` lines are never rate-limited. HOLD THE FLOOR LESS WHILE THE MIC IS OPEN: barge-in
+    /// (the echo gate in LocateVoice) lets the user's command survive a cue, but the recognizer still
+    /// needs audio that is not full-level coach speech to decode it out of. Cues inside the gap are
+    /// DROPPED, not queued — they describe a state that changes several times a second, so a stale
+    /// one is worse than none.
+    ///
+    /// The gap must therefore never see a line whose job is to tell the user something CHANGED. It
+    /// was first written to exempt one hard-coded string (`.ready`), which silently ate the rest:
+    /// "Saved — the ring now sits on your spot" (the one moment that must never pass in silence),
+    /// the first cue after a handover, and the `.complete`/`.resting` instructions that
+    /// `update(phase:)` has its own comment promising never to drop. Priority is a property of the
+    /// CALL, not of the string.
+    private func speak(_ text: String, priority: Bool = false) {
+        if !priority, LocateVoiceControl.micHoldsSession,
+           Date().timeIntervalSince(lastCueEnd) < Self.listeningCueGapS { return }
         lastSpokenText = text
         stopSpeaking()
         try? AVAudioSession.sharedInstance().setActive(true)
@@ -261,8 +269,16 @@ final class AtlasSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         // new read-aloud playing under .ambient, i.e. silenced by the hardware mute switch.
         synth.stopSpeaking(at: .immediate)
         clip.stop()
-        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers, .duckOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        // NOT WHILE THE MIC OWNS THE SESSION. `.playback` has no input route, so claiming it here
+        // kills a live recognition tap — the exact hazard CoachVoice.reset() is guarded against, and
+        // it became reachable the moment the read-aloud button was promoted to a named "Listen"
+        // capsule on the coaching card. The mic's own shape (.playAndRecord + .voiceChat) is already
+        // audible over the loudspeaker, so a read-aloud under it just works; the only thing given up
+        // is `.duckOthers`, which matters less than silently deafening the hands-free controls.
+        if !LocateVoiceControl.micHoldsSession {
+            try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers, .duckOthers])
+            try? AVAudioSession.sharedInstance().setActive(true)
+        }
         if let url = VoiceClips.url(for: text) {
             speaking = true
             let started = clip.play(url) { [weak self] in self?.speaking = false; self?.restore() }
@@ -281,6 +297,11 @@ final class AtlasSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     // .playback/.duckOthers we set for it doesn't leak app-wide — otherwise other apps stay ducked and
     // later coach cues (CoachVoice sets .ambient only once in init) would play over the silent switch.
     private func restore() {
+        // …and symmetrically: if the mic owns the session there is nothing of ours to hand back, and
+        // dropping it to `.ambient` + setActive(false) would leave the tap running over a dead route
+        // with nothing to repair it (recoverFromConfigChange re-arms the task but never re-sets the
+        // category).
+        guard !LocateVoiceControl.micHoldsSession else { return }
         try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }

@@ -49,6 +49,15 @@ targets:
     info:
       path: AcuGuide/Info.plist
       properties:
+        # PROMOTION. Without this key iOS caps an iPhone app's Core Animation and CADisplayLink
+        # content at 60 Hz on 120 Hz hardware (iPhone 13 Pro and later) — the app is not dropping
+        # frames, it is simply never allowed to draw more than half of them. Its signature is exactly
+        # a report of "the whole interface is a little bit laggy": not a hitch on one screen, but
+        # every scroll, sheet and transition in the app feeling a half-step behind the system UI the
+        # user just came from. It applies app-wide, costs nothing, and is one of only two things
+        # found that are uniform across every screen (the other being a Debug -Onone install).
+        # It also lifts the atlas's own CADisplayLink projector off its 60 Hz ceiling.
+        CADisableMinimumFrameDurationOnPhone: true
         NSCameraUsageDescription: "AcuGuide uses the camera to guide your acupressure press."
         # Voice control on the camera screen — both hands are occupied pressing, so the few things
         # the user needs mid-session (confirm a spot, freeze the picture to read the guide, carry

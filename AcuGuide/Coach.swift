@@ -1085,12 +1085,23 @@ final class CoachEngine: ObservableObject {
 
     // Guarded writes: this runs every camera frame, and an unconditional @Published assignment
     // invalidates the SwiftUI overlay 30×/sec even when nothing changed.
+    // Inputs the cue string is a pure function of — see apply().
+    private var lastCuePhase: CoachPhase? = nil
+    private var lastCueHasPresser: Bool? = nil
+
     private func apply(_ phase: CoachPhase, point: Acupoint, hasPresser: Bool) {
         if self.phase != phase { self.phase = phase }
         let p = machine.progress
         if progress != p { overlay.progress = p }
-        let newCue = cueFor(phase, point: point, hasPresser: hasPresser)
-        if cue != newCue { cue = newCue }
+        // The cue only depends on (phase, hasPresser) for a fixed point, so BUILD it only when one of
+        // those moves. It used to be constructed unconditionally and then discarded by the equality
+        // check on the next line — a String allocation (and, in .resting, an interpolation) every
+        // camera frame, which is precisely what the comment above this function was trying to avoid.
+        if phase != lastCuePhase || hasPresser != lastCueHasPresser {
+            lastCuePhase = phase; lastCueHasPresser = hasPresser
+            let newCue = cueFor(phase, point: point, hasPresser: hasPresser)
+            if cue != newCue { cue = newCue }
+        }
     }
 
     private func cueFor(_ phase: CoachPhase, point: Acupoint, hasPresser: Bool) -> String {
