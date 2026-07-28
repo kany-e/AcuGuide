@@ -497,11 +497,12 @@ extension BodyMeshProbeTests {
         let b = world(HandSheet.uv(along: 0, across: 1)) - o     // one palm-length across
         let deg = acos(max(-1, min(1, simd_dot(simd_normalize(a), simd_normalize(b))))) * 180 / .pi
         print(String(format: "=== along∠across on the MESH: %.1f°  (90° = square)", deg))
-        print(String(format: "=== |across| / |along| = %.4f  (should be acrossScale %.2f)",
-                     simd_length(b) / simd_length(a), HandSheet.acrossScale))
+        // Measured at the WRIST (along 0), so the expected ratio is the wrist end of the profile.
+        print(String(format: "=== |across| / |along| = %.4f  (should be wristAcrossScale %.2f)",
+                     simd_length(b) / simd_length(a), HandSheet.wristAcrossScale))
         XCTAssertEqual(deg, 90, accuracy: 1.0,
                        "the hand frame is sheared on the mesh — moving across the palm also walks the point along it")
-        XCTAssertEqual(simd_length(b) / simd_length(a), HandSheet.acrossScale, accuracy: 0.02,
+        XCTAssertEqual(simd_length(b) / simd_length(a), HandSheet.wristAcrossScale, accuracy: 0.02,
                        "one palm-length across is not one palm-length on the mesh")
     }
 }
@@ -623,6 +624,64 @@ extension BodyMeshProbeTests {
     }
 }
 
+// WHERE EACH POINT SITS ACROSS THE HAND, as a number rather than an impression. Device report:
+// "PC8 looks right, the others look maybe slightly off" — and the labelled render cannot settle that,
+// because on the dorsal side TE2/TE3/SI3 land close enough together that their billboarded labels
+// overlap and hide the very dots being judged.
+//
+// So report, per point: its uv, the palm's measured u-span at that height, and its position as a
+// FRACTION OF THE HALF-WIDTH (0 = centreline, -1 = ulnar border, +1 = radial border). That makes
+// "too far ulnar" a number. Also reports which points the chart actually draws — a point whose
+// region is not "hand" is silently absent from the sheet no matter what anatomy it has.
+extension BodyMeshProbeTests {
+    func testReportHandPointsAcrossThePalm() throws {
+        guard let scene = loadScene("hand_low_poly"),
+              let mesh = AtlasMarkers.unitMesh(from: scene, material: AtlasMarkers.meshMaterial()) else {
+            XCTFail("no hand mesh"); return
+        }
+        mesh.eulerAngles = SCNVector3(0, 0.72, Float.pi)
+
+        func directHit(_ u: Float, _ v: Float) -> Bool {
+            guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: u, v: v, farSide: false,
+                                                    id: "p", color: .white, core: 0.001, halo: 0.002)
+            else { return false }
+            return m.onSurface && !m.snapped
+        }
+        /// Widest contiguous run of surface at this height = the palm (the thumb is a separate lobe).
+        func palmSpan(at v: Float) -> (lo: Float, hi: Float)? {
+            var runs: [(lo: Float, hi: Float)] = []
+            var start: Float? = nil, prev: Float = 0
+            for j in 0...80 {
+                let u = -0.50 + Float(j) / 80 * 1.00
+                if directHit(u, v) { if start == nil { start = u }; prev = u }
+                else if let s = start { runs.append((s, prev)); start = nil }
+            }
+            if let s = start { runs.append((s, prev)) }
+            return runs.max(by: { ($0.hi - $0.lo) < ($1.hi - $1.lo) })
+        }
+
+        let drawn = Set(AcupointPlacements.detailLayout(region: "hand").layout.keys)
+        print("  id    along  across |    u       v    | palm u-span      | across/half-width | drawn")
+        for id in HandAnatomy.spots.keys.sorted() {
+            guard let s = HandAnatomy.spots[id] else { continue }
+            let uv = HandSheet.uv(along: s.along, across: s.across)
+            guard let span = palmSpan(at: uv.y) else {
+                print(String(format: "  %-5@  %+.2f  %+.2f  | %+.3f %+.3f | OFF THE MESH", id as NSString,
+                             s.along, s.across, uv.x, uv.y))
+                continue
+            }
+            let c = (span.lo + span.hi) / 2, hw = (span.hi - span.lo) / 2
+            let frac = hw > 1e-4 ? (uv.x - c) / hw : 0
+            print(String(format: "  %-5@  %+.2f  %+.2f  | %+.3f %+.3f | %+.3f…%+.3f | %+.2f %@ | %@",
+                         id as NSString, s.along, s.across, uv.x, uv.y, span.lo, span.hi, frac,
+                         (abs(frac) > 0.95 ? "OFF EDGE" : abs(frac) > 0.8 ? "at border" : "        ") as NSString,
+                         (drawn.contains(id) ? "yes" : "NO — region is not \"hand\"") as NSString))
+        }
+        let missing = HandAnatomy.spots.keys.filter { !drawn.contains($0) }.sorted()
+        print("=== in HandAnatomy but NOT drawn on the chart: \(missing.isEmpty ? "none" : missing.joined(separator: " "))")
+    }
+}
+
 // DRAW THE FRAME, not the points. The labelled-point audit is too cluttered to answer the only
 // question that matters — does the hand frame's CENTRELINE run down the middle of the palm, and is
 // "across" actually across? So render the frame itself: the along-axis as a ladder of dots at
@@ -692,7 +751,7 @@ extension BodyMeshProbeTests {
             var direct = 0, bad: [String] = []
             for id in ids {
                 guard let sp = HandAnatomy.spots[id] else { continue }
-                let uv = HandSheet.uv(along: sp.along, across: sp.across, scale: scale)
+                let uv = HandSheet.uv(along: sp.along, across: sp.across, boost: scale)
                 guard let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: uv.x, v: uv.y,
                                                         farSide: !sp.dorsal, id: id, color: .white,
                                                         core: 0.02, halo: 0.03) else { bad.append(id); continue }

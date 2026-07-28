@@ -55,6 +55,43 @@ final class CaptureRotationTests: XCTestCase {
         XCTAssertEqual(seen[.portrait], 90, "portrait must keep the angle the app shipped with")
     }
 
+    // …AND WHICH LANDSCAPE GETS WHICH ANGLE, which is the assertion that was missing above.
+    //
+    // The test above passes just as happily with the two landscape values SWAPPED — distinct, 180°
+    // apart, portrait untouched. That gap let an inversion report send the swap most of the way to
+    // shipping in R17, so pin the values AND the derivation, and state the traps that make the wrong
+    // answer look reasonable.
+    //
+    // The derivation uses no enum names, because the enum names are the trap. Portrait = 90 is
+    // device-confirmed on the front camera, so that camera's sensor zero is already inside it, and
+    // the landscapes follow as 90 ∓ 90. The only free parameter is the SIGN of videoRotationAngle,
+    // which this repo pins independently: CameraLocator and LabelCapture both map angle 0 → Vision
+    // `.right` (EXIF 6, "rotate 90° clockwise"), so 0 → 90 is 90° clockwise. Interface
+    // .landscapeRight is the device turned 90° anticlockwise, hence 90 − 90 = 0.
+    func testEachLandscapeGetsItsDerivedAngle() {
+        XCTAssertEqual(CaptureRotation.angle(for: .landscapeRight), 0,
+                       "device turned 90° anticlockwise from a device-confirmed portrait 90")
+        XCTAssertEqual(CaptureRotation.angle(for: .landscapeLeft), 180,
+                       "the other landscape is necessarily 180° from it")
+    }
+
+    // THE INVERSION IS CROSSED EXACTLY ONCE, in OrientationDriver. UIDeviceOrientation and
+    // UIInterfaceOrientation really are opposite for landscape (the SDK writes
+    // `UIInterfaceOrientationLandscapeRight = UIDeviceOrientationLandscapeLeft`), and that is the
+    // driver's job. UIInterfaceOrientation and AVCaptureVideoOrientation are NOT opposite — same
+    // pose, same raw value — so the capture table must not cross it a second time. Applying it twice
+    // is a silent half-turn, and it is the specific mistake this pair of tests exists to block.
+    func testTheInversionIsAppliedInExactlyOnePlace() {
+        // The driver crosses it…
+        XCTAssertEqual(OrientationDriver.target(for: .landscapeLeft), .landscapeRight)
+        XCTAssertEqual(OrientationDriver.target(for: .landscapeRight), .landscapeLeft)
+        // …and the capture table does not: a device turned LEFT ends up at 0°, not 180°.
+        let interface = OrientationDriver.target(for: .landscapeLeft)!
+        XCTAssertEqual(CaptureRotation.angle(for: interface), 0,
+                       "device .landscapeLeft → interface .landscapeRight → 0°; if this reads 180 the "
+                       + "device↔interface inversion has been applied twice")
+    }
+
     // The display aspect has to be able to express landscape. It could not before: the old
     // min/max form was ≤ 1 by construction, so a landscape frame would have been scaled as if it
     // were portrait — wrong ring size, wrong hit test, wrong stored calibration.

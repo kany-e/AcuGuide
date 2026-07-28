@@ -104,11 +104,17 @@ enum AcupointPlacements {
         // whole palm away at the wrist (user-reported: the hand "didn't even change"). The body
         // atlas and this sheet now read the SAME anatomy; only the frame differs.
         if region == "hand" {
+            // EVERYTHING HandAnatomy KNOWS, not everything filed under region "hand". Those are not
+            // the same set: TE4 (Yangchi, the dorsal wrist crease) and PC7 (Daling, the palmar one)
+            // are filed under the ARM — they also appear on the arm sheet — so the hand chart was
+            // silently dropping two of its twelve points, both on the wrist crease the sheet very
+            // much does draw. HandAnatomy is the app's ONE statement of where a hand point is; if a
+            // point has an entry there and the mesh reaches it, the chart should show it.
             let derived = HandSheet.detailUV
-            for pt in Acupoint.all where pt.region == region {
-                guard let uv = derived[pt.id] else { continue }
-                layout[pt.id] = uv
-                if !pt.requiresDorsal { back.insert(pt.id) }   // palmar points raycast from behind
+            for (id, uv) in derived {
+                guard let pt = Acupoint.byId[id] else { continue }
+                layout[id] = uv
+                if !pt.requiresDorsal { back.insert(id) }      // palmar points raycast from behind
             }
             return (layout, back)
         }
