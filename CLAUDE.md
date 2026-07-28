@@ -30,7 +30,8 @@ acuguide-dashboard.html
 
 ```bash
 make project   # xcodegen generate -> AcuGuide.xcodeproj
-make build     # xcodebuild, generic iOS device, signing off
+make build     # DEBUG compile-check, generic iOS device, signing off
+make release   # -O whole-module — the build to put on a phone
 make test      # xcodebuild test on a simulator
 ```
 
@@ -48,7 +49,14 @@ CI mirrors this in `.github/workflows/ios-tests.yml`.
    If an SPM cleanup nukes the artifact, re-resolve before assuming the code broke.
 4. **Camera and Vision hand-pose do not work in the Simulator.** Unit tests run there; anything
    involving the live coach has to be checked on a device.
-5. **The spoken script is shipped as pre-rendered AUDIO, not synthesized on device.** Every line in
+5. **Never judge performance from a Debug build, and never ship one to the phone.** Debug is
+   `-Onone`, and this app leans hard on unoptimised-hostile code: CPU triangle raycasts
+   (Möller–Trumbore) for every atlas marker and meridian, One-Euro filters and isotropic hit-tests
+   per camera frame, SceneKit geometry building. Measured here, `testMeasureDetailHandCentreline`
+   takes **20.8 s at -Onone and 2.1 s at -O — 10×**. A "the whole interface is laggy" report from a
+   Debug install is the expected outcome. Use `make release`. (Debug also can't be swapped for
+   Release in `make test`: `@testable import` needs `ENABLE_TESTABILITY`, which only Debug sets.)
+6. **The spoken script is shipped as pre-rendered AUDIO, not synthesized on device.** Every line in
    `Speech.swift`'s phrase tables and `Acupoint.spokenInfo` is rendered offline into
    `AcuGuide/VoiceClips/<key>.m4a`, where `key = sha256("<locale>|<normalized text>")`. **Rewording
    any spoken string changes its key and orphans its clip** — that line silently drops to the robotic

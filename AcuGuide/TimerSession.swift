@@ -97,7 +97,10 @@ final class TimerSession: ObservableObject {
             }
         case .resting:
             restLeft -= dt
-            restRemaining = max(0, Int(restLeft.rounded(.up)))
+            // Guarded: the ticker runs at 10 Hz but this is a whole SECOND, so nine out of ten
+            // writes published an identical value and re-diffed the whole session screen for it.
+            let secs = max(0, Int(restLeft.rounded(.up)))
+            if restRemaining != secs { restRemaining = secs }
             if restLeft <= 0 { phase = .holding }
         case .ready, .complete:
             break

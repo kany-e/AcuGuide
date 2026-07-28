@@ -156,13 +156,15 @@ final class OrientationDriver: ObservableObject {
     }
 
     private func deviceTurned() {
-        guard wantsLandscape,
-              let scene = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.activationState == .foregroundActive })
+        // CHEAP TEST FIRST. A phone propped on a table — the posture this whole screen is designed
+        // around — emits .faceUp/.faceDown continuously, and `target(for:)` discards those. Doing the
+        // connectedScenes walk before that check meant a UIApplication scene enumeration per
+        // notification, on the main thread, for readings we were always going to throw away.
+        guard wantsLandscape, let target = Self.target(for: UIDevice.current.orientation) else { return }
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive })
         else { return }
-
-        guard let target = Self.target(for: UIDevice.current.orientation) else { return }
         if interfaceOrientation != target { interfaceOrientation = target }
         guard scene.interfaceOrientation != target else { return }
 

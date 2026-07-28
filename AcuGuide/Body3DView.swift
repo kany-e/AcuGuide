@@ -598,6 +598,12 @@ struct SceneKitBody: UIViewRepresentable {
         private var labeledKey: String? = nil            // cached tag source ("mer:<id>" / "reg:<id>")…
         private var labeledNodes: [(pt: Acupoint, node: SCNNode)] = []   // …and its points + marker nodes
         private var link: CADisplayLink?
+        /// Everything the marker-reveal loop reads. It only changes on a tap (or a Reduce Motion
+        /// change), so the loop runs on a change instead of on every display-link tick.
+        private struct RevealKey: Equatable {
+            let focused: String?; let meridian: String?; let reduceMotion: Bool
+        }
+        private var lastReveal: RevealKey? = nil
         private var lastPublish: CFTimeInterval = 0
         // Where the camera orbits (origin in full-body mode, the region centre when focused) —
         // the reference point for the point-label facing fade below.
@@ -757,6 +763,16 @@ struct SceneKitBody: UIViewRepresentable {
             // body region (→ that region's points) — the resting figure shows meridians only, uncluttered
             // (user-directed). Newly revealed dots FADE in (~0.3 s, instant under Reduce Motion); leaving
             // the selection hides them again. hitTest's nearest-first order handles occlusion on orbit.
+            //
+            // GATED on the two things it reads. This loop walks every marker node, does a dictionary
+            // lookup and copies an Acupoint struct for each, and it ran on EVERY display-link tick —
+            // 30 Hz, forever, including on a completely idle figure where it was the only work the
+            // tick did. Its inputs change only on a tap. Everything else in tick() is already
+            // change-guarded; this was the one that was not.
+            let reveal = RevealKey(focused: model.focused?.id, meridian: model.selectedMeridian?.id,
+                                   reduceMotion: UIAccessibility.isReduceMotionEnabled)
+            if reveal != lastReveal {
+            lastReveal = reveal
             var revealed: [SCNNode] = []
             for (id, node) in acuNodes {
                 let pt = Acupoint.byId[id]
@@ -777,6 +793,7 @@ struct SceneKitBody: UIViewRepresentable {
                 SCNTransaction.animationDuration = 0.3
                 for n in revealed { n.opacity = 1.0 }
                 SCNTransaction.commit()
+            }
             }
         }
 

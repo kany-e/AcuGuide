@@ -220,6 +220,10 @@ final class LocateVoiceControl: ObservableObject {
     private var appSaying: String? = nil
     private var appSayingUntil = Date.distantPast
     private var blanketMute = false
+    // Read-only windows for VoiceGateRegressionTests — the two pieces of gate state whose failure
+    // modes are silent (a mute that never lifts, an echo window that never closes).
+    var blanketMuteForTesting: Bool { blanketMute }
+    var appSayingForTesting: String? { Date() < appSayingUntil ? appSaying : nil }
     private var lastKind: LocateVoiceCommand? = nil
 
     private var observers: [NSObjectProtocol] = []
@@ -235,6 +239,10 @@ final class LocateVoiceControl: ObservableObject {
 
     init() { recognizer = SFSpeechRecognizer(locale: AppLocale.speechLocale) }
     deinit { removeObservers() }
+
+    /// The commands sheet's own gate. Separate from `setAppSpeaking` so a coach cue arriving behind
+    /// the sheet cannot clear it, and so the sheet's onDisappear is the only thing that lifts it.
+    func setBlanketMute(_ on: Bool) { blanketMute = on }
 
     func toggle() { listening ? stop() : start() }
 
@@ -267,11 +275,15 @@ final class LocateVoiceControl: ObservableObject {
     /// are on screen for VoiceOver to read and there is no single utterance to match against.
     func setAppSpeaking(_ speaking: Bool, saying line: String? = nil) {
         if speaking {
-            blanketMute = (line == nil)
+            // A COACH CUE MUST NOT CANCEL THE SHEET'S MUTE. `blanketMute` is claimed by the commands
+            // sheet, which prints every literal phrase on screen for VoiceOver to read into the open
+            // mic; a cue starting or ending behind that sheet used to clear it and re-open exactly
+            // the self-trigger the sheet is guarded against. Only a caller that passes no line —
+            // i.e. the sheet — may set it, and only the sheet may drop it (setBlanketMute).
+            if line == nil { blanketMute = true }
             appSaying = line
             appSayingUntil = .distantFuture
         } else {
-            blanketMute = false
             // Keep the line for a short tail: the recognizer reports the cue's own words up to ~0.6 s
             // after it stops playing, so dropping the line at didFinish would let the echo through.
             appSayingUntil = Date().addingTimeInterval(0.6)
@@ -281,6 +293,13 @@ final class LocateVoiceControl: ObservableObject {
     func start() {
         guard !listening, recognizer != nil else { return }
         denied = false; unavailable = false
+        // CLEAR THE ECHO GATE. `appSaying`/`appSayingUntil` are cleared by setAppSpeaking(false), and
+        // if that call is ever missed — the view torn down mid-utterance, a cue cancelled by a route
+        // change — `appSayingUntil` stays .distantFuture and the gate rejects that phrase forever.
+        // Turning the mic on is the one unambiguous "start from a known state" moment, so use it.
+        appSaying = nil; appSayingUntil = .distantPast
+        blanketMute = false
+        lastKind = nil
         generation += 1
         let gen = generation
         SFSpeechRecognizer.requestAuthorization { [weak self] auth in

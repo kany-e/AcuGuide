@@ -112,8 +112,8 @@ struct VoiceCommandsView: View {
         }
         // Suspend recognition for as long as the phrases are on screen (and a beat after, for the
         // recognizer's own lag) — setAppSpeaking is exactly this gate, already tested.
-        .onAppear { voiceControl.setAppSpeaking(true) }
-        .onDisappear { voiceControl.setAppSpeaking(false) }
+        .onAppear { voiceControl.setBlanketMute(true) }
+        .onDisappear { voiceControl.setBlanketMute(false) }
     }
 
     // ONE phrase as a chip, the rest as a quiet "also" line. Chipping all six accepted phrasings

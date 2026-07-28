@@ -236,7 +236,11 @@ struct ARCoachView: View {
                                    selfCoaching: camera.usingFront, voiceConfirmActive: false)
             }
         }
-        .onDisappear { locateVoice.stop(); camera.stop(); voice.reset() }
+        // AtlasSpeaker too: the read-aloud is reachable from this screen now (the "Listen" capsule),
+        // and it was the one audio source the coach never stopped on the way out — a half-finished
+        // point description would follow the user back to the atlas, holding a .playback/.duckOthers
+        // session behind it.
+        .onDisappear { locateVoice.stop(); camera.stop(); voice.reset(); AtlasSpeaker.shared.stop() }
         // LANDSCAPE FOR THE WHOLE COACH SCREEN, gate and recap included.
         //
         // This used to be gated on `acknowledged && … && feeling == nil` — the live-camera stretch
@@ -449,6 +453,13 @@ struct ARCoachView: View {
             // ring/press-dot land on the same pixels the aspect-fill preview shows. The chrome is
             // kept OUTSIDE this and respects the safe area (status bar / home indicator).
             ZStack {
+                // DELIBERATELY the scene read, not the driver's target — the opposite choice from
+                // syncRotation, and the asymmetry is the point. The capture connection needs the
+                // driver's value because its early-out LATCHES: install a stale angle once and
+                // nothing re-drives it. This preview has no such latch — it re-reads on every body
+                // render, so a momentarily stale value corrects itself a frame later. Keying it to
+                // the driver instead would trade that self-healing for a value that stays wrong for
+                // the whole session if iOS ever refuses the geometry request.
                 CameraPreview(session: camera.session, mirrored: camera.mirrored,
                               rotationAngle: CaptureRotation.currentAngle,
                               configGeneration: camera.configGeneration)
@@ -786,8 +797,14 @@ struct ARCoachView: View {
                 sessionControls
             }
             VStack(alignment: .leading, spacing: 6) {
+                // THE LIVE ELEMENT. Carries the announcement the whole card used to carry by
+                // flattening itself — same words, same updatesFrequently trait, but scoped to the
+                // one thing that actually changes so the card's buttons stay reachable.
                 Text(engine.cue).font(.subheadline).foregroundStyle(Ink.text)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("\(acupoint.id) \(acupoint.zh). \(engine.cue)\(hintLine.map { " \($0)" } ?? "")")
+                    .accessibilityValue("\(Int(engine.progress * 100)) percent held")
+                    .accessibilityAddTraits(.updatesFrequently)
                 // HOW TO FIND IT, on the camera screen, while the coach is still hunting.
                 //
                 // The spoken cue tells the user to find the point "around the outlined area", but the
@@ -835,7 +852,10 @@ struct ARCoachView: View {
                             }
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Ink.gold)
-                            .padding(.horizontal, 12).frame(height: 34)
+                            // 44 pt tall. The previous version of this control was a bare 44×44
+                            // glyph; turning it into a capsule shrank it to 34 in the very commit
+                            // that raised the chrome buttons TO 44 for that exact reason.
+                            .padding(.horizontal, 14).frame(height: 44)
                             .background(Capsule().stroke(Ink.gold.opacity(0.5), lineWidth: 1))
                             .contentShape(Capsule())
                         }
@@ -888,11 +908,15 @@ struct ARCoachView: View {
             }
         }
         .padding(14).panel().padding()
-        // One VoiceOver element that re-announces the cue + hold progress as the phase changes.
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(acupoint.id) \(acupoint.zh). \(engine.cue)\(hintLine.map { " \($0)" } ?? "")")
-        .accessibilityValue("\(Int(engine.progress * 100)) percent held")
-        .accessibilityAddTraits(.updatesFrequently)
+        // CONTAIN, not IGNORE. This card used to flatten itself into ONE VoiceOver element so the
+        // cue and hold progress could re-announce as the phase changed — and that hid every control
+        // inside it: Pause, End, the read-aloud capsule, and the "it's already the right side"
+        // button, which is the ONLY escape from a face gate that has decided wrongly. A VoiceOver
+        // user could hear the coaching and reach none of it.
+        //
+        // The live announcement moves onto the cue itself (see `cueLine`), which is the element it
+        // was always describing; the buttons keep their own labels and stay reachable.
+        .accessibilityElement(children: .contain)
     }
 
     // WHY-line under the cue: the engine's occlusion hint wins (specific), else the dim-scene hint —
