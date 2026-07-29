@@ -138,16 +138,39 @@ enum HandSheet {
     // longer derived from the digit-separation line.
     //
     // It used to be: digits separate at v +0.160, that is the WEB, HandAnatomy puts the web at along
-    // 1.06 (TE2), so the MCP line is 0.160/1.06 = +0.131. Two things make that wrong on THIS mesh.
-    // The 1.06 is a real-hand ratio, and these fingers are SPLAYED, which pushes the point where the
-    // silhouette first breaks into two lobes much further distal than a real hand's web. And it made
-    // one acupoint's authored fraction set the scale of the whole frame for the other eleven.
+    // 1.06 (TE2), so the MCP line is 0.160/1.06 = +0.131. That let ONE acupoint's authored fraction
+    // set the scale of the whole frame for the other eleven, on top of a measurement that is biased.
     //
-    // The result was visible and was reported: "TE3 and others moved up to the bottom of the finger."
-    // along 1.0 landed ABOVE the finger bases, so TE3 (0.80) and SI3 (0.86) sat at the base of the
-    // ring and little fingers instead of in the metacarpal groove, and TE2 (1.06) sat ON the little
-    // finger. Bringing the MCP end down to where along 0.8 used to fall puts the knuckle line back on
-    // the knuckles; everything scales with it.
+    // It was reported: "TE3 and others moved up to the bottom of the finger." along 1.0 landed ABOVE
+    // the finger bases, so TE3 (0.80) and SI3 (0.86) sat at the base of the ring and little fingers
+    // instead of in the metacarpal groove, and TE2 (1.06) sat ON the little finger.
+    //
+    // WHERE THE BIAS COMES FROM — not from splay, which is the plausible-sounding wrong answer. Splay
+    // opens the inter-finger gaps WIDER at any given height, so against a fixed detection threshold
+    // it makes the break register EARLIER, i.e. more proximal. The distal bias is SCAN RESOLUTION:
+    // HandSilhouette.runs samples 81 u values across a span of 1.00, a 0.0125 u quantum, which is
+    // comparable to the gap itself — a gap does not exist until it is wider than one sample step, so
+    // the break is always detected some way ABOVE the true web. The pose's 41° yaw compresses lateral
+    // separation by cos 41°, which makes it worse.
+    //
+    // HONEST STATUS OF THIS NUMBER: +0.055 is JUDGED, not measured. It is the height where along 0.8
+    // previously fell, chosen because the report says the old frame overshot; only its `u` is
+    // measured (it is snapped onto the centreline fit above). It is bracketed — an independent
+    // inference from TE2 puts the true MCP line in v ∈ [0.02, 0.13] — and it errs toward the wrist,
+    // the direction the report demands. But it has the same epistemic status as the values behind the
+    // two earlier defects, and it should not be described as measured until it is.
+    //
+    // TO END THIS PROPERLY, and none of it reads pixels: fit the ulnar silhouette over the palm band
+    // (v ∈ [−0.15, 0]) and over the little-finger band (v ∈ [+0.20, +0.32]) and INTERSECT the two
+    // lines — that corner is the 5th MCP head, it is immune to the sampling quantum and to any
+    // uniform projection scale, and it is the structural mirror of the wrist definition already
+    // trusted here (the taper knee). Cross-check by extrapolating the inter-finger gap widths,
+    // measured where they are unambiguously wide, down to zero. If the two agree within 0.02, snap u
+    // back onto the centreline and ASSERT the result.
+    //
+    // NOTE the preamble above still quotes v +0.160 as "the web". Against this frame TE2 (along 1.06,
+    // which IS the web by definition) lands at v +0.078 — so that figure is retained as a raw
+    // measurement, not as ground truth, and the gap between them is the bias described above.
     static let knuckles = SIMD2<Float>( 0.158,  0.055)
     // Only the SIGN of `radial` depends on this, so it needs to be roughly thumb-ward, nothing more.
     static let thumbRef = SIMD2<Float>(-0.350,  0.130)   // out along the abducted thumb
@@ -193,8 +216,19 @@ enum HandSheet {
     // points — need a few percent of margin to stay direct hits instead of being spiral-snapped to
     // wherever the fallback lands. At the knuckle line the mesh is wide and flat-on to the camera and
     // needs none. DetailSnapshotTests.testHandViewPlacesMarkersOnModel is what enforces this.
-    static let wristAcrossScale: Float = 0.55
-    static let knuckleAcrossScale: Float = 0.90
+    //
+    // RE-FITTED WHEN THE PALM SHORTENED. `across` is denominated in palm-LENGTHS, so correcting the
+    // MCP line (which cut the frame from 0.435 to 0.352 iso, −19%) silently pulled every lateral
+    // offset in by the same 19% — and three of the points it moved are BORDER points, defined by the
+    // edge they were now sitting inboard of: SI4 (ulnar wrist) went 0.99 → 0.83 of the local
+    // half-width, SI3 (red-white-flesh border) 0.96 → 0.87, LI5 (snuffbox) 0.89 → 0.76. That is a
+    // partial re-opening of the very defect the across-profile was introduced to fix, caused by
+    // fixing something else. Restoring the absolute reach is × 0.4354/0.3523 = 1.236.
+    //
+    // The knuckle end does NOT get the same multiplier: along 1.0 now lands at v +0.055 instead of
+    // +0.131, a narrower row of the mesh, so its scale is set from the half-width measured THERE.
+    static let wristAcrossScale: Float = 0.68
+    static let knuckleAcrossScale: Float = 1.05
 
     /// Clamped, so the forearm (negative `along`) and TE2 (1.06, just past the knuckle line) stay
     /// inside the range that was actually measured rather than extrapolating off the end of it.
