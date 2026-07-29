@@ -492,7 +492,6 @@ struct ARCoachView: View {
                     // less than the 380 pt its .frame(maxWidth:) merely PERMITS — squeezing the
                     // guide text a second time. Sizing this column to its content fixes both.
                     VStack(alignment: .leading, spacing: 8) {
-                        chromeBar
                         voiceHintChip
                         Spacer(minLength: 0)
                         savedChipView
@@ -500,19 +499,20 @@ struct ARCoachView: View {
                     .frame(maxWidth: 300, alignment: .leading)
                     .padding(.leading, 12).padding(.top, 8)
                     Spacer(minLength: 0)
+                    // A NARROWER SIDE COLUMN. 380 pt of an 874 pt viewport is 43% of the picture —
+                    // device report: "the text box takes up too much space, it should become vertical
+                    // occupying one side". 320 gives the card 292 pt of content, which is still far
+                    // more than the guide ever had (it was ~80 pt here) now that the prose runs the
+                    // full width of the card instead of sharing its row with the ring and buttons.
+                    //
                     // Scrollable, because the tallest card (LocateCard with the guide expanded, at
                     // large Dynamic Type) can still exceed a 390 pt viewport, and a card that runs
                     // off the bottom takes the confirm button with it.
                     ScrollView(.vertical, showsIndicators: false) { activeCard }
-                        .frame(maxWidth: 380)
+                        .frame(maxWidth: 320)
                 }
             } else {
                 VStack(spacing: 8) {
-                    // Anchored to the top-TRAILING corner — the opposite corner from the
-                    // NavigationStack's own "Close" button, so the screen reads as two distinct
-                    // controls rather than one row scattered across the top of the picture.
-                    HStack(spacing: 0) { Spacer(minLength: 0); chromeBar }
-                        .padding(.horizontal, 12).padding(.top, 8)
                     voiceHintChip
                     savedChipView
                     Spacer()
@@ -522,6 +522,20 @@ struct ARCoachView: View {
 
             if let shot = studyShot { studyOverlay(shot) }
             if userPaused { pausedOverlay }
+            #if DEBUG
+            // ROTATION READOUT (debug builds only). The landscape picture has been reported inverted
+            // three times, and reasoning has not settled it: an iOS screenshot is rendered in
+            // INTERFACE space, so "chrome upright, camera upside down" looks identical whether the
+            // capture ANGLE is wrong or the window was sent to the WRONG LANDSCAPE. Nothing in a
+            // screenshot can separate those. This prints the three numbers that do — photograph it
+            // with another device, or just read it off the screen, and the answer is unambiguous:
+            //   • device ≠ what you are physically holding  → the driver's mapping is wrong
+            //   • device right, interface right, but inverted → CaptureRotation.angle is wrong
+            //   • angle ≠ the table's value for that interface → a stale/latched write
+            // Top-leading: the one region that is empty in BOTH orientations (the card owns the
+            // bottom in portrait and the trailing side in landscape).
+            VStack { HStack { rotationReadout; Spacer() }; Spacer() }
+            #endif
         }
         // Cap growth so the largest accessibility sizes can't break the camera overlay layout,
         // while still honoring Dynamic Type up to that bound.
@@ -532,6 +546,18 @@ struct ARCoachView: View {
         .sheet(isPresented: $showVoiceCommands) {
             VoiceCommandsView(voiceControl: locateVoice) { showVoiceCommands = false }
         }
+        // IN THE NAVIGATION BAR, on the same row as "Close".
+        //
+        // Device report: "the buttons are still lower than the exit sign, it looks weird and out of
+        // place." They were — by a whole navigation-bar height. The cluster lived in the content, so
+        // it started at the top of the CONTENT safe area, which sits below the (transparent) nav bar
+        // that Close is drawn in. No amount of padding fixes that from inside the content; the bar
+        // is where the row actually is. Both routes to this screen — a single point and a routine
+        // step — render inside RootView's NavigationStack, so the item lands in both.
+        //
+        // This also retires the landscape placement problem: the cluster is in the bar in either
+        // orientation, so it can never float over the middle of the frame again.
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { chromeBar } }
     }
 
     // Explicit pause: the camera stops (nothing is watched or credited); round progress is kept —
@@ -721,6 +747,39 @@ struct ARCoachView: View {
                 .overlay(Capsule().stroke(Ink.gold.opacity(0.35), lineWidth: 1))
         )
     }
+
+    #if DEBUG
+    /// The three numbers that separate the candidate causes of an inverted landscape picture.
+    /// Deliberately terse and monospaced so it is legible in a photograph of the screen.
+    private var rotationReadout: some View {
+        let dev: String
+        switch UIDevice.current.orientation {
+        case .portrait: dev = "portrait"
+        case .portraitUpsideDown: dev = "portraitUD"
+        case .landscapeLeft: dev = "devLeft"
+        case .landscapeRight: dev = "devRight"
+        case .faceUp: dev = "faceUp"
+        case .faceDown: dev = "faceDown"
+        default: dev = "unknown"
+        }
+        let iface: String
+        switch CaptureRotation.interfaceOrientation {
+        case .portrait: iface = "portrait"
+        case .portraitUpsideDown: iface = "portraitUD"
+        case .landscapeLeft: iface = "ifaceLeft"
+        case .landscapeRight: iface = "ifaceRight"
+        default: iface = "unknown"
+        }
+        return Text("dev \(dev) · iface \(iface) · angle \(Int(CaptureRotation.currentAngle))° · "
+                    + "mirror \(camera.mirrored ? "Y" : "N") · front \(camera.usingFront ? "Y" : "N")")
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Capsule().fill(.black.opacity(0.7)))
+            .padding(.leading, 12).padding(.top, 6)
+            .accessibilityHidden(true)
+    }
+    #endif
 
     /// Pause and End. Hoisted into the card's HEADER row, beside the ring, so they stop competing
     /// with the prose for width — they are fixed-size chrome and the guide is not.

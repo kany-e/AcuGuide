@@ -134,9 +134,21 @@ enum HandSheet {
     // measured centre at every clean row in between to within 0.008 uv, which is the check that this
     // is the hand's real long axis and not a fit through one end of it.
     static let wrist    = SIMD2<Float>( 0.019, -0.275)   // wrist-crease centre
-    // The digits separate at v +0.160, but that is the WEB line, and HandAnatomy puts the web at
-    // along 1.06 (TE2), not 1.00 — so the MCP line is 1/1.06 of the way there.
-    static let knuckles = SIMD2<Float>( 0.196,  0.131)   // MCP-line centre
+    // MCP-line centre. Kept ON the measured centreline (u = 0.402·v + 0.136), but its HEIGHT is no
+    // longer derived from the digit-separation line.
+    //
+    // It used to be: digits separate at v +0.160, that is the WEB, HandAnatomy puts the web at along
+    // 1.06 (TE2), so the MCP line is 0.160/1.06 = +0.131. Two things make that wrong on THIS mesh.
+    // The 1.06 is a real-hand ratio, and these fingers are SPLAYED, which pushes the point where the
+    // silhouette first breaks into two lobes much further distal than a real hand's web. And it made
+    // one acupoint's authored fraction set the scale of the whole frame for the other eleven.
+    //
+    // The result was visible and was reported: "TE3 and others moved up to the bottom of the finger."
+    // along 1.0 landed ABOVE the finger bases, so TE3 (0.80) and SI3 (0.86) sat at the base of the
+    // ring and little fingers instead of in the metacarpal groove, and TE2 (1.06) sat ON the little
+    // finger. Bringing the MCP end down to where along 0.8 used to fall puts the knuckle line back on
+    // the knuckles; everything scales with it.
+    static let knuckles = SIMD2<Float>( 0.158,  0.055)
     // Only the SIGN of `radial` depends on this, so it needs to be roughly thumb-ward, nothing more.
     static let thumbRef = SIMD2<Float>(-0.350,  0.130)   // out along the abducted thumb
 
