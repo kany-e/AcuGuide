@@ -509,36 +509,41 @@ enum CaptureRotation {
     /// Pure so the mapping is unit-testable — a landscape angle that collides with its opposite,
     /// or one AVFoundation refuses, shows up as an upside-down picture and nothing else.
     ///
-    /// THESE VALUES ARE CORRECT. A device report of "the landscape view is inverted" nearly got the
-    /// two landscape entries swapped in R17; they were reverted before shipping, and this is the
-    /// derivation that settles it — written down precisely so the next inversion report does not
-    /// spend its first hour here.
+    /// DEVICE-MEASURED, and the opposite of what a very convincing derivation predicted.
     ///
-    /// The argument that needs no enum names at all, and is therefore immune to the naming traps
-    /// below: PORTRAIT = 90 IS DEVICE-CONFIRMED, on the same front camera the reports come from.
-    /// Whatever that camera's native sensor zero is, it is already absorbed into that 90. The two
-    /// landscape values are then forced to 90 ∓ 90 by differential geometry — the only remaining
-    /// freedom is the SIGN of videoRotationAngle, i.e. whether increasing it turns the picture
-    /// clockwise or anticlockwise.
+    /// R17 swapped these two, then REVERTED the swap on the strength of an SDK-based argument. The
+    /// device has now overruled that argument. A DEBUG readout in the coach reported, with the phone
+    /// held sideways and the picture upside down:
     ///
-    /// That sign is pinned INSIDE this repo, by two portrait-only tables written before landscape
-    /// existed and never edited since: CameraLocator and LabelCapture both map angle 0 → Vision
-    /// `.right` (CGImagePropertyOrientation 6, "rotate 90° clockwise"), so going 0 → 90 adds 90°
-    /// CLOCKWISE. Interface .landscapeRight is the device turned 90° ANTICLOCKWISE from portrait, so
-    /// its corrective angle is 90 − 90 = 0, and .landscapeLeft is 90 + 90 = 180. Exactly the below.
+    ///     dev devLeft · iface ifaceRight · angle 0 · mirror Y · front Y
     ///
-    /// Two naming traps, both of which point the wrong way if half-remembered:
-    ///   • UIDeviceOrientation and UIInterfaceOrientation ARE opposite for landscape — the SDK says
-    ///     `UIInterfaceOrientationLandscapeRight = UIDeviceOrientationLandscapeLeft`. But that
-    ///     inversion belongs to OrientationDriver.target (Orientation.swift), which already applies
-    ///     it. It must NOT be applied a second time here.
-    ///   • UIInterfaceOrientation and AVCaptureVideoOrientation are NOT opposite — they are the same
-    ///     pose and even the same raw value (.landscapeRight = 3 in both, "home button on the
-    ///     right"). So this table maps interface → angle with no inversion of its own.
+    /// Every upstream value there is provably right. UIOrientation.h says
+    /// `UIInterfaceOrientationLandscapeRight = UIDeviceOrientationLandscapeLeft`, so devLeft →
+    /// ifaceRight is exactly what OrientationDriver.target should produce. And angle 0 WAS this
+    /// table's value for ifaceRight, so nothing stale or latched intervened. Device right, interface
+    /// right, angle faithfully applied — and inverted. That leaves only the table.
+    ///
+    /// WHY THE DERIVATION FAILED, so it is not repeated. It rested on
+    /// `videoRotationAngle 0 ≡ AVCaptureVideoOrientation.landscapeRight ≡ UIInterfaceOrientation.landscapeRight`,
+    /// the last step justified by both enums meaning "home button on the right". The equivalence
+    /// between the two ENUMS is real; what does not follow is that the corrective ANGLE for an
+    /// interface orientation equals the angle for the identically-named video orientation, because
+    /// that also absorbs where this camera's sensor is mounted. The repo's supposed sign anchor
+    /// (CameraLocator/LabelCapture mapping angle 0 → Vision `.right`) does not close the gap either:
+    /// those surfaces are portrait-ONLY, so they pin how angle VALUES relate to image rotation and
+    /// say nothing about which interface orientation needs which angle.
+    ///
+    /// What survives, and is the only thing worth trusting here: portrait = 90 is device-confirmed on
+    /// this same front camera, so the sensor's own zero is already inside that 90, and the landscapes
+    /// are 90 ∓ 90. The SIGN of that ∓ is not derivable from enum names — it was measured.
+    ///
+    /// Still true and still worth keeping: the device↔interface inversion belongs to
+    /// OrientationDriver.target (Orientation.swift) and is applied there, exactly once. This table
+    /// must not apply it a second time — that would be a different bug with the same symptom.
     static func angle(for orientation: UIInterfaceOrientation) -> CGFloat {
         switch orientation {
-        case .landscapeLeft:      return 180
-        case .landscapeRight:     return 0
+        case .landscapeLeft:      return 0
+        case .landscapeRight:     return 180
         case .portraitUpsideDown: return 270
         default:                  return 90     // portrait, and the unknown case
         }
