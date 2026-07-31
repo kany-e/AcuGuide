@@ -108,13 +108,24 @@ final class BodyMeshProbeTests: XCTestCase {
         // Expected band along the palm axis, per point. The wrist-crease points sit at 0; the two
         // forearm points are 2 cun proximal (≈ −0.46 palm-lengths on this model); the rest are on
         // the palm or dorsum, between the crease and the knuckles.
-        let expected: [String: ClosedRange<Float>] = [
+        // DERIVED FROM HandAnatomy, not hardcoded. These bands used to be literals, which meant they
+        // encoded whatever the table happened to say when they were written — so a re-SOURCING of the
+        // anatomy (WHO + the classical rules, R20) failed them for being right. The band now tracks
+        // the table and only asserts what this test is actually for: that the marker lands where the
+        // anatomy says, within the reach of BodyAtlas's inboard surface snap.
+        //
+        // The tolerance is one-sided in effect because the snap walks a point TOWARD along 0.5 (it
+        // steps along `toward = hand(along: 0.5, across: 0)`), so a distal point can legitimately
+        // read up to ~0.4·(along − 0.5) proximal of its authored value. 0.20 covers that for every
+        // point in the table and is still far tighter than "somewhere on the hand".
+        var expected: [String: ClosedRange<Float>] = [
+            // The two forearm points are placed by CUN, not by `along`, so they keep an explicit band.
             "PC6": (-0.70)...(-0.30), "SJ5": (-0.70)...(-0.30),
-            "PC7": (-0.10)...(0.10),  "TE4": (-0.10)...(0.10),
-            "HT7": (-0.10)...(0.15),
-            "PC8": (0.45)...(0.75),
-            "TE3": (0.65)...(0.95),   "SI3": (0.70)...(1.00),
         ]
+        for id in ["PC7", "TE4", "HT7", "PC8", "TE3", "SI3"] {
+            guard let spot = HandAnatomy.spots[id] else { XCTFail("\(id) has no anatomy"); continue }
+            expected[id] = (spot.along - 0.20)...(spot.along + 0.20)
+        }
         // Which face a marker is on has to be judged against the LOCAL skin, not against the plane
         // through wrist/knuckles/thumb: the low-poly limb curves away from that plane as it runs
         // distal, so a point can read "palmar side of the wrist plane" while sitting squarely on
@@ -823,11 +834,29 @@ final class HandAnatomyTests: XCTestCase {
         guard let si4 = uv["SI4"], let te3 = uv["TE3"], let si3 = uv["SI3"] else {
             XCTFail("missing derived uv"); return
         }
-        // SI4 is a wrist point; TE3/SI3 sit near the knuckle line. On this sheet the palm spans
-        // ~0.33 uv, so a correct layout separates them by most of that.
-        XCTAssertGreaterThan(simd_distance(si4, te3), 0.20, "SI4 and TE3 have collapsed together")
-        XCTAssertGreaterThan(simd_distance(si4, si3), 0.20, "SI4 and SI3 have collapsed together")
+        // MEASURED AGAINST THE ANATOMY, not against a literal. The old form asserted a bare 0.20 uv,
+        // which encoded the spacing the table happened to have when it was written — so re-sourcing
+        // SI4 (0.05 → 0.24) and TE3/SI3 (0.80/0.86 → 0.70/0.76) failed it for being right, even
+        // though the points are still half a palm apart. What this test is FOR is catching a bad
+        // frame or a bad scale collapsing the layout, so compare the rendered separation with the
+        // separation the anatomy asks for, and require most of it to survive the mapping.
+        func anatomySeparation(_ a: String, _ b: String) -> Float {
+            guard let x = HandAnatomy.spots[a], let y = HandAnatomy.spots[b] else { return 0 }
+            // In palm-lengths, with `across` on the sheet's own lateral scale so the comparison is
+            // like for like.
+            let dAlong = x.along - y.along
+            let dAcross = (x.across - y.across) * HandSheet.acrossScale(atAlong: (x.along + y.along) / 2)
+            return (dAlong * dAlong + dAcross * dAcross).squareRoot() * HandSheet.palmLength
+        }
+        for (a, b) in [("SI4", "TE3"), ("SI4", "SI3")] {
+            let want = anatomySeparation(a, b), got = simd_distance(uv[a]!, uv[b]!)
+            XCTAssertGreaterThan(got, want * 0.75,
+                                 "\(a) and \(b) render \(got) apart but the anatomy asks for \(want) — the layout is collapsing")
+        }
         // TE3 and SI3 ARE genuinely close (both proximal to the 4th/5th MCP heads) — but not equal.
         XCTAssertGreaterThan(simd_distance(te3, si3), 0.02, "TE3 and SI3 are the same point")
+        // …and SI4 must stay PROXIMAL of both, which is the ordering the original defect destroyed.
+        XCTAssertLessThan(HandAnatomy.spots["SI4"]!.along, HandAnatomy.spots["SI3"]!.along - 0.3,
+                          "SI4 is at the 5th metacarpal BASE; SI3 is at its neck, half a palm distal")
     }
 }

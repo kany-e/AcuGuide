@@ -20,6 +20,26 @@ import simd
 // −0.36 (little finger), so adjacent metacarpals are ~0.22 apart and the ulnar border sits near
 // −0.45. Sources: WHO Standard Acupuncture Point Locations in the Western Pacific Region (2008) and
 // claude-deliverables/references/acuguide_source_upgrade.md.
+//
+// ALONG 1.0 IS THE **3rd** MCP JOINT, AND THE KNUCKLE LINE IS AN ARC — NOT A ROW.
+//
+// This is the single mistake behind the device report "TE3 should not be that high up, the others
+// too". The scale reference above lists only the MCP heads' `across`, which reads as though the four
+// joints share one height at along 1.0. They do not. The metacarpals are 68.1 / 64.6 / 58.0 / 53.9 mm
+// (MC2…MC5), so relative to a palm measured to the 3rd MCP joint they sit at roughly:
+//
+//        index 0.98      middle 1.00      ring 0.94      little 0.875
+//
+// Anchor a point to a FLAT 1.00 when its definition names the 4th or 5th MCP and you place it ~0.06
+// to ~0.12 too far distal — up onto the knuckle or the finger base. That is precisely the set the
+// report named (TE3, SI3, TE2, all defined off the 4th/5th ray or the 4/5 web) and precisely why it
+// did NOT name PC8, HT7 or PC7, which are anchored to the palm centre or the wrist crease where
+// there is no arc to get wrong. When adding or moving a point, START from its own ray's height above,
+// not from 1.00.
+//
+// (Related, and worth stating because it silently shifts everything by ~0.03: HandSheet.knuckles is
+// placed on the silhouette CENTRELINE, which at MCP level runs between the middle and ring rays —
+// slightly proximal of the 3rd MCP joint that along 1.0 is defined as.)
 enum HandAnatomy {
     struct Spot {
         let along: Float
@@ -48,22 +68,37 @@ enum HandAnatomy {
         "PC8":  Spot(along:  0.62, across:  0.10, dorsal: false),
         // Neiguan: palmar forearm, 2 cun proximal to the crease — placed by cun, not by `along`.
         // ── Dorsal ───────────────────────────────────────────────────────────────────────────
-        // Yangxi: the anatomical snuffbox, at the radial end of the dorsal wrist crease.
-        "LI5":  Spot(along:  0.02, across:  0.42, dorsal: true),
+        // Yangxi: the anatomical snuffbox, at the radial end of the dorsal wrist crease. across was
+        // +0.42 — the same figure as LU10, which is a coincidence rather than a shared value: LU10 is
+        // a border point at the THENAR, the widest part of the radial hand, while LI5 is at the wrist,
+        // where the radial border is only ~+0.31. It sat past the tendons.
+        "LI5":  Spot(along:  0.03, across:  0.31, dorsal: true),
         // Yangchi: dorsal wrist crease, in the depression just ulnar of the extensor tendon.
         "TE4":  Spot(along:  0.00, across: -0.06, dorsal: true),
-        // Wangu: between the base of the 5th metacarpal and the triquetral, at the ULNAR WRIST —
-        // nearly a full palm proximal of TE3/SI3, which is what the detail sheet had lost.
-        "SI4":  Spot(along:  0.05, across: -0.42, dorsal: true),
-        // Zhongzhu: the groove proximal to the heads of the 4th and 5th metacarpals.
-        "TE3":  Spot(along:  0.80, across: -0.25, dorsal: true),
+        // Wangu: in the depression between the BASE of the 5th metacarpal and the triquetral. Was
+        // 0.05, i.e. on the wrist crease itself — but the MC5 base is ~0.24 up the palm, which is
+        // where its own find-guide already sends you ("slide proximally along the little-finger
+        // metacarpal until you drop off the end of the bone").
+        "SI4":  Spot(along:  0.24, across: -0.42, dorsal: true),
+        // Zhongzhu: the groove proximal to the heads of the 4th and 5th metacarpals. Three sourced
+        // constructions agree on ~0.71–0.79 and none supports 0.80: the classical 液门直上1寸 (1 cun
+        // proximal to TE2) gives 0.75; Deadman's equilateral-triangle construction off the two MCP
+        // prominences gives 0.71; and starting from the 4th MCP joint's TRUE height (0.94) and backing
+        // off the head-and-neck gives ~0.73. The user's nine device labels point further proximal
+        // still. 0.70 is the low end of the sourced band — the concession the labels earned.
+        "TE3":  Spot(along:  0.70, across: -0.19, dorsal: true),
         // Houxi: ulnar border, proximal to the head of the 5th metacarpal — the end of the palm
         // crease when a loose fist is made. A red-white-flesh BORDER point, so which face it is on
         // is genuinely ambiguous; placed a little inside the border so it resolves to the DORSAL
         // side, which is the side it is filed under and the side the camera coach asks to see.
-        "SI3":  Spot(along:  0.86, across: -0.40, dorsal: true),
-        // Yemen: the margin of the web between the ring and little fingers, just DISTAL of the MCPs.
-        "TE2":  Spot(along:  1.06, across: -0.34, dorsal: true),
+        // 0.86 was ON the 5th metacarpal head, not proximal to it: the 5th MCP joint sits at 0.875,
+        // and the palpation route (down the ulnar border to the junction of base and head) lands on
+        // the NECK, ~0.76.
+        "SI3":  Spot(along:  0.76, across: -0.40, dorsal: true),
+        // Yemen: the margin of the web between the ring and little fingers. Was 1.06 — "just distal
+        // of the MCPs" measured off a FLAT 1.00. Distal of the 4th/5th joints (0.94 / 0.875) is ~0.95,
+        // which is still proximal of the 3rd MCP that along 1.0 actually denotes.
+        "TE2":  Spot(along:  0.95, across: -0.26, dorsal: true),
     ]
 
     /// Points placed by proportional cun up the forearm rather than by palm fraction. The forearm
