@@ -55,7 +55,7 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
         lastSpokenPhase = nil
         lastSpokenLocate = nil
         stopSpeaking()
-        // NOT under a live mic. reset() is called from beginStudy (the freeze-the-frame command) while
+        // NOT under a live mic. reset() is called from freezeFrame (the freeze-the-frame command) while
         // the mic is session-scoped and listening, and deactivating the shared session there pulled it
         // out from under the input tap — so the very command that froze the frame killed the mic that
         // would have unfrozen it, which is the one thing this hands-free feature cannot afford.

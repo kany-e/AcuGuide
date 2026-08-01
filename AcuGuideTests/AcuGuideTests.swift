@@ -380,9 +380,14 @@ final class AcuGuideTests: XCTestCase {
         pts[.indexTip] = nil
         let dropped = Hand(points: pts, chirality: .right, confidence: [.indexDIP: 0.9, .indexPIP: 0.9])
         let t = dropped.pressTip(.indexTip)!
-        XCTAssertEqual(Double(t.point.x), 0.40 + 0.6 * (0.40 - 0.44), accuracy: 1e-9,
-                       "missing tip → extend the DIP−PIP segment (k=0.6, a bent finger curls short)")
-        XCTAssertEqual(Double(t.point.y), 0.40 + 0.6 * (0.40 - 0.46), accuracy: 1e-9)
+        // k = HandGeom.tipToPhalanxRatio. DIP→tip and PIP→DIP are the same length on an index
+        // finger (~25 mm each), so the rebuilt tip extends the measured segment by its own length —
+        // and the projection carries the foreshortening for free. The old k=0.6 undershot by ~40%,
+        // which put the mark back toward the DIP: the reported "drifts towards the knuckle".
+        let k = Double(HandGeom.tipToPhalanxRatio)
+        XCTAssertEqual(Double(t.point.x), 0.40 + k * (0.40 - 0.44), accuracy: 1e-9,
+                       "missing tip → extend the DIP−PIP segment by the anatomical ratio")
+        XCTAssertEqual(Double(t.point.y), 0.40 + k * (0.40 - 0.46), accuracy: 1e-9)
         XCTAssertEqual(t.confidence, 0, "a reconstructed tip is an unmeasured guess — must not gate as reliable")
 
         // Nothing tracked on the finger → nil (the tip-grace path handles the gap).

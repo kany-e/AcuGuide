@@ -28,13 +28,26 @@ struct ARCoachView: View {
     @State private var practiceRecordId: String? = nil   // history record for this session (saved once)
     @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
-    @State private var savedChip: String? = nil    // transient over-camera confirmation chip
-    // STUDY MODE: a frozen still of the user's own hand with the ring on it, beside the guide at
-    // full size. Reading and pressing are different attention modes — while learning the spot you
-    // want the whole text and no time pressure; while pressing both hands are busy and text is
-    // nearly useless. The old card tried to serve both at once in one strip over the camera, which
-    // is why the guide was truncated to .caption2 and still crowded the view.
-    @State private var studyShot: UIImage? = nil
+    // The ONE over-camera note, drawn on the guide ring itself (see CoachMarks.Ring.label) rather
+    // than as a floating chip in the corner. It says which spot the ring is: "using your saved one"
+    // on a calibrated repeat session, "this is the one you just pressed" right after a confirm.
+    @State private var ringNote: String? = nil
+    // FREEZE: a still of the user's own hand with the marks on it, above the guide at full size.
+    // Reading and pressing are different attention modes — while learning the spot you want the
+    // whole text and no time pressure; while pressing both hands are busy and text is nearly
+    // useless. The old card tried to serve both at once in one strip over the camera, which is why
+    // the guide was truncated to .caption2 and still crowded the view.
+    @State private var frozen: FrozenFrame? = nil
+
+    /// A still AND the marks that were on it, captured together. Both halves are the point: a live
+    /// overlay drawn over an old photograph is not a frozen frame, it is two different moments
+    /// stacked on top of each other.
+    struct FrozenFrame {
+        let image: UIImage
+        let marks: CoachMarks
+        /// From the image itself, so the overlay geometry cannot drift from the picture it annotates.
+        var aspect: CGFloat { image.size.height > 0 ? image.size.width / image.size.height : 9.0 / 16.0 }
+    }
     @State private var showVoiceCommands = false   // the "what can I say" sheet
     // LANDSCAPE. Device report: "the vertical orientation of the camera coach when the user is
     // using it horizontally is just awful." The phone is propped on a table with both hands in
@@ -43,23 +56,34 @@ struct ARCoachView: View {
     // Only THIS screen unlocks landscape (see OrientationLock); everything else stays portrait.
     @State private var isLandscape = CaptureRotation.interfaceOrientation.isLandscape
 
-    // STUDY MODE, entered by voice or by the button. While coaching, freezing the picture must also
-    // stop the CLOCK: reading is not pressing, and letting the round keep crediting hold time
-    // behind a still image would bank progress the user never made. Stopping the camera is the
-    // path the explicit pause already uses — the engine's pause-grace and dt clamp read the gap as
-    // a pause and keep banked progress. The MIC deliberately stays on, because the way out of this
-    // screen is to say "continue".
-    private func beginStudy() {
-        studyShot = camera.studySnapshot()
-        guard studyShot != nil else { return }
-        if engine.mode == .coach {
-            camera.stop()
-            voice.reset()   // cut any coach cue mid-utterance; the guide is the point now
-        }
+    // FREEZE, entered by voice ("show me") or by the button.
+    //
+    // FREEZING STOPS THE CAMERA IN BOTH MODES. It used to stop it only while coaching, on the
+    // reasoning that the locate step credits nothing so nothing needs pausing — which missed what
+    // the camera does besides crediting. Left running behind the still, Vision kept finding hands
+    // the user could no longer see, the engine kept moving the ring and the press dot, and the
+    // overlay drawn on the frozen picture was therefore LIVE data over a dead photograph: two
+    // different moments in one image (user-reported: "the background is still detecting the fingers
+    // which is messy", and the ring missing from the frozen shot). It also burned 30 Hz of Vision on
+    // a screen showing a photograph.
+    //
+    // So: capture the marks with the picture, then stop the camera, and void the confirm offer —
+    // the latch is clocked by camera frames, and frames are about to stop, which is exactly the rule
+    // the explicit pause and the background hook already follow. The engine's pause-grace and dt
+    // clamp read the gap as a pause and keep banked progress. The MIC deliberately stays on, because
+    // the way out of this screen is to say "continue".
+    private func freezeFrame() {
+        guard let shot = camera.frozenSnapshot() else { return }
+        frozen = FrozenFrame(image: shot,
+                             marks: CoachMarks.make(engine: engine, overlay: engine.overlay,
+                                                    ringLabel: ringNote))
+        camera.stop()
+        engine.suspendLocate()
+        voice.reset()   // cut any cue mid-utterance; the guide is the point now
     }
-    private func endStudy() {
-        studyShot = nil
-        if engine.mode == .coach, !userPaused { camera.start() }
+    private func unfreeze() {
+        frozen = nil
+        if !userPaused { camera.start() }
     }
 
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
@@ -87,8 +111,8 @@ struct ARCoachView: View {
         _engine = StateObject(wrappedValue: eng)
         _camera = StateObject(wrappedValue: CameraCoach(engine: eng, acupoint: acupoint))
         _acknowledged = State(initialValue: acknowledgedInitially)
-        _savedChip = State(initialValue: calibrated && acupoint.hasFindGuide && !forceLocate
-            ? AppLocale.pick("已使用你保存的位置", "Using your saved spot") : nil)
+        _ringNote = State(initialValue: calibrated && acupoint.hasFindGuide && !forceLocate
+            ? AppLocale.pick("你保存的位置", "your saved spot") : nil)
     }
 
     var body: some View {
@@ -204,12 +228,12 @@ struct ARCoachView: View {
             // FREEZE AND RESUME WORK WHILE COACHING TOO. They used to be gated on .locate, which
             // is the step a calibrated point SKIPS (see the initialiser) — so on every repeat
             // session of a saved point the feature the user was hunting for simply did not exist.
-            // Nothing about the frozen frame is locate-specific; camera.studySnapshot() and the
+            // Nothing about the frozen frame is locate-specific; camera.frozenSnapshot() and the
             // overlay were mode-agnostic already.
             case .study:
-                if studyShot == nil { beginStudy() }
+                if frozen == nil { freezeFrame() }
             case .resume:
-                if studyShot != nil { endStudy() }
+                if frozen != nil { unfreeze() }
             // Asking what you can say, WITHOUT touching anything — the whole point of the command.
             case .help:
                 showVoiceCommands = true
@@ -303,13 +327,19 @@ struct ARCoachView: View {
     }
 
     // The saved-it moment must not be silent OR invisible — confirm and Skip otherwise land on
-    // pixel-identical screens (review-caught). Voice + haptic + VoiceOver + a transient chip.
+    // pixel-identical screens (review-caught). Voice + haptic + VoiceOver + a label ON THE SPOT.
+    //
+    // The label goes on the ring rather than into a corner chip because that is the question it
+    // answers: the coach ring has just moved to where the user pressed (the engine applies the
+    // stored correction to the coach datum), and a solid dot at that centre saying "this is where
+    // you pressed" is the confirmation. A floating chip said the same words several inches away
+    // from the only thing they were about.
     private func handleLocateConfirmed() {
         haptics.complete()
         voice.locateSaved()
         UIAccessibility.post(notification: .announcement,
                              argument: AppLocale.pick("已记住你的位置。", "Saved — the ring now sits on your spot."))
-        savedChip = AppLocale.pick("已记住你的位置", "Saved — this is your spot now")
+        ringNote = AppLocale.pick("你按的位置", "where you pressed")
     }
 
     private func handlePhaseChange(to phase: CoachPhase) {
@@ -403,7 +433,7 @@ struct ARCoachView: View {
     private var voiceHint: VoiceHint? {
         guard locateVoice.listening, !userPaused else { return nil }
         // Reading the frozen guide: only one thing matters, and it is how to get out.
-        if studyShot != nil {
+        if frozen != nil {
             return VoiceHint(lines: [AppLocale.pick("说「继续」回到实时画面", "Say “continue” to go back")])
         }
         let freeze = AppLocale.pick("说「怎么找」定住画面看说明", "Say “show me” to freeze and read the guide")
@@ -435,18 +465,6 @@ struct ARCoachView: View {
         }
     }
 
-    @ViewBuilder private var savedChipView: some View {
-        if let chip = savedChip {
-            Text(chip)
-                .font(.caption.weight(.semibold)).foregroundStyle(.black)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Capsule().fill(Ink.gold.opacity(0.92)))
-                .transition(.opacity)
-                .task { try? await Task.sleep(nanoseconds: 2_800_000_000)
-                        withAnimation(.easeOut(duration: 0.4)) { savedChip = nil } }
-        }
-    }
-
     private var coachLayer: some View {
         ZStack {
             // Preview + overlay share a FULL-SCREEN coordinate space (ignoresSafeArea), so the
@@ -468,7 +486,7 @@ struct ARCoachView: View {
                 // per-frame invalidation stays inside it instead of re-evaluating this entire
                 // full-screen body every camera frame (review-caught).
                 CoachOverlayLayer(engine: engine, overlay: engine.overlay,
-                                  frameAspect: camera.frameAspect)
+                                  frameAspect: camera.frameAspect, ringLabel: ringNote)
             }
             .ignoresSafeArea()
 
@@ -491,12 +509,8 @@ struct ARCoachView: View {
                     // greedy column competes with the card for width, so the card could be served
                     // less than the 380 pt its .frame(maxWidth:) merely PERMITS — squeezing the
                     // guide text a second time. Sizing this column to its content fixes both.
-                    VStack(alignment: .leading, spacing: 8) {
-                        voiceHintChip
-                        Spacer(minLength: 0)
-                        savedChipView
-                    }
-                    .frame(maxWidth: 300, alignment: .leading)
+                    voiceHintChip
+                        .frame(maxWidth: 300, alignment: .leading)
                     .padding(.leading, 12).padding(.top, 8)
                     Spacer(minLength: 0)
                     // A NARROWER SIDE COLUMN. 380 pt of an 874 pt viewport is 43% of the picture —
@@ -514,13 +528,12 @@ struct ARCoachView: View {
             } else {
                 VStack(spacing: 8) {
                     voiceHintChip
-                    savedChipView
                     Spacer()
                     activeCard
                 }
             }
 
-            if let shot = studyShot { studyOverlay(shot) }
+            if let frozen { frozenOverlay(frozen) }
             if userPaused { pausedOverlay }
             #if DEBUG
             // ROTATION READOUT (debug builds only). The landscape picture has been reported inverted
@@ -540,6 +553,16 @@ struct ARCoachView: View {
         // Cap growth so the largest accessibility sizes can't break the camera overlay layout,
         // while still honoring Dynamic Type up to that bound.
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        // The ring note is a MOMENT, not a permanent legend: it names the spot just after a confirm
+        // (or on first sight of a restored one) and then gets out of the way. A label that never
+        // leaves is one more thing drawn over the picture forever, which is the problem this whole
+        // pass is about.
+        .task(id: ringNote) {
+            guard ringNote != nil else { return }
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.4)) { ringNote = nil }
+        }
         // End with banked progress → confirm first (the recap records honestly either way).
         .endSessionDialog(isPresented: $showEndConfirm, rounds: engine.roundsDone,
                           heldS: engine.totalHeldS) { endSession() }
@@ -574,32 +597,36 @@ struct ARCoachView: View {
         camera.start()
     }
 
-    // STUDY MODE. A still of the user's OWN hand with the ring drawn on it, above the guide at full
-    // readable size. Not a bigger font in the same strip — that was the failed attempt: enlarging
-    // text inside a card overlaid on a live camera just eats the camera, which is why the original
-    // was truncated in the first place.
+    // THE FROZEN FRAME. A still of the user's OWN hand with the marks drawn on it, above the guide
+    // at full readable size. Not a bigger font in the same strip — that was the failed attempt:
+    // enlarging text inside a card overlaid on a live camera just eats the camera, which is why the
+    // original was truncated in the first place.
     //
     // Frozen deliberately: with a still there is no posture to hold, no time limit, and no conflict
     // between "look at my hand" and "read the words" — the hand IS in the picture. Exit is by VOICE
     // ("continue" / 继续) as well as the button, because the premise of the whole screen is that both
     // hands are occupied; a tap-only exit would break exactly the constraint this exists for.
-    private func studyOverlay(_ shot: UIImage) -> some View {
+    private func frozenOverlay(_ frame: FrozenFrame) -> some View {
         ZStack {
             Color.black.opacity(0.55).ignoresSafeArea()
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
+                        // LAID OUT AT THE FRAME'S OWN ASPECT RATIO, which is what makes the marks
+                        // land on the picture: inside a box of exactly that shape the overlay's
+                        // aspect-FILL map is the identity, so the still needs no second mapping mode
+                        // and cannot disagree with the live preview. Previously the image was
+                        // `.scaledToFit()` inside a box of a different shape while the overlay
+                        // mapped as fill against the box — every mark offset and rescaled, with the
+                        // ring pushed clean off the visible picture.
                         ZStack {
-                            Image(uiImage: shot)
-                                .resizable().scaledToFit()
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
-                            // The ring stays where it was when the frame froze, so the still is
-                            // annotated rather than just a photo.
-                            CoachOverlayLayer(engine: engine, overlay: engine.overlay,
-                                              frameAspect: camera.frameAspect)
+                            Image(uiImage: frame.image).resizable()
+                            CoachMarksLayer(marks: frame.marks, frameAspect: frame.aspect)
                                 .allowsHitTesting(false)
                         }
+                        .aspectRatio(frame.aspect, contentMode: .fit)
                         .frame(maxHeight: 320)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
                         .accessibilityLabel(AppLocale.pick("你的手，标出大致位置",
                                                            "Your hand, with the approximate spot marked"))
                         Text("\(acupoint.id) · \(acupoint.zh)")
@@ -621,7 +648,7 @@ struct ARCoachView: View {
                     .padding(20)
                 }
                 HStack(spacing: 10) {
-                    Button(AppLocale.pick("继续", "Continue")) { endStudy() }
+                    Button(AppLocale.pick("继续", "Continue")) { unfreeze() }
                         .buttonStyle(GoldButtonStyle())
                     Button {
                         AtlasSpeaker.shared.toggle(acupoint.spokenInfo)
@@ -1010,19 +1037,86 @@ struct ARCoachView: View {
     }
 }
 
-// The 30 Hz overlay: guide ring, press dot, labeled press, saved-spot dot. Observes CoachOverlay
-// (per-frame) + the engine (transition-rate mode/phase color), so camera-frame invalidation stays
-// INSIDE this subview instead of re-evaluating the whole ARCoachView body (review-caught).
-private struct CoachOverlayLayer: View {
-    @ObservedObject var engine: CoachEngine
-    @ObservedObject var overlay: CoachOverlay
+// EVERYTHING THE OVERLAY DRAWS, as one value.
+//
+// This type exists because the old overlay had no notion of "what is on screen right now" — it was
+// four independent `if let`s over four published positions, each with its own mode check, and
+// whatever happened to be non-nil got drawn. In a re-locate that was a dashed ring, a green "saved"
+// dot, a white fingertip ring and a gold "your press" dot, with three text chips between them, on
+// top of live video of two overlapping hands (user-reported: "way too many markers at display at
+// the same time"). No single place decided that, so no single place could fix it.
+//
+// The rule is now stated once, in `make`, and is structurally enforced by the shape of the type:
+// AT MOST ONE RING, AT MOST ONE PRESS MARK, AT MOST ONE TEXT CHIP.
+//
+// Being a plain value also gives the frozen still an honest annotation: freezing captures the marks
+// WITH the picture, so the frozen overlay is what the camera saw at that instant rather than a live
+// stream drawn over an old photograph (which is what it was — see ARCoachView.freezeFrame).
+struct CoachMarks: Equatable {
+    struct Ring: Equatable {
+        var center: CGPoint          // normalized, top-left origin
+        var radius: CGFloat          // fraction of the frame WIDTH
+        var color: Color
+        var dashed: Bool             // locate: "somewhere around here"; coach: the actual target
+        var centerDot: Bool          // solid dot at the centre — "this exact spot"
+        var label: String?           // the ONE chip
+    }
+    /// The single press mark. `live` follows the fingertip; `settled` is the press that has stopped
+    /// moving and is what the confirm button would save. They are alternatives, never both: once the
+    /// press settles the mark stops chasing the finger, which is the moment the user is being asked
+    /// about.
+    enum Press: Equatable { case live(CGPoint), settled(CGPoint) }
+
+    var ring: Ring?
+    var press: Press?
+
+    /// The one place the marker rule lives.
+    /// - `ringLabel` is supplied by the view (a transient "this is your spot" after a confirm, or
+    ///   "using your saved spot" on a calibrated repeat session) — the engine has no business
+    ///   knowing about a 3-second chip.
+    static func make(engine: CoachEngine, overlay: CoachOverlay, ringLabel: String?) -> CoachMarks {
+        var marks = CoachMarks()
+        if let c = overlay.ringCenter {
+            if engine.mode == .locate {
+                // The dashed ring marks the STANDARD spot — the same datum the capture gate and the
+                // storage clamp use, so the cue's "closer to the dashed ring" is always followable
+                // (review-caught datum split). Dashed and un-dotted on purpose: it is an
+                // approximation the user is being asked to correct, and drawing a precise centre
+                // dot on an approximation is a claim the app cannot back.
+                marks.ring = Ring(center: c, radius: overlay.ringRadius, color: Ink.gold,
+                                  dashed: true, centerDot: false,
+                                  label: AppLocale.pick("≈ 大约在这里", "≈ about here"))
+            } else {
+                // Coaching: a solid ring with a solid centre dot. After a confirm this centre IS the
+                // spot the user pressed and saved (CoachEngine applies the stored correction to the
+                // coach datum), so it needs no separate dot to say so — only the label.
+                marks.ring = Ring(center: c, radius: overlay.ringRadius, color: engine.color,
+                                  dashed: false, centerDot: true, label: ringLabel)
+            }
+        }
+        // Settled press wins over the live fingertip — and only exists while locating.
+        if let settled = overlay.settledPress { marks.press = .settled(settled) }
+        else if let tip = overlay.pressTip { marks.press = .live(tip) }
+        return marks
+    }
+}
+
+// Draws a CoachMarks over a frame of video — live preview or frozen still, same code.
+//
+// The normalized→screen map is aspect-FILL, matching the preview layer's .resizeAspectFill, so the
+// marks land on the pixels the user actually sees. The frozen still gets the same map by being laid
+// out AT the frame's aspect ratio, where fill and fit coincide exactly — rather than by giving this
+// view a second mode to get wrong. (The frozen still used to be `.scaledToFit()` inside a box of a
+// different shape while this map assumed fill, so every mark on it was offset and scaled: the
+// approximate ring was pushed off the visible picture entirely, which is why the frozen frame
+// appeared to have no ring on it at all.)
+struct CoachMarksLayer: View {
+    let marks: CoachMarks
     let frameAspect: CGFloat
 
-    // Map a normalized landmark (top-left origin) through the preview's aspect-fill crop, so the
-    // overlay lands on the SAME pixels the user sees. Returns the screen point + the displayed
-    // frame width (to scale the ring radius, which is a fraction of frame width).
-    private func mapFill(_ n: CGPoint, _ size: CGSize) -> (pt: CGPoint, dispW: CGFloat) {
-        let fw = frameAspect, fh: CGFloat = 1
+    /// Returns the screen point + the displayed frame width (the ring radius is a fraction of it).
+    private func map(_ n: CGPoint, _ size: CGSize) -> (pt: CGPoint, dispW: CGFloat) {
+        let fw = max(frameAspect, 0.01), fh: CGFloat = 1
         let s = max(size.width / fw, size.height / fh)   // aspect-fill: cover, crop overflow
         let dw = s * fw, dh = s * fh
         let ox = (size.width - dw) / 2, oy = (size.height - dh) / 2
@@ -1032,56 +1126,57 @@ private struct CoachOverlayLayer: View {
     var body: some View {
         GeometryReader { geo in
             Group {
-                if let c = overlay.ringCenter {
-                    let m = mapFill(c, geo.size)
-                    let r = overlay.ringRadius * m.dispW
-                    if engine.mode == .locate {
-                        // Locate step: the dashed ring marks the STANDARD spot — the same datum
-                        // the capture gate and the storage clamp use, so the cue's "closer to the
-                        // dashed ring" is always followable (review-caught datum split).
-                        Circle().stroke(Ink.gold, style: StrokeStyle(lineWidth: 3, dash: [7, 6]))
-                            .frame(width: r * 2, height: r * 2).position(m.pt)
-                        Text(AppLocale.pick("≈ 大约在这里", "≈ about here"))
+                if let ring = marks.ring {
+                    let m = map(ring.center, geo.size)
+                    let r = ring.radius * m.dispW
+                    Circle()
+                        .stroke(ring.color, style: ring.dashed
+                                ? StrokeStyle(lineWidth: 3, dash: [7, 6])
+                                : StrokeStyle(lineWidth: 3))
+                        .frame(width: r * 2, height: r * 2).position(m.pt)
+                    if ring.centerDot {
+                        Circle().fill(ring.color).frame(width: 9, height: 9).position(m.pt)
+                    }
+                    if let label = ring.label {
+                        Text(label)
                             .font(.caption2.weight(.semibold)).foregroundStyle(.black)
                             .padding(.horizontal, 8).padding(.vertical, 3)
                             .background(Capsule().fill(Ink.gold.opacity(0.92)))
                             .position(x: m.pt.x, y: m.pt.y - r - 18)
-                    } else {
-                        Circle().stroke(engine.color, lineWidth: 3)
-                            .frame(width: r * 2, height: r * 2).position(m.pt)
-                        Circle().fill(engine.color).frame(width: 8, height: 8).position(m.pt)
                     }
                 }
-                // Re-locate: the previously saved spot stays visible as a small reference dot
-                // while the dashed ring guides from the standard spot.
-                if engine.mode == .locate, let s = overlay.savedSpot {
-                    let p = mapFill(s, geo.size).pt
-                    Circle().fill(Ink.jade).frame(width: 8, height: 8).position(p)
-                        .overlay(Circle().stroke(.white, lineWidth: 1).frame(width: 8, height: 8).position(p))
-                    Text(AppLocale.pick("已保存", "saved"))
-                        .font(.caption2.weight(.semibold)).foregroundStyle(.white)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill(.black.opacity(0.55)))
-                        .position(x: p.x, y: p.y - 16)
-                }
-                if let t = overlay.pressTip {
+                switch marks.press {
+                case .live(let p):
+                    // Hollow: a reading of where the finger is, not a claim about the point.
                     Circle().stroke(.white, lineWidth: 2).frame(width: 16, height: 16)
-                        .position(mapFill(t, geo.size).pt)
-                }
-                // The settled press, labeled — the spot the app offers to remember (rides the
-                // live hand pose while the confirm latch holds).
-                if engine.mode == .locate, let cand = overlay.locateCandidate {
-                    let p = mapFill(cand, geo.size).pt
-                    Circle().fill(Ink.gold).frame(width: 10, height: 10).position(p)
-                    Text(AppLocale.pick("你按的位置", "your press"))
-                        .font(.caption2.weight(.semibold)).foregroundStyle(.white)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Capsule().fill(.black.opacity(0.6)))
-                        .position(x: p.x, y: p.y + 22)
+                        .position(map(p, geo.size).pt)
+                case .settled(let p):
+                    // Solid: this stopped moving, and it is what "This is my spot" would save.
+                    let pt = map(p, geo.size).pt
+                    Circle().fill(Ink.gold).frame(width: 12, height: 12).position(pt)
+                        .overlay(Circle().stroke(.white, lineWidth: 1.5)
+                            .frame(width: 12, height: 12).position(pt))
+                case nil:
+                    EmptyView()
                 }
             }
             .accessibilityHidden(true)
         }
+    }
+}
+
+// The 30 Hz live overlay. Observes CoachOverlay (per-frame) + the engine (transition-rate
+// mode/phase colour), so camera-frame invalidation stays INSIDE this subview instead of
+// re-evaluating the whole ARCoachView body (review-caught).
+private struct CoachOverlayLayer: View {
+    @ObservedObject var engine: CoachEngine
+    @ObservedObject var overlay: CoachOverlay
+    let frameAspect: CGFloat
+    var ringLabel: String? = nil
+
+    var body: some View {
+        CoachMarksLayer(marks: CoachMarks.make(engine: engine, overlay: overlay, ringLabel: ringLabel),
+                        frameAspect: frameAspect)
     }
 }
 

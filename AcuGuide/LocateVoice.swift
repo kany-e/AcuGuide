@@ -12,7 +12,7 @@ import AVFoundation
 enum LocateVoiceCommand: Equatable {
     case confirm   // "this is my spot" — same path as tapping the button
     case skip      // "skip" — same as tapping Skip
-    // STUDY MODE, hands-free. Freezing the frame to read the guide is only useful if you can get
+    // FREEZE, hands-free. Freezing the frame to read the guide is only useful if you can get
     // out of it again without a hand — the whole premise is that both are occupied (one receiving,
     // one pressing). A tap-to-resume would break exactly the constraint the feature exists for
     // (user-caught: "if they found the location, they would have to take it off and click

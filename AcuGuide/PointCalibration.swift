@@ -111,16 +111,27 @@ final class PointCalibration: ObservableObject {
     // fold. Chirality .unknown returns NIL: the fold direction would be a guess, and a wrong
     // guess mirrors the correction across the hand — a calibration must never be captured or
     // applied on a frame whose handedness Vision couldn't read.
-    static func canonicalFrame(_ hand: Hand, aspect: CGFloat) -> CanonicalFrame? {
-        guard hand.chirality != .unknown, aspect > 0 else { return nil }
-        let foldAsRight = (hand.chirality == .right) == hand.mirroredCoords
+    //
+    // HANDEDNESS IS AN EXPLICIT ARGUMENT, not `hand.chirality`. Vision re-decides chirality from
+    // image content on every single frame, and this app's framing — two overlapping hands filling
+    // the frame, no forearm, no body — is its worst case. `fold` is a SIGN, so one misread frame
+    // mirrors the whole correction across the hand's long axis and drops the saved spot on the far
+    // side of the hand (user-reported: "the previously recorded spot drifted out of the hand", "the
+    // confirmed marker was nowhere near the location I pressed"). CoachEngine already keeps a
+    // vote-held label for exactly this reason and feeds it to the face gate; reading the raw
+    // per-frame label HERE while holding it THERE was the contradiction. Callers pass the same held
+    // label they reason with everywhere else.
+    static func canonicalFrame(_ hand: Hand, chirality: VNChirality, aspect: CGFloat) -> CanonicalFrame? {
+        guard chirality != .unknown, aspect > 0 else { return nil }
+        let foldAsRight = (chirality == .right) == hand.mirroredCoords
         return CanonicalFrame(hand.points.mapValues { iso($0, aspect) }, isRight: foldAsRight)
     }
 
     // The correction a confirmed press implies: canonical(press) − canonical(affine target).
     // nil when the hand can't build a frame (wrist/middleMCP missing, or unknown chirality).
-    static func offset(press: CGPoint, affine: CGPoint, hand: Hand, aspect: CGFloat) -> Offset? {
-        guard let cf = canonicalFrame(hand, aspect: aspect) else { return nil }
+    static func offset(press: CGPoint, affine: CGPoint, hand: Hand,
+                       chirality: VNChirality, aspect: CGFloat) -> Offset? {
+        guard let cf = canonicalFrame(hand, chirality: chirality, aspect: aspect) else { return nil }
         let p = cf.to(iso(press, aspect)), a = cf.to(iso(affine, aspect))
         return Offset(dx: p.0 - a.0, dy: p.1 - a.1)
     }
@@ -129,21 +140,25 @@ final class PointCalibration: ObservableObject {
     // current canonical frame — the offset rides the hand's pose. Falls back to the affine
     // target untouched when there is no stored offset or no buildable frame (including unknown
     // chirality — better no correction for a frame than a mirror-flipped one).
-    func apply(_ affine: CGPoint, hand: Hand, pointId: String, aspect: CGFloat) -> CGPoint {
-        guard let off = table[pointId], let cf = Self.canonicalFrame(hand, aspect: aspect) else { return affine }
+    func apply(_ affine: CGPoint, hand: Hand, chirality: VNChirality,
+               pointId: String, aspect: CGFloat) -> CGPoint {
+        guard let off = table[pointId],
+              let cf = Self.canonicalFrame(hand, chirality: chirality, aspect: aspect) else { return affine }
         let a = cf.to(Self.iso(affine, aspect))
         return Self.raw(cf.from(a.0 + off.dx, a.1 + off.dy), aspect)
     }
 
-    // Single-point canonical round-trip, used by the locate step to keep the latched "your press"
-    // marker riding the LIVE hand for display (the confirm math itself uses the frozen snapshot).
-    static func canonical(_ p: CGPoint, hand: Hand, aspect: CGFloat) -> (x: Double, y: Double)? {
-        guard let cf = canonicalFrame(hand, aspect: aspect) else { return nil }
+    // Single-point canonical round-trip, used to keep a captured point riding the LIVE hand pose
+    // for display (the confirm math itself uses the frozen capture-time snapshot).
+    static func canonical(_ p: CGPoint, hand: Hand,
+                          chirality: VNChirality, aspect: CGFloat) -> (x: Double, y: Double)? {
+        guard let cf = canonicalFrame(hand, chirality: chirality, aspect: aspect) else { return nil }
         let q = cf.to(iso(p, aspect))
         return (q.0, q.1)
     }
-    static func reproject(_ q: (x: Double, y: Double), hand: Hand, aspect: CGFloat) -> CGPoint? {
-        guard let cf = canonicalFrame(hand, aspect: aspect) else { return nil }
+    static func reproject(_ q: (x: Double, y: Double), hand: Hand,
+                          chirality: VNChirality, aspect: CGFloat) -> CGPoint? {
+        guard let cf = canonicalFrame(hand, chirality: chirality, aspect: aspect) else { return nil }
         return raw(cf.from(q.x, q.y), aspect)
     }
 }
