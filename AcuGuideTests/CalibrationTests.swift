@@ -124,7 +124,7 @@ final class PointCalibrationTests: XCTestCase {
         let affine = hand.weightedTarget(te3.anchors)!
         let press = CGPoint(x: affine.x + 0.04, y: affine.y - 0.03)   // "the spot that felt right"
 
-        let off = PointCalibration.offset(press: press, affine: affine, hand: hand, aspect: aspect)!
+        let off = PointCalibration.offset(press: press, affine: affine, hand: hand, chirality: hand.chirality, aspect: aspect)!
         let cal = PointCalibration.ephemeral()
         cal.set(off, for: "TE3")
 
@@ -138,13 +138,13 @@ final class PointCalibrationTests: XCTestCase {
         }
         let moved = Hand(points: base.mapValues(T), chirality: .right)
         let movedAffine = moved.weightedTarget(te3.anchors)!
-        let corrected = cal.apply(movedAffine, hand: moved, pointId: "TE3", aspect: aspect)
+        let corrected = cal.apply(movedAffine, hand: moved, chirality: moved.chirality, pointId: "TE3", aspect: aspect)
         let expected = T(press)
         XCTAssertEqual(Double(corrected.x), Double(expected.x), accuracy: 1e-6)
         XCTAssertEqual(Double(corrected.y), Double(expected.y), accuracy: 1e-6)
 
         // A point with no stored offset passes through untouched.
-        XCTAssertEqual(cal.apply(movedAffine, hand: moved, pointId: "SI3", aspect: aspect), movedAffine)
+        XCTAssertEqual(cal.apply(movedAffine, hand: moved, chirality: moved.chirality, pointId: "SI3", aspect: aspect), movedAffine)
     }
 
     // Chirality invariance: the offset captured on the RIGHT hand must land on the anatomically
@@ -156,13 +156,13 @@ final class PointCalibrationTests: XCTestCase {
         let press = CGPoint(x: affine.x + 0.04, y: affine.y - 0.03)
 
         let cal = PointCalibration.ephemeral()
-        cal.set(PointCalibration.offset(press: press, affine: affine, hand: right, aspect: aspect)!, for: "TE3")
+        cal.set(PointCalibration.offset(press: press, affine: affine, hand: right, chirality: right.chirality, aspect: aspect)!, for: "TE3")
 
         // The left hand as the exact mirror image (same parity convention, mirroredCoords: true).
         func mirror(_ p: CGPoint) -> CGPoint { CGPoint(x: 1 - p.x, y: p.y) }
         let left = Hand(points: base.mapValues(mirror), chirality: .left)
         let leftAffine = left.weightedTarget(te3.anchors)!
-        let corrected = cal.apply(leftAffine, hand: left, pointId: "TE3", aspect: aspect)
+        let corrected = cal.apply(leftAffine, hand: left, chirality: left.chirality, pointId: "TE3", aspect: aspect)
         XCTAssertEqual(Double(corrected.x), Double(mirror(press).x), accuracy: 1e-6)
         XCTAssertEqual(Double(corrected.y), Double(mirror(press).y), accuracy: 1e-6)
     }
@@ -178,14 +178,14 @@ final class PointCalibrationTests: XCTestCase {
         let press = CGPoint(x: affine.x + 0.04, y: affine.y - 0.03)
 
         let cal = PointCalibration.ephemeral()
-        cal.set(PointCalibration.offset(press: press, affine: affine, hand: mirroredHand, aspect: aspect)!,
+        cal.set(PointCalibration.offset(press: press, affine: affine, hand: mirroredHand, chirality: mirroredHand.chirality, aspect: aspect)!,
                 for: "TE3")
 
         // The same physical scene through the back camera: x un-mirrors, chirality stays .right.
         func unmirror(_ p: CGPoint) -> CGPoint { CGPoint(x: 1 - p.x, y: p.y) }
         let backHand = Hand(points: base.mapValues(unmirror), chirality: .right, mirroredCoords: false)
         let backAffine = backHand.weightedTarget(te3.anchors)!
-        let corrected = cal.apply(backAffine, hand: backHand, pointId: "TE3", aspect: aspect)
+        let corrected = cal.apply(backAffine, hand: backHand, chirality: backHand.chirality, pointId: "TE3", aspect: aspect)
         XCTAssertEqual(Double(corrected.x), Double(unmirror(press).x), accuracy: 1e-6)
         XCTAssertEqual(Double(corrected.y), Double(unmirror(press).y), accuracy: 1e-6)
     }
@@ -197,12 +197,12 @@ final class PointCalibrationTests: XCTestCase {
         let hand = Hand(points: base, chirality: .unknown)
         let affine = hand.weightedTarget(te3.anchors)!
         let press = CGPoint(x: affine.x + 0.04, y: affine.y)
-        XCTAssertNil(PointCalibration.offset(press: press, affine: affine, hand: hand, aspect: aspect),
+        XCTAssertNil(PointCalibration.offset(press: press, affine: affine, hand: hand, chirality: hand.chirality, aspect: aspect),
                      "capture must refuse an unknown-handedness frame")
 
         let cal = PointCalibration.ephemeral()
         cal.set(PointCalibration.Offset(dx: 0.2, dy: 0), for: "TE3")
-        XCTAssertEqual(cal.apply(affine, hand: hand, pointId: "TE3", aspect: aspect), affine,
+        XCTAssertEqual(cal.apply(affine, hand: hand, chirality: hand.chirality, pointId: "TE3", aspect: aspect), affine,
                        "apply must fall back to the affine target on an unknown-handedness frame")
     }
 }
@@ -248,7 +248,7 @@ final class CoachEngineLocateTests: XCTestCase {
         // A steady press near the guide: after the settle window the confirm unlocks.
         for _ in 0..<30 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
         XCTAssertEqual(engine.locateState, .ready, "a settled press near the guide must unlock confirm")
-        let cand = engine.locateCandidate
+        let cand = engine.settledPress
         XCTAssertNotNil(cand)
         XCTAssertEqual(Double(hypot(cand!.x - press.x, cand!.y - press.y)), 0, accuracy: 0.01,
                        "the labeled press must sit on the user's actual press")
@@ -285,14 +285,14 @@ final class CoachEngineLocateTests: XCTestCase {
         var t = 0.0
         for _ in 0..<30 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
         XCTAssertEqual(engine.locateState, .ready)
-        let cand = engine.locateCandidate!
+        let cand = engine.settledPress!
 
         // The pressing hand lifts away (only the receiver stays): 2 seconds — well past the old
         // tipGraceS decay, well inside the confirm latch.
         for _ in 0..<60 { engine.update(hands: [receiver], point: te3, now: t); t += dt }
         XCTAssertEqual(engine.locateState, .ready, "the confirm offer must survive the lift-to-tap")
-        XCTAssertNotNil(engine.locateCandidate)
-        XCTAssertEqual(Double(hypot(engine.locateCandidate!.x - cand.x, engine.locateCandidate!.y - cand.y)),
+        XCTAssertNotNil(engine.settledPress)
+        XCTAssertEqual(Double(hypot(engine.settledPress!.x - cand.x, engine.settledPress!.y - cand.y)),
                        0, accuracy: 1e-6, "with a static receiver the labeled press stays put")
 
         // The tap lands: the stored correction reflects the CAPTURE-time press.
@@ -368,8 +368,8 @@ final class CoachEngineLocateTests: XCTestCase {
     }
 
     // Re-locate with an EXISTING correction (the review-caught datum-split class): the dashed
-    // guide must sit on the STANDARD spot (one datum with gate + clamp), the old correction shows
-    // as the savedSpot dot, and a fresh confirm REPLACES the offset un-clamped.
+    // guide must sit on the STANDARD spot (one datum with gate + clamp), the old correction must
+    // NOT be drawn as a competing marker, and a fresh confirm REPLACES the offset un-clamped.
     func testRecalibrateGuidesFromStandardSpotAndReplaces() {
 
         let te3 = Acupoint.byId["TE3"]!
@@ -383,14 +383,16 @@ final class CoachEngineLocateTests: XCTestCase {
 
         var t = 0.0
         for _ in 0..<10 { engine.update(hands: [receiver], point: te3, now: t); t += dt }
-        // Guide ring = pure affine, NOT the corrected spot; the correction shows as savedSpot.
+        // Guide ring = pure affine, NOT the corrected spot.
         let ring = engine.ringCenter!
         XCTAssertEqual(Double(hypot(ring.x - affine.x, ring.y - affine.y)), 0, accuracy: 0.01,
                        "the locate guide must sit on the STANDARD spot")
-        let dot = engine.overlay.savedSpot
-        XCTAssertNotNil(dot, "the stored correction must stay visible as the saved-spot dot")
-        XCTAssertGreaterThan(Double(hypot(dot!.x - affine.x, dot!.y - affine.y)), 0.02,
-                             "savedSpot sits at the corrected position, away from the guide")
+        // …and the spot being replaced is NOT drawn beside it. It used to be, as a third marker over
+        // live video (user-reported marker soup) — and showing the old answer while asking for a new
+        // one biases the new one. The card says in words that a confirm replaces it.
+        let marks = CoachMarks.make(engine: engine, overlay: engine.overlay, ringLabel: nil)
+        XCTAssertNotNil(marks.ring, "the dashed guide is drawn")
+        XCTAssertNil(marks.press, "no press yet — and no saved-spot marker either")
 
         // Press slightly off the standard spot and confirm: the stored offset is REPLACED by the
         // new small one — no accumulation, no silent clamp.
@@ -422,7 +424,7 @@ final class CoachEngineLocateTests: XCTestCase {
         XCTAssertEqual(engine.locateState, .ready)
         for _ in 0..<3 { engine.update(hands: [], point: te3, now: t); t += dt }
         XCTAssertEqual(engine.locateState, .noHand)
-        XCTAssertNil(engine.locateCandidate, "hand gone voids the labeled press")
+        XCTAssertNil(engine.settledPress, "hand gone voids the labeled press")
         XCTAssertFalse(engine.confirmLocate(point: te3, now: t), "confirm must refuse after the hand left")
         for _ in 0..<10 { engine.update(hands: [receiver, presser], point: te3, now: t); t += dt }
         XCTAssertNotEqual(engine.locateState, .ready,
@@ -462,7 +464,7 @@ final class CoachEngineLocateTests: XCTestCase {
 
         engine.cameraFlipped()
         XCTAssertEqual(engine.locateState, .noPress, "flip voids the offer")
-        XCTAssertNil(engine.locateCandidate)
+        XCTAssertNil(engine.settledPress)
         XCTAssertFalse(engine.confirmLocate(point: te3, now: t), "confirm must refuse across a parity flip")
 
         // Re-settle in the new (un-mirrored) parity: mirrored fixtures, mirroredCoords false.
@@ -500,7 +502,7 @@ final class CoachEngineLocateTests: XCTestCase {
         XCTAssertEqual(engine.locateState, .ready)
         engine.suspendLocate()
         XCTAssertEqual(engine.locateState, .noPress)
-        XCTAssertNil(engine.locateCandidate)
+        XCTAssertNil(engine.settledPress)
         XCTAssertFalse(engine.confirmLocate(point: te3, now: t), "a suspended offer must not confirm")
     }
 

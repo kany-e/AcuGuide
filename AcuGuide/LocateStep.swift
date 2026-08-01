@@ -257,8 +257,12 @@ struct LocateCard: View {
                                       "Tap within a few seconds — or turn on Voice control to confirm without freeing a hand."))
                     .font(.caption2).foregroundStyle(Ink.textDim)
             } else if calibration.hasCalibration(point.id) {
-                Text(AppLocale.pick("确认后会替换你保存的位置（小圆点）。",
-                                    "Confirming replaces your saved spot (the small dot)."))
+                // No longer "(the small dot)": the previously-saved spot is not drawn during a
+                // re-locate. It was a third marker over live video competing with the dashed guide
+                // and the fingertip — and the old answer is exactly what a re-locate is replacing,
+                // so showing it also biased the new one.
+                Text(AppLocale.pick("确认后会替换你之前保存的位置。",
+                                    "Confirming replaces the spot you saved before."))
                     .font(.caption2).foregroundStyle(Ink.textDim)
             }
         }

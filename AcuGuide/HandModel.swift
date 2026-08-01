@@ -51,6 +51,20 @@ enum HandJoint: Hashable {
 enum HandGeom {
     static let tipFloor: CGFloat = 0.16   // minimum DIP→tip step; stops the collapse onto the knuckle
     static let tipReach: CGFloat = 0.26   // anatomical DIP→tip; hard ceiling, prevents nail overshoot
+    // How long DIP→tip is RELATIVE TO the PIP→DIP segment the reconstruction measures. Both are
+    // ~25 mm on an index finger — the middle phalanx joint-to-joint and the distal phalanx plus the
+    // fingertip pulp — so the ratio is 1, and the same numerator gives the 0.26 tipReach above
+    // against a ~95 mm palm. It is stated here because it must stay consistent with tipReach: the
+    // two describe the same distance, once as a fraction of the neighbouring segment and once as a
+    // fraction of the palm.
+    //
+    // It used to be 0.6, which quietly contradicted both constants. 0.6 × an unforeshortened
+    // phalanx (~0.26·handSize) is 0.156·handSize — BELOW tipFloor — so the clamp resolved to the
+    // floor on essentially every frame, tipReach was unreachable dead code, and the rebuilt tip sat
+    // a permanent ~38% short of the nail, i.e. back toward the DIP. That residual is the reported
+    // "the fingertip detection drifts towards the knuckle": the earlier fix stopped the estimate
+    // COLLAPSING onto the knuckle but left it leaning there.
+    static let tipToPhalanxRatio: CGFloat = 1.0
 }
 
 // One detected hand. Points are normalized 0...1 in TOP-LEFT origin (already flipped
@@ -100,17 +114,21 @@ struct Hand {
         // It also broke engagement, not just the visuals — a dot parked on the DIP sits outside the
         // 0.12–0.24·handSize hit tolerance even when the real nail is dead on the point.
         //
-        // Fix: keep the DIRECTION from the projected phalanx, but stop letting its projected LENGTH
-        // set the distance. Clamp the step into scale-invariant hand-size units:
+        // Fix: keep the DIRECTION from the projected phalanx, scale its LENGTH by the anatomical
+        // ratio between the two segments (HandGeom.tipToPhalanxRatio — they are the same length, so
+        // the projection carries the foreshortening for free), and clamp the result into
+        // scale-invariant hand-size units:
         //   floor — a foreshortened phalanx still projects a real fingertip's worth past the DIP.
         //   cap   — bounded by the ANATOMICAL DIP→tip distance, so the rebuilt tip can never land
         //           beyond where a fingertip physically is. Overshooting the nail was the previous
         //           user-confirmed regression; this makes it impossible by construction rather than
         //           by picking a luckier constant.
+        // Both bounds are now REACHABLE, which is the point: with the old 0.6 the floor won every
+        // frame and the cap was dead code (see HandGeom.tipToPhalanxRatio).
         let v = CGPoint(x: dip.x - pip.x, y: dip.y - pip.y)
         let len = hypot(v.x, v.y)
         guard len > 1e-6 else { return nil }
-        let projected = 0.6 * len
+        let projected = HandGeom.tipToPhalanxRatio * len
         let hs = handSize
         // handSize needs wrist + middleMCP. Fixtures that model only the index finger have none, so
         // fall back to the pure projection there — the clamp is a device-pose correction, and a

@@ -25,12 +25,12 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     // Dim-scene flag for the "why can't it see my hand" hint. Sampled from the luma plane every
     // ~15th frame (a sparse grid, not the full image), with hysteresis so it never flickers.
     @Published private(set) var lowLight = false
-    // STUDY MODE needs a still of the user's own hand to annotate. Holding ONE pixel buffer is
+    // FREEZE needs a still of the user's own hand to annotate. Holding ONE pixel buffer is
     // enough — converting every frame to an image would be pure waste when the feature is used a
-    // handful of times per session, so the conversion happens on demand in studySnapshot().
+    // handful of times per session, so the conversion happens on demand in frozenSnapshot().
     // Queue-confined write, main-thread read of the reference only.
-    private var lastPixelForStudy: CVPixelBuffer?
-    private let studyLock = NSLock()
+    private var lastPixelForFreeze: CVPixelBuffer?
+    private let freezeLock = NSLock()
     private var lumaFrameCount = 0
     private var lastLowLight = false
 
@@ -270,7 +270,7 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
         guard let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        studyLock.lock(); lastPixelForStudy = pixel; studyLock.unlock()
+        freezeLock.lock(); lastPixelForFreeze = pixel; freezeLock.unlock()
         lumaFrameCount += 1
         if lumaFrameCount % 15 == 0 { updateLowLight(pixel) }
         let w = CVPixelBufferGetWidth(pixel), h = CVPixelBufferGetHeight(pixel)
@@ -470,9 +470,9 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
 extension CameraCoach {
     /// A still of the CURRENT camera frame, oriented and mirrored to match the live preview, so the
-    /// study overlay annotates the same picture the user was just looking at. Converted on demand.
-    func studySnapshot() -> UIImage? {
-        studyLock.lock(); let pixel = lastPixelForStudy; studyLock.unlock()
+    /// frozen overlay annotates the same picture the user was just looking at. Converted on demand.
+    func frozenSnapshot() -> UIImage? {
+        freezeLock.lock(); let pixel = lastPixelForFreeze; freezeLock.unlock()
         guard let pixel else { return nil }
         var ci = CIImage(cvPixelBuffer: pixel)
         // The buffer arrives ALREADY ROTATED by the capture connection (setRotation), so it is

@@ -394,12 +394,12 @@ final class StressTests: XCTestCase {
             // Invariants.
             if engine.mode == .locate {
                 XCTAssertEqual(engine.progress, 0, "locate must never credit hold time (frame \(frame))")
-                if engine.locateCandidate != nil {
+                if engine.settledPress != nil {
                     XCTAssertEqual(engine.locateState, .ready,
                                    "a visible candidate implies a live offer (frame \(frame))")
                 }
             }
-            if let c = engine.locateCandidate {
+            if let c = engine.settledPress {
                 XCTAssertTrue(c.x.isFinite && c.y.isFinite, "candidate must stay finite (frame \(frame))")
             }
             if let off = cal.offset(for: "TE3") {
