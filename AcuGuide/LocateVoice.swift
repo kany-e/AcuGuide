@@ -132,10 +132,23 @@ enum LocateVoiceCommand: Equatable {
 enum LocateVoiceGate {
     /// One command per utterance burst — but per KIND, see decide().
     static let repeatDebounceS: TimeInterval = 2.0
+    /// The window after a command that was heard, matched, and then DID NOTHING.
+    ///
+    /// Four of the five command kinds are no-ops in some states — `.confirm` fails unless the press
+    /// has settled and the frame-clocked latch is live, `.resume` does nothing with no frozen frame,
+    /// `.study` nothing when already frozen, `.skip` nothing outside locate. The full 2 s window was
+    /// being spent on those, so a user who said 就是这里 a beat early got silence and then had their
+    /// immediate, correct repeat swallowed as a "repeat of the same kind" — the app hearing you
+    /// perfectly and refusing to listen again is a large part of "you have to say it many times".
+    /// Still not zero: within one utterance the cumulative transcript can re-present the same phrase
+    /// across successive partials (就是这里 → 就是这里吧 strips back to a match), and damping that is
+    /// what the debounce is for.
+    static let unhandledRepeatDebounceS: TimeInterval = 0.5
 
     /// - transcript:    the recognizer's cumulative text for the current task
     /// - firedAtLength: consume-once anchor (the transcript must grow past the last fire)
     /// - lastKind:      what fired last, or nil
+    /// - lastFireHandled: whether that last command actually did something (see the window above)
     /// - appSaying:     the line the app is speaking RIGHT NOW (+ a recognizer-lag tail), else nil
     /// - blanketMute:   ignore everything — for the one caller with no single known line
     static func decide(transcript: String,
@@ -143,13 +156,18 @@ enum LocateVoiceGate {
                        lastKind: LocateVoiceCommand?,
                        sinceLastFire: TimeInterval,
                        appSaying: String?,
-                       blanketMute: Bool) -> LocateVoiceCommand.Match? {
+                       blanketMute: Bool,
+                       lastFireHandled: Bool = true) -> LocateVoiceCommand.Match? {
         // The commands sheet renders every literal phrase ON SCREEN, where VoiceOver may read them
         // into the open mic. There is no single "line" to compare against there, so that caller keeps
         // the old blunt behaviour — it is a modal the user is reading, not a coaching step.
         guard !blanketMute else { return nil }
         // Consume-once: the transcript is cumulative within a task, so require it to have grown.
-        guard transcript.count > firedAtLength + 1 else { return nil }
+        // (`> firedAtLength`, not `> firedAtLength + 1`: the extra character arrived with no stated
+        // reason and no command in either table is one character long, so it only ever cost a real
+        // one-character growth step. The caller lowers the anchor when the recognizer revises the
+        // transcript downward — see handle().)
+        guard transcript.count > firedAtLength else { return nil }
         guard let m = LocateVoiceCommand.match(transcript) else { return nil }
         // ECHO, NOT BLANKET. Reject only a phrase the app's own current line actually contains.
         if let saying = appSaying, LocateVoiceCommand.isSelfEcho(phrase: m.phrase, spoken: saying) {
@@ -160,7 +178,12 @@ enum LocateVoiceGate {
         // parses as .resume, which is a silent no-op when no frame is frozen (ARCoachView), and it
         // then blocked the 就是这里 said a second later. Repeats of the SAME kind are what needs
         // damping; a different kind is new intent.
-        if m.kind == lastKind && sinceLastFire <= repeatDebounceS { return nil }
+        //
+        // …and a repeat of the same kind after a no-op damps only briefly: that round fixed the
+        // CROSS-kind case and left the same hole open within one kind, which is the commoner one
+        // (nobody says 找到了 by accident; everybody says 就是这里 a moment too early).
+        let window = lastFireHandled ? repeatDebounceS : unhandledRepeatDebounceS
+        if m.kind == lastKind && sinceLastFire <= window { return nil }
         return m
     }
 }
@@ -191,6 +214,11 @@ final class LocateVoiceControl: ObservableObject {
 
     private var lastFired = Date.distantPast   // debounce: one command per utterance burst
     private var firedAtLength = 0              // consume-once: don't re-fire until the transcript grows past here
+    // Whether the last delivered command actually DID anything (the view reports back via
+    // acknowledge). Optimistic until told otherwise, so a view that never acknowledges keeps the old
+    // 2 s damping rather than silently loosening it.
+    private var lastFireHandled = true
+    private var lastCommandId: UUID? = nil     // only the CURRENT command may be acknowledged
     private var noProgressRestarts = 0         // recognizer-failure backoff / cap
     private static let maxRestarts = 3
 
@@ -244,6 +272,21 @@ final class LocateVoiceControl: ObservableObject {
     /// the sheet cannot clear it, and so the sheet's onDisappear is the only thing that lifts it.
     func setBlanketMute(_ on: Bool) { blanketMute = on }
 
+    /// The view reports whether the command it just received actually DID something.
+    ///
+    /// The control cannot know: whether 就是这里 saves a spot depends on the engine's locate state and
+    /// a frame-clocked latch, and whether 继续 does anything depends on a frozen frame existing. Told
+    /// nothing, it treated every delivery as a success and spent the full same-kind debounce on
+    /// commands that were silently dropped — so the user's immediate, correct repeat was refused.
+    ///
+    /// Direction is view→control, never a control-held closure: the view owns the handler and dies
+    /// with the view, which is what keeps the engine/camera graph out of a retain cycle here.
+    /// The id guards against a stale acknowledgement landing on a newer command.
+    func acknowledge(_ id: UUID, handled: Bool) {
+        guard id == lastCommandId else { return }
+        lastFireHandled = handled
+    }
+
     func toggle() { listening ? stop() : start() }
 
     /// True while this control owns the shared session with a live input tap. Anything that would
@@ -253,14 +296,23 @@ final class LocateVoiceControl: ObservableObject {
 
     /// The session shape the MIC needs, hoisted out of beginListening so it can be re-claimed.
     ///
-    /// Mode `.voiceChat` selects the voice-processing I/O path — hardware echo cancellation and the
-    /// tuned input chain — which is what a two-syllable spoken command needs while the coach is
-    /// talking out of the loudspeaker. The old call set no mode at all, i.e. `.default`: a playback
-    /// shape, so several seconds of full-level speech was decoded mixed in with the user's command.
-    /// `.allowBluetooth` is deliberately GONE: it offers the system a headset's HANDS-FREE link as
-    /// the INPUT, an 8/16 kHz mono SCO channel that the tap then records faithfully.
-    /// `.allowBluetoothA2DP` stays, so the user's headphones remain the OUTPUT — the reason the
-    /// option was added — while the input stays on the built-in mic.
+    /// `.voiceChat` DOES NOT, BY ITSELF, GIVE ECHO CANCELLATION. This comment used to say it
+    /// "selects the voice-processing I/O path — hardware echo cancellation and the tuned input
+    /// chain", and that was simply false, which is why three rounds of fixes to the *decision* layer
+    /// never moved the reported symptom. Apple's own documentation for this mode says that for apps
+    /// which set a chat mode "but don't use Audio Unit Voice I/O or AVAudioEngine with
+    /// setVoiceProcessingEnabled(_:), the system reduces the processing it applies… it doesn't apply
+    /// voice-specific processing, like echo cancellation and automatic gain correction, and disables
+    /// dynamic processing on input and output." Capture here goes through a plain
+    /// `audioEngine.inputNode` tap, so the mode alone made the input chain WORSE than the `.default`
+    /// it replaced. The actual switch is `setVoiceProcessingEnabled(true)`, in beginListening().
+    /// The mode is still correct and still required — voice processing needs it — it is just not
+    /// sufficient on its own.
+    ///
+    /// `.allowBluetooth` is not in the options list, but do not read that as "HFP is off": setting
+    /// `.voiceChat` causes the system to apply the Bluetooth hands-free option anyway. A paired
+    /// headset can therefore still become the input over a narrowband SCO link. `.allowBluetoothA2DP`
+    /// stays so headphones remain the OUTPUT, which is the reason it was added.
     static func reclaimSession() {
         let s = AVAudioSession.sharedInstance()
         try? s.setCategory(.playAndRecord, mode: .voiceChat,
@@ -326,12 +378,45 @@ final class LocateVoiceControl: ObservableObject {
         guard !listening, recognizer != nil else { return }   // armTask re-binds it where it's used
         Self.reclaimSession()
 
-        let format = audioEngine.inputNode.outputFormat(forBus: 0)
+        let input = audioEngine.inputNode
+        // THE ACTUAL ECHO CANCELLATION SWITCH — the one thing this feature was missing.
+        //
+        // The coach plays 1.8-5.0 s pre-rendered cues out the LOUDSPEAKER, a few centimetres from
+        // the mic, while this tap is recording; the phone is propped on a table so both are at fixed
+        // full level. Without voice processing the recognizer is handed the app's own speech mixed
+        // with the user's 2-4 character command at comparable amplitude, and the only levers left to
+        // the user are volume and duration — which is the report, verbatim: "you have to say it many
+        // times and slowly". Turning this on puts the engine on the voice-processing I/O unit, which
+        // is what actually supplies acoustic echo cancellation, automatic gain control and noise
+        // suppression. The session mode alone never did (see reclaimSession).
+        //
+        // ORDER IS LOAD-BEARING. It can only be toggled while the engine is STOPPED, and it CHANGES
+        // the input node's format — so it must precede both the format read below and prepare()/
+        // start(). `armTask` re-reads the format for its tap, so it picks up the processed one too;
+        // `tapFormat` must likewise be the post-enable format or recoverFromConfigChange's
+        // "format unchanged → nothing to repair" check would mismatch forever and rebuild the task on
+        // every spoken cue, destroying exactly the mid-cue commands this change exists to rescue.
+        //
+        // `try?` on purpose: a device that refuses voice processing should fall back to a plain tap,
+        // not lose hands-free control entirely.
+        try? input.setVoiceProcessingEnabled(true)
+
+        let format = input.outputFormat(forBus: 0)
         // No usable input route → there is no mic to listen with (the Simulator, or a device with no
         // input). Report it honestly instead of silently no-op'ing the mic button.
         guard format.sampleRate > 0 else { restoreSession(); unavailable = true; return }
         audioEngine.prepare()
-        guard (try? audioEngine.start()) != nil else { restoreSession(); return }
+        if (try? audioEngine.start()) == nil {
+            // VOICE PROCESSING MUST NEVER COST THE FEATURE. It reshapes the engine's I/O, and this
+            // is the first release that turns it on — so if a device won't start the engine under
+            // it, drop back to the plain tap that has been shipping rather than leaving the user
+            // with no hands-free control at all. Strictly non-regressing: the worst case is exactly
+            // today's behaviour, and `format` is re-read because disabling changes it back.
+            try? input.setVoiceProcessingEnabled(false)
+            audioEngine.prepare()
+            guard input.outputFormat(forBus: 0).sampleRate > 0,
+                  (try? audioEngine.start()) != nil else { restoreSession(); return }
+        }
 
         ignoreConfigUntil = Date().addingTimeInterval(0.5)   // absorb the engine's own start-time settle
         configRecoverBurst = 0
@@ -386,16 +471,27 @@ final class LocateVoiceControl: ObservableObject {
         if let text = result?.bestTranscription.formattedString, !text.isEmpty {
             noProgressRestarts = 0                   // real transcription → the pipeline is healthy
             configRecoverBurst = 0                   // …and route recovery is working, not storming
+            // A SHORTER TRANSCRIPT IS A REVISION, NOT A RE-FIRE. `firedAtLength` is a raw character
+            // count over a string the recognizer freely rewrites — it re-scores hypotheses and
+            // routinely hands back a SHORTER cumulative transcript than the one before. The anchor
+            // only ever moved up, so after any downward revision the gate stayed shut until the user
+            // produced enough further syllables to climb back over a ceiling set by a transcript
+            // that no longer exists. Lower the ceiling with the text.
+            if text.count < firedAtLength { firedAtLength = 0 }
             if let m = LocateVoiceGate.decide(transcript: text,
                                               firedAtLength: firedAtLength,
                                               lastKind: lastKind,
                                               sinceLastFire: Date().timeIntervalSince(lastFired),
                                               appSaying: Date() < appSayingUntil ? appSaying : nil,
-                                              blanketMute: blanketMute) {
+                                              blanketMute: blanketMute,
+                                              lastFireHandled: lastFireHandled) {
                 lastFired = Date()
                 lastKind = m.kind
                 firedAtLength = text.count
-                command = Command(id: UUID(), kind: m.kind)
+                lastFireHandled = true          // assume it lands; acknowledge(_:handled:) corrects it
+                let cmd = Command(id: UUID(), kind: m.kind)
+                lastCommandId = cmd.id
+                command = cmd
             }
         }
         // The recognizer ends tasks on its own (~1 min cap, final results, errors). Keep the
@@ -403,10 +499,20 @@ final class LocateVoiceControl: ObservableObject {
         // no-progress failures (a missing on-device asset otherwise spins a main-thread loop),
         // and never restart over a dead engine.
         guard result?.isFinal == true || error != nil else { return }
+        let cleanFinal = result?.isFinal == true
         teardownTask()
         guard audioEngine.isRunning else { failAndStop(); return }
-        if result?.isFinal != true { noProgressRestarts += 1 }   // a clean final is progress, not a failure
+        if !cleanFinal { noProgressRestarts += 1 }   // a clean final is progress, not a failure
         guard noProgressRestarts < Self.maxRestarts else { failAndStop(); return }
+        // A CLEAN FINAL RE-ARMS IMMEDIATELY. The 0.5 s delay was applied to BOTH endings, and a
+        // clean final is the one that happens constantly — it is how the recognizer marks the end of
+        // an utterance. So the mic went deaf for half a second after every single thing the user
+        // said, with the tap still appending into a request teardownTask() had already ended, i.e.
+        // that audio is discarded outright. Someone who says a command, gets nothing, and
+        // immediately repeats it is speaking straight into that gap. The delay exists to keep a
+        // FAILING recognizer (a missing on-device asset) from spinning the main thread, which is the
+        // error path — so it stays there, and only there.
+        guard !cleanFinal else { armTask(); return }
         let gen = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self, self.listening, gen == self.generation else { return }

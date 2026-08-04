@@ -30,6 +30,20 @@ final class CoachHaptics: ObservableObject {
         play([transient(at: 0, intensity: 0.5, sharpness: 0.5)], on: engine)
     }
 
+    // "Heard you, but that did nothing yet" — a spoken command the app matched and then could not
+    // act on in the current state (a confirm before the press has settled, a resume with nothing
+    // frozen). Without it, a dropped command and an unheard one feel identical, which is what makes
+    // people repeat themselves louder and slower.
+    //
+    // Deliberately DULL and DISTINCT from enterTick: soft and blunt (low sharpness) against
+    // enterTick's crisper tick, because that tick already means "the confirm just unlocked" and one
+    // sensation must not carry two opposite meanings. On the fallback path it is `.warning`, which
+    // is likewise distinct from enterTick's impact and complete's `.success`.
+    func notHandled() {
+        guard supportsHaptics, let engine else { notify.notificationOccurred(.warning); return }
+        play([transient(at: 0, intensity: 0.35, sharpness: 0.15)], on: engine)
+    }
+
     // Success pattern — routine complete.
     func complete() {
         guard supportsHaptics, let engine else { notify.notificationOccurred(.success); return }

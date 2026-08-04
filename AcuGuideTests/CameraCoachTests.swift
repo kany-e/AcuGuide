@@ -275,9 +275,10 @@ extension VoiceCommandTableTests {
 final class LocateVoiceGateTests: XCTestCase {
     private func decide(_ transcript: String, saying: String? = nil, lastKind: LocateVoiceCommand? = nil,
                         since: TimeInterval = 99, firedAt: Int = 0,
-                        blanket: Bool = false) -> LocateVoiceCommand? {
+                        blanket: Bool = false, handled: Bool = true) -> LocateVoiceCommand? {
         LocateVoiceGate.decide(transcript: transcript, firedAtLength: firedAt, lastKind: lastKind,
-                               sinceLastFire: since, appSaying: saying, blanketMute: blanket)?.kind
+                               sinceLastFire: since, appSaying: saying, blanketMute: blanket,
+                               lastFireHandled: handled)?.kind
     }
 
     // THE REGRESSION. Each of these is spoken while the coach is mid-cue; all of them used to be
@@ -322,6 +323,38 @@ final class LocateVoiceGateTests: XCTestCase {
     func testACommandDoesNotRefireOnTheSameTranscript() {
         XCTAssertNil(decide("就是这里", firedAt: 4))
         XCTAssertEqual(decide("就是这里跳过", firedAt: 4), .skip)
+    }
+
+    // A COMMAND THAT DID NOTHING MUST NOT COST THE FULL REPEAT WINDOW.
+    //
+    // 就是这里 is refused unless the press has settled AND the frame-clocked latch is live
+    // (CoachEngine.confirmLocate), so saying it a beat early is heard, matched, and then dropped in
+    // silence. With one window for both outcomes, the user's immediate — and now correct — repeat
+    // was refused as "a repeat of the same kind". Hearing someone perfectly and then declining to
+    // listen again is a large part of "you have to say it many times".
+    func testARepeatAfterAnUnhandledCommandIsNotDebouncedAway() {
+        // Handled: the full 2 s damping stands (one command per utterance burst).
+        XCTAssertNil(decide("就是这里", lastKind: .confirm, since: 0.8, handled: true))
+        // Unhandled: the same repeat gets through once the short window passes.
+        XCTAssertEqual(decide("就是这里", lastKind: .confirm, since: 0.8, handled: false), .confirm)
+        // …but not instantly, or one utterance re-presented across successive partials would
+        // re-fire — which is the whole reason the debounce exists.
+        XCTAssertNil(decide("就是这里", lastKind: .confirm, since: 0.2, handled: false))
+    }
+
+    // THE ANCHOR MUST FALL WITH A SHRINKING TRANSCRIPT. The recognizer re-scores its hypotheses and
+    // routinely hands back a cumulative transcript SHORTER than the previous one; the consume-once
+    // anchor only ever moved up, so a revision left the gate shut until the user produced enough
+    // further syllables to climb over a ceiling set by a transcript that no longer existed.
+    // (The anchor is lowered by the caller — LocateVoiceControl.handle — so this pins the rule the
+    // gate itself must honour: growth is measured against the anchor it was actually given.)
+    func testAnchorAtOrBelowTheTranscriptLengthStillAdmitsTheCommand() {
+        // Revised down to a 4-character transcript, anchor already lowered to 0 → admitted.
+        XCTAssertEqual(decide("就是这里", firedAt: 0), .confirm)
+        // The off-by-one is gone: a transcript exactly one longer than the anchor is real growth.
+        XCTAssertEqual(decide("就是这里", firedAt: 3), .confirm)
+        // Equal length is still not growth.
+        XCTAssertNil(decide("就是这里", firedAt: 4))
     }
 
     // The lexical prior handed to the recognizer must be exactly what the parser can act on —
