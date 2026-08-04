@@ -211,33 +211,54 @@ struct ARCoachView: View {
         // Observed, not a control-held closure: the handler is owned by the view, so it can't
         // retain the engine/camera graph into a leak (review-caught). Guarded on live locate state
         // + not paused, so a command delivered just as the step ends / pauses is dropped.
+        // EVERY ARM REPORTS BACK whether it actually did something (locateVoice.acknowledge).
+        // Several of these are legitimately no-ops depending on state — a confirm before the press
+        // has settled, a resume with nothing frozen — and the control cannot know that from its
+        // side. Told nothing, it counted them as delivered and spent the full same-kind debounce on
+        // them, so the user's immediate repeat of a command that had visibly done nothing was
+        // refused in silence. `handled` is what separates "heard and acted on" from "heard and
+        // dropped", and only the latter gets the short window.
         .onChange(of: locateVoice.command) { cmd in
-            guard let cmd, !userPaused, !endedEarly else { return }
+            guard let cmd else { return }
+            guard !userPaused, !endedEarly else { return locateVoice.acknowledge(cmd.id, handled: false) }
+            var handled = false
             switch cmd.kind {
             // Confirm and skip only mean something while there is a spot to confirm or skip.
             case .confirm:
-                guard engine.mode == .locate else { return }
-                if engine.confirmLocate(point: acupoint) {
+                if engine.mode == .locate, engine.confirmLocate(point: acupoint) {
                     LocatedStore.shared.markLocated(acupoint.id)
                     handleLocateConfirmed()
+                    handled = true
                 }
             case .skip:
-                guard engine.mode == .locate else { return }
-                engine.endLocate()
-                voice.handover()
+                if engine.mode == .locate {
+                    engine.endLocate()
+                    voice.handover()
+                    handled = true
+                }
             // FREEZE AND RESUME WORK WHILE COACHING TOO. They used to be gated on .locate, which
             // is the step a calibrated point SKIPS (see the initialiser) — so on every repeat
             // session of a saved point the feature the user was hunting for simply did not exist.
             // Nothing about the frozen frame is locate-specific; camera.frozenSnapshot() and the
             // overlay were mode-agnostic already.
             case .study:
-                if frozen == nil { freezeFrame() }
+                if frozen == nil { freezeFrame(); handled = frozen != nil }
             case .resume:
-                if frozen != nil { unfreeze() }
+                if frozen != nil { unfreeze(); handled = true }
             // Asking what you can say, WITHOUT touching anything — the whole point of the command.
             case .help:
                 showVoiceCommands = true
+                handled = true
             }
+            locateVoice.acknowledge(cmd.id, handled: handled)
+            // HEARD-BUT-NOT-YET, felt rather than said. A command that changes nothing on screen is
+            // indistinguishable from one that was never heard, and that ambiguity is what makes
+            // people repeat themselves louder. Deliberately NOT haptics.enterTick() — that tick
+            // already means "the confirm just unlocked" (see handleLocateChange), and one pattern
+            // must not mean two opposite things. Deliberately not a spoken line either: every spoken
+            // string is a pre-rendered clip keyed by sha256 of its text, so a new phrase would need
+            // a re-render and would otherwise drop to the robotic fallback (CLAUDE.md).
+            if !handled { haptics.notHandled() }
         }
         // The app's own TTS goes out the speaker into the open mic — pause recognition while it
         // speaks so voice confirm can't transcribe and fire on the app's own cues.
