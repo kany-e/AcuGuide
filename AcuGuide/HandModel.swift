@@ -65,6 +65,17 @@ enum HandGeom {
     // "the fingertip detection drifts towards the knuckle": the earlier fix stopped the estimate
     // COLLAPSING onto the knuckle but left it leaning there.
     static let tipToPhalanxRatio: CGFloat = 1.0
+    // Alternate palm spans, expressed as the multiplier that converts them INTO the wrist→middleMCP
+    // unit that tipFloor/tipReach are denominated in. Metacarpal ray anatomy: the 3rd (middle) ray
+    // is the longest, the 2nd (index) is ≈0.97 of it and the 5th (little) ≈0.88 — so the reciprocals
+    // below carry an index- or pinky-based span back onto the middle-ray scale.
+    //
+    // They exist because `handSize` needs middleMCP and the pressing hand frequently does not have
+    // it: HandVision drops any joint under 0.3 confidence and requires only the WRIST, and the
+    // massaging hand reaches in fingers-first from the top of frame, which is exactly the pose that
+    // loses the middle knuckle. See Hand.pressScale.
+    static let indexMCPToMiddleMCP: CGFloat = 1.03
+    static let pinkyMCPToMiddleMCP: CGFloat = 1.14
 }
 
 // One detected hand. Points are normalized 0...1 in TOP-LEFT origin (already flipped
@@ -98,8 +109,20 @@ struct Hand {
     // rebuilt from the distal index segment (DIP + k·(DIP−PIP)) — and that reconstruction reports
     // confidence 0: it is an UNMEASURED guess, so it can sustain an engagement (hysteresis) but
     // must never start one (the palm-glaze gate keys off this value).
-    func pressTip(_ finger: HandJoint) -> (point: CGPoint, confidence: Float)? {
-        if let tip = p(finger) { return (tip, confidence[finger] ?? 1) }   // fixtures: no dict → reliable
+    /// `aspect` = frame W/H, so the clamp can be applied in ISOTROPIC width units. Landmarks arrive
+    /// normalized PER AXIS, so a raw `hypot` measures different physical distances along x and y —
+    /// and this function compares a length along the FINGER axis against a scale along the PALM
+    /// axis. Those coincide only when the two are parallel; at right angles, on a 9:16 frame, the
+    /// cap was evaluated 1.78× off, clipping a cross-axis rebuild back toward the DIP by up to 44%
+    /// in one orientation and letting it overshoot the nail in the other. The engine (isoDist) and
+    /// PointCalibration already learned this; this was the last raw-coordinate hit-test left.
+    /// Defaulted to 1 so pure-geometry callers and fixtures keep square units.
+    /// `reconstructed` distinguishes a rebuilt guess from a measured tip. It used to be inferred
+    /// from `confidence == 0`, which is ambiguous — fixtures default to 1, and a real Vision read of
+    /// exactly 0.0 is representable — and the engine now keys its grace clock off it.
+    func pressTip(_ finger: HandJoint,
+                  aspect: CGFloat = 1) -> (point: CGPoint, confidence: Float, reconstructed: Bool)? {
+        if let tip = p(finger) { return (tip, confidence[finger] ?? 1, false) }   // fixtures: no dict → reliable
         guard finger == .indexTip, let dip = p(.indexDIP), let pip = p(.indexPIP) else { return nil }
 
         // RECONSTRUCTION, and only ever when Vision reported no tip at all. (Preferring a rebuild
@@ -125,22 +148,59 @@ struct Hand {
         //           by picking a luckier constant.
         // Both bounds are now REACHABLE, which is the point: with the old 0.6 the floor won every
         // frame and the cap was dead code (see HandGeom.tipToPhalanxRatio).
-        let v = CGPoint(x: dip.x - pip.x, y: dip.y - pip.y)
+        // ISOTROPIC throughout: measure the phalanx, clamp, and step out all in width units, then
+        // convert the y component back on the way out. For a finger parallel to the palm the whole
+        // transform cancels exactly, so every axial case — including the pinned overshoot test — is
+        // bit-identical to before; only the cross-axis case, which is the one that was wrong, moves.
+        let a = max(aspect, 0.01)
+        let v = CGPoint(x: dip.x - pip.x, y: (dip.y - pip.y) / a)
         let len = hypot(v.x, v.y)
         guard len > 1e-6 else { return nil }
         let projected = HandGeom.tipToPhalanxRatio * len
-        let hs = handSize
-        // handSize needs wrist + middleMCP. Fixtures that model only the index finger have none, so
-        // fall back to the pure projection there — the clamp is a device-pose correction, and a
-        // synthetic hand has no foreshortening to correct.
+        let hs = pressScale(aspect: a)
+        // pressScale falls back through the other MCPs, so a hand that has lost middleMCP still gets
+        // the clamp. With NO knuckle at all there is genuinely no scale to clamp against and the
+        // pure projection stands — the engine bounds that case in TIME instead (see
+        // CoachConst.tipReconstructionSustainS), rather than inventing a scale.
         let step = hs > 0 ? min(max(projected, HandGeom.tipFloor * hs), HandGeom.tipReach * hs) : projected
-        return (CGPoint(x: dip.x + v.x / len * step, y: dip.y + v.y / len * step), 0)
+        let out = CGPoint(x: dip.x + v.x / len * step, y: dip.y + (v.y / len * step) * a)
+        return (out, 0, true)
     }
 
     // Scale unit, invariant-ish to finger spread (wrist -> middle MCP).
+    //
+    // DELIBERATELY NOT given the fallback chain that pressScale has: this value is SERIALIZED into
+    // the M3 label records (LabelCapture) that must stay in lockstep with train.py, so redefining it
+    // would silently skew an already-captured dataset.
     var handSize: CGFloat {
         guard let w = p(.wrist), let m = p(.middleMCP) else { return 0 }
         return hypot(m.x - w.x, m.y - w.y)
+    }
+
+    /// Palm scale for the press-tip clamp, in ISOTROPIC width units, with a fallback chain.
+    ///
+    /// `handSize` needs middleMCP, and the PRESSING hand routinely lacks it — HandVision requires
+    /// only the wrist and drops joints under 0.3 confidence, and the massaging hand comes in
+    /// fingers-first from the top of frame, foreshortened, which is precisely where knuckles go
+    /// missing. The clamp was therefore switched OFF in the exact pose it was written for: with no
+    /// scale, a foreshortened phalanx projecting ~0.05·palm planted the rebuilt tip ~0.05 past the
+    /// DIP instead of the anatomical 0.16–0.26 — i.e. ON the knuckle, and inside the ring radius, so
+    /// the press could not register either. That is the reported "detection is on the knuckle".
+    ///
+    /// Any MCP will do, because all we need is a palm-length unit; the constants convert the index
+    /// or little ray onto the middle-ray scale the tipFloor/tipReach fractions are defined in. This
+    /// can only ever ADD a scale where there was none (0), so it cannot move an existing clamp.
+    func pressScale(aspect: CGFloat = 1) -> CGFloat {
+        guard let w = p(.wrist) else { return 0 }
+        let a = max(aspect, 0.01)
+        func span(_ j: HandJoint) -> CGFloat? {
+            guard let m = p(j) else { return nil }
+            return hypot(m.x - w.x, (m.y - w.y) / a)
+        }
+        if let s = span(.middleMCP) { return s }
+        if let s = span(.indexMCP)  { return s * HandGeom.indexMCPToMiddleMCP }
+        if let s = span(.pinkyMCP)  { return s * HandGeom.pinkyMCPToMiddleMCP }
+        return 0
     }
 
     // Weighted MEAN of named landmarks → the acupoint target (image-normalized). Normalizing by the

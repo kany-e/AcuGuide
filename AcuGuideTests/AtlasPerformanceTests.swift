@@ -73,6 +73,89 @@ final class PressTipGeometryTests: XCTestCase {
         let m = try XCTUnwrap(foreshortenedHand(phalanxLength: 0.01).pressTip(.indexTip))
         XCTAssertEqual(m.confidence, 0,
                        "clamping the geometry must not promote a guess into a measurement")
+        XCTAssertTrue(m.reconstructed, "and it must SAY it is a guess, not leave that to be inferred "
+                      + "from a confidence value fixtures default to 1")
+    }
+
+    // THE CLAMP WAS OFF IN THE POSE IT WAS WRITTEN FOR.
+    //
+    // `handSize` needs wrist AND middleMCP, and returned 0 otherwise — at which point pressTip fell
+    // through to the raw projection with no floor at all. But HandVision requires only the WRIST and
+    // drops any joint under 0.3 confidence, and the massaging hand comes in fingers-first from the
+    // top of frame, foreshortened: precisely where the middle knuckle goes missing. So a
+    // foreshortened phalanx planted the rebuilt tip a few hundredths past the DIP instead of the
+    // anatomical 0.16–0.26 — on the knuckle, and inside the ring radius, so the press could not
+    // register either. That is the reported "the detection is on the knuckle".
+    func testClampSurvivesAMissingMiddleMCP() throws {
+        let dip = CGPoint(x: 0.50, y: 0.40)
+        // Same hand as foreshortenedHand, but the middle knuckle dropped and the INDEX one seen.
+        let hand = Hand(points: [.wrist: CGPoint(x: 0.50, y: 0.70),
+                                 .indexMCP: CGPoint(x: 0.54, y: 0.41),
+                                 .indexDIP: dip,
+                                 .indexPIP: CGPoint(x: 0.50, y: 0.40 + 0.004)],
+                        chirality: .right)
+        XCTAssertEqual(hand.handSize, 0, "precondition: no middleMCP, so the old scale is unavailable")
+        let scale = hand.pressScale()
+        XCTAssertGreaterThan(scale, 0, "pressScale must fall back to another metacarpal ray")
+
+        let tip = try XCTUnwrap(hand.pressTip(.indexTip)).point
+        let step = hypot(tip.x - dip.x, tip.y - dip.y)
+        XCTAssertGreaterThanOrEqual(step, HandGeom.tipFloor * scale - 1e-9,
+                                    "the clamp must still apply — without it this lands ~0.004 past "
+                                    + "the DIP, i.e. ON the knuckle")
+        XCTAssertGreaterThan(step, 0.12 * scale,
+                             "and it must clear the tightest hit tolerance, or the press cannot register")
+    }
+
+    /// With no knuckle at all there is genuinely no scale, and the pure projection stands. Pinned so
+    /// the residual hole is a stated limit rather than a surprise — the engine bounds this case in
+    /// TIME instead (CoachConst.tipReconstructionSustainS).
+    func testNoKnuckleAtAllStillFallsBackToThePureProjection() throws {
+        let dip = CGPoint(x: 0.50, y: 0.40)
+        let hand = Hand(points: [.wrist: CGPoint(x: 0.50, y: 0.70),
+                                 .indexDIP: dip, .indexPIP: CGPoint(x: 0.50, y: 0.45)],
+                        chirality: .right)
+        XCTAssertEqual(hand.pressScale(), 0)
+        let tip = try XCTUnwrap(hand.pressTip(.indexTip)).point
+        XCTAssertEqual(hypot(tip.x - dip.x, tip.y - dip.y), 0.05, accuracy: 1e-9,
+                       "unclamped projection = 1.0 × |DIP−PIP|")
+    }
+
+    // THE LAST RAW-COORDINATE HIT-TEST. Landmarks are normalized PER AXIS, so a raw hypot measures
+    // different physical distances along x and y. This function compares a length along the FINGER
+    // axis against a scale along the PALM axis — identical only when they are parallel. At right
+    // angles on a 9:16 frame the cap was 1.78× off: it clipped a cross-axis rebuild back toward the
+    // DIP in one orientation, and let it overshoot the nail in the other. The engine (isoDist) and
+    // PointCalibration already learned this lesson; this was the one place left.
+    func testCrossAxisReconstructionIsNotClippedByAnisotropy() throws {
+        let aspect: CGFloat = 9.0 / 16.0
+        // Palm VERTICAL (wrist below middleMCP), pressing finger HORIZONTAL — the normal top-down
+        // pose, and the worst case for the mismatch.
+        let dip = CGPoint(x: 0.50, y: 0.40)
+        let hand = Hand(points: [.wrist: CGPoint(x: 0.50, y: 0.70),
+                                 .middleMCP: CGPoint(x: 0.50, y: 0.52),
+                                 .indexDIP: dip,
+                                 .indexPIP: CGPoint(x: 0.30, y: 0.40)],   // straight out along x
+                        chirality: .right)
+        let scale = hand.pressScale(aspect: aspect)
+        let tip = try XCTUnwrap(hand.pressTip(.indexTip, aspect: aspect)).point
+        let step = hypot(tip.x - dip.x, (tip.y - dip.y) / aspect)         // measured ISOTROPICALLY
+        XCTAssertLessThanOrEqual(step, HandGeom.tipReach * scale + 1e-9,
+                                 "the cap must bound the ISO step, not a raw one")
+        XCTAssertGreaterThanOrEqual(step, HandGeom.tipFloor * scale - 1e-9,
+                                    "…and the floor must too — evaluating a palm-axis scale against "
+                                    + "a finger-axis length clipped this back toward the knuckle")
+    }
+
+    /// The cancellation proof that makes the isotropic clamp safe: for a finger PARALLEL to the palm
+    /// the aspect divides out exactly, so every previously-pinned case is bit-identical at any frame
+    /// shape. Only the cross-axis case — the one that was wrong — moves.
+    func testAxialReconstructionIsAspectInvariant() throws {
+        let hand = foreshortenedHand(phalanxLength: 0.01)
+        let square = try XCTUnwrap(hand.pressTip(.indexTip, aspect: 1)).point
+        let portrait = try XCTUnwrap(hand.pressTip(.indexTip, aspect: 9.0 / 16.0)).point
+        XCTAssertEqual(Double(square.x), Double(portrait.x), accuracy: 1e-12)
+        XCTAssertEqual(Double(square.y), Double(portrait.y), accuracy: 1e-12)
     }
 }
 
