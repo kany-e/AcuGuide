@@ -38,6 +38,28 @@ enum CoachConst {
     // longer (0.3 → 0.5) so the intermittent top-down hand's dot stops FLICKERING on/off between reads —
     // still short enough that a finger that really lifts clears within half a second (user-reported).
     static let tipGraceS             = 0.5
+    // …but a grace is for a MEASUREMENT DROPOUT, not for a departure. When the held fingertip is
+    // measured OUTSIDE the acquire band this many frames running, the finger has demonstrably left
+    // and the dot clears at once instead of spending the full grace on it (user-reported: "the
+    // detection circle remains on the screen for too long even after the finger has been removed").
+    //
+    // 2 frames = 67 ms at 30 Hz. One frame would let a single landmark outlier blank the dot; two
+    // consecutive reads of the SAME finger beyond ~0.65 hand-lengths (≈62 mm on a 95 mm palm) cannot
+    // be an outlier — a real fingertip would have to cross that and return inside 33 ms, ≈1.9 m/s.
+    // It also sits just under minHoldConfirmS (0.07), so it cannot desynchronise the hold gate.
+    //
+    // This deliberately does NOT shorten tipGraceS, which is the answer to the opposite report (a
+    // hand parked ON the point whose Vision read blinks). That case has no measurement at all, so it
+    // takes the `.none` path and keeps the full 0.5 s.
+    static let presserDepartureFrames = 2
+    // How long a RECONSTRUCTED (unmeasured) press tip may stand in for a real one. The DIP/PIP
+    // rebuild is a full candidate, so while those two joints survive it kept painting a dot AND
+    // refreshing the grace clock — measured at 10 s of continuous dot with no fingertip ever seen,
+    // bounded only by the test loop. Equal to pauseGraceS: the longest the engine itself will hold a
+    // press open with no contact, so a guessed datum can never outlive the engine's own definition
+    // of "you have left the point". 3× tipGraceS, so it is strictly more permissive than the
+    // no-datum path and cannot re-open the blink.
+    static let tipReconstructionSustainS = 1.5
     // How long a lone surviving hand may be treated as "the presser occluding the receiver" before
     // the assumption decays and roles reset (the hand becomes the receiver by the single-hand rule).
     // Unbounded, this state froze the ring forever and could self-latch a receiving hand as presser.
@@ -486,8 +508,19 @@ final class CoachEngine: ObservableObject {
         return heldChirality
     }
 
-    // When the press tip was last actually measured — drives the tipGraceS dropout grace.
+    // When the press tip was last actually MEASURED — drives the tipGraceS dropout grace. Only a
+    // real Vision fingertip writes this; the DIP/PIP reconstruction deliberately does not, or a
+    // guess would keep the grace clock from ever starting (see resolvePresserDot).
     private var lastTipT = -Double.infinity
+    // The last MEASURED (un-smoothed) tip, so the grace can converge the dot onto where the finger
+    // actually was instead of freezing it at the filter's lagged position.
+    private var lastMeasuredTip: CGPoint? = nil
+    // Consecutive frames the held fingertip has been measured OUTSIDE the acquire band. Departure is
+    // evidence, not absence — see CoachConst.presserDepartureFrames.
+    private var departedFrames = 0
+    // When the current unbroken run of reconstructed (guessed) tips began, or nil if the last usable
+    // tip was a real measurement. Bounds how long a guess may stand in for a fingertip.
+    private var reconstructionSince: TimeInterval? = nil
 
     // When the lone-presser (receiver occluded) state began — bounds it to lonePresserGraceS.
     private var lonePresserSince: Double? = nil
@@ -659,15 +692,16 @@ final class CoachEngine: ObservableObject {
             // across the occlusion boundary, and only a fingertip near the last point is painted (not a
             // stray/weakly-seen hand far away, the wrong-hand jump). No ring ever established → no
             // reference → no dot. Brief dropout keeps the last dot within tipGraceS; expired clears.
-            if let ring = overlay.ringCenter,
-               let measured = selectPresserTip(hands: hands, receiverWrist: nil, ringCenter: ring,
-                                               acquireRadius: max(overlay.ringRadius * 3, 0.12)) {
-                if measured.changed { pressSmoother.reset() }
-                overlay.pressTip = pressSmoother.filter(measured.point, now); lastTipT = now
-            } else if pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {
-                // keep the last dot
-            } else {
-                overlay.pressTip = nil; pressSmoother.reset()
+            // SAME resolver as the main path (resolvePresserDot), so the departure rule, the
+            // reconstruction cap and the grace behave identically on both sides of the occlusion
+            // boundary. This branch used to carry its own copy and would have kept the old
+            // paint-out-to-the-keep-radius behaviour after the main path was fixed.
+            if let ring = overlay.ringCenter {
+                let read = selectPresserTip(hands: hands, receiverWrist: nil, ringCenter: ring,
+                                            acquireRadius: max(overlay.ringRadius * 3, 0.12))
+                _ = resolvePresserDot(read, now: now)
+            } else if overlay.pressTip != nil {
+                overlay.pressTip = nil; pressSmoother.reset()   // no ring ever established → no reference
             }
             // The receiving hand has been occluded past the transient window — say so, plainly.
             occlusionHint(now, AppLocale.pick("让被按的那只手多露出来一些。",
@@ -816,13 +850,12 @@ final class CoachEngine: ObservableObject {
         // Generous enough that the dot appears as the finger approaches, but never below the exit band
         // so a tip inside the exit band is always a candidate.
         let acquireRadius = max(hs * CoachConst.presserAcquireXHandSize, tol * CoachConst.exitRadiusMult)
-        if let measured = selectPresserTip(hands: hands, receiverWrist: receiver.p(.wrist),
-                                           ringCenter: center, acquireRadius: acquireRadius) {
-            if measured.changed { pressSmoother.reset() }   // new physical fingertip — don't lerp from the old one
-            let tip = pressSmoother.filter(measured.point, now)
-            overlay.pressTip = tip; hasPresser = true
-            lastTipT = now
-            tipConf = measured.confidence
+        let read = selectPresserTip(hands: hands, receiverWrist: receiver.p(.wrist),
+                                    ringCenter: center, acquireRadius: acquireRadius)
+        if let resolved = resolvePresserDot(read, now: now) {
+            let tip = resolved.tip
+            hasPresser = true
+            tipConf = resolved.confidence
             // Contact distance vs the displayed guide — which is now the SAME datum the storage
             // clamp uses in locate mode (guideTarget above), so an accepted press always stores
             // without silent truncation (review-caught re-calibration mismatch).
@@ -835,14 +868,12 @@ final class CoachEngine: ObservableObject {
             // tip (confidence 0 — an unmeasured guess) can sustain but never start an engagement.
             // Fixture/test hands carry no confidences → default reliable, so the validated paths hold.
             let wasEngaged = machine.isEngaged
-            inEnter = dd < tol && (measured.confidence >= CoachConst.minTipConfidence || wasEngaged)
+            inEnter = dd < tol && (resolved.confidence >= CoachConst.minTipConfidence || wasEngaged)
             inExit = dd < tol * CoachConst.exitRadiusMult
             offN = Double(dd / hs)
-        } else if pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {
+        } else if pressTip != nil {
             hasPresser = true                       // brief dropout: keep the dot + cue steady
             inExit = true                           // stay in the exit band → debounce governs
-        } else {
-            overlay.pressTip = nil; pressSmoother.reset()   // presser really gone — restart the filter clean
         }
 
         step(CoachFrameInput(
@@ -850,6 +881,73 @@ final class CoachEngine: ObservableObject {
             insideEnterRadius: inEnter, insideExitRadius: inExit, offsetXHandSize: offN,
             tipConfidence: tipConf),
             point: point, hasPresser: hasPresser)
+    }
+
+    /// Turn a presser read into the on-screen dot, and answer whether there is a usable tip.
+    ///
+    /// ONE copy of this rule. The main path and the receiver-occluded path each carried their own
+    /// three-branch version, and only one of them could ever have learned about departures — the
+    /// kind of duplication where a fix lands in one place and quietly misses the other.
+    ///
+    /// Returns nil when there is no usable tip THIS frame; the caller decides whether its own grace
+    /// still applies (`overlay.pressTip` is left standing for the grace, and cleared here once the
+    /// grace has genuinely lapsed or the finger has demonstrably departed).
+    private func resolvePresserDot(_ read: PresserRead,
+                                   now: TimeInterval) -> (tip: CGPoint, confidence: Float)? {
+        switch read {
+        case .tracked(let point, let conf, let changed, let reconstructed):
+            departedFrames = 0
+            if reconstructed {
+                // A GUESS ON A CLOCK. The DIP/PIP rebuild is a full candidate, so while those two
+                // joints survive it went on painting a dot and refreshing the grace clock with no
+                // fingertip ever measured — the dot then had no expiry at all. Bound the RUN, not
+                // the frame: a genuinely occluded press is exactly what the rebuild is for, so it
+                // stays usable for tipReconstructionSustainS and no longer.
+                let since = reconstructionSince ?? now
+                reconstructionSince = since
+                guard now - since <= CoachConst.tipReconstructionSustainS else {
+                    overlay.pressTip = nil; pressSmoother.reset()
+                    return nil
+                }
+            } else {
+                reconstructionSince = nil
+                // `lastTipT` means what its declaration says again: when the tip was last actually
+                // MEASURED. A reconstruction refreshing it is what made the grace unreachable.
+                lastTipT = now
+                lastMeasuredTip = point
+            }
+            if changed { pressSmoother.reset() }   // new physical fingertip — don't lerp from the old one
+            let tip = pressSmoother.filter(point, now)
+            overlay.pressTip = tip
+            return (tip, conf)
+
+        case .departed:
+            // POSITIVE EVIDENCE THE FINGER LEFT — not an absence. Two consecutive reads of the same
+            // fingertip outside the acquire band cannot be a landmark outlier, so this does not wait
+            // out a grace that exists for dropouts.
+            departedFrames += 1
+            guard departedFrames >= CoachConst.presserDepartureFrames else { break }
+            overlay.pressTip = nil; pressSmoother.reset()
+            reconstructionSince = nil
+            return nil
+
+        case .none:
+            departedFrames = 0
+        }
+        // No usable tip this frame. Hold the dot for the grace — this is the DROPOUT path, and
+        // shortening it is what would re-open the flicker report that set tipGraceS to 0.5.
+        if overlay.pressTip != nil, now - lastTipT <= CoachConst.tipGraceS {
+            // Keep feeding the smoother the last MEASURED point rather than freezing the dot where
+            // the filter had lagged to. The filter trails a moving finger by up to a third of a
+            // hand-length, so a frozen dot sits nearer the acupoint than the finger ever got —
+            // which reads as a live press that is still on target. Converging is monotonic: it can
+            // only move toward a point that was really measured, and never overshoots it.
+            overlay.pressTip = lastMeasuredTip.map { pressSmoother.filter($0, now) } ?? overlay.pressTip
+        } else if overlay.pressTip != nil {
+            overlay.pressTip = nil; pressSmoother.reset()   // presser really gone — restart the filter clean
+            reconstructionSince = nil
+        }
+        return nil
     }
 
     private func noHandInput(_ now: TimeInterval) -> CoachFrameInput {
@@ -1248,23 +1346,46 @@ final class CoachEngine: ObservableObject {
     // that comes into PROXIMITY of the point counts — the receiver's own fingers and anything hovering
     // far away are voided. The chosen identity is HELD across frames so the dot doesn't flicker; a
     // genuine identity change is reported so the caller can reset the tip smoother (no cross-finger lerp).
+    /// PRESENCE AND IDENTITY ARE DIFFERENT QUESTIONS, and conflating them is why a withdrawn finger
+    /// kept its dot for over a second.
+    ///
+    /// The keep band (acquireRadius × 1.6 ≈ 1.04 hand-lengths — a whole palm, and 6.5× the drawn ring)
+    /// exists so a boundary wobble is not misread as a change of FINGER. But `chosen = held ?? fresh`
+    /// let it decide whether this function returned anything at all, so the held finger went on being
+    /// painted — and went on refreshing the grace clock — all the way out to that radius. The 0.5 s
+    /// grace only started once the finger was already a palm-length clear of the point, which is why
+    /// the dot appeared to hang in the air long after the finger had gone.
+    ///
+    /// So: the keep band still resolves IDENTITY, but only a candidate inside `acquireRadius` counts
+    /// as PRESENT. `.departed` is the positive evidence the caller needs to clear fast — it means the
+    /// held fingertip WAS measured this frame and is outside the acquire band, which is a different
+    /// fact from "no candidate this frame" and must not be treated as one.
+    private enum PresserRead {
+        case tracked(point: CGPoint, confidence: Float, changed: Bool, reconstructed: Bool)
+        case departed   // the held finger was measured, and it is outside the acquire radius
+        case none       // nothing resolvable this frame — a dropout, which keeps the full grace
+    }
+
     private func selectPresserTip(hands: [Hand], receiverWrist: CGPoint?,
-                                  ringCenter: CGPoint, acquireRadius: CGFloat)
-            -> (point: CGPoint, confidence: Float, changed: Bool)? {
-        struct Cand { let finger: HandJoint; let point: CGPoint; let conf: Float; let d: CGFloat }
+                                  ringCenter: CGPoint, acquireRadius: CGFloat) -> PresserRead {
+        struct Cand {
+            let finger: HandJoint; let point: CGPoint; let conf: Float
+            let reconstructed: Bool; let d: CGFloat
+        }
         var cands: [Cand] = []
         for h in hands {
             // Exclude the receiving hand — its own fingertips must never be read as the presser.
             if let rw = receiverWrist, let w = h.p(.wrist), w == rw { continue }
             for finger in Self.pressFingers {
-                guard let m = h.pressTip(finger) else { continue }
-                cands.append(Cand(finger: finger, point: m.point, conf: m.confidence, d: isoDist(m.point, ringCenter)))
+                guard let m = h.pressTip(finger, aspect: frameAspect) else { continue }
+                cands.append(Cand(finger: finger, point: m.point, conf: m.confidence,
+                                  reconstructed: m.reconstructed, d: isoDist(m.point, ringCenter)))
             }
         }
         // The nearest fingertip within the acquire radius is a fresh candidate. The currently-held
-        // finger keeps its slot within a LARGER keep radius (exit-band hysteresis), so a one-frame
-        // boundary wobble or a near-tie doesn't drop it and flip identity. Only switch to a fresh
-        // finger that is clearly closer (beyond the hold margin) — that's a real change of press.
+        // finger keeps its slot within a LARGER keep radius, so a one-frame boundary wobble or a
+        // near-tie doesn't flip identity. Only switch to a fresh finger that is clearly closer
+        // (beyond the hold margin) — that's a real change of press.
         let keepRadius = acquireRadius * CoachConst.exitRadiusMult
         let fresh = cands.filter { $0.d <= acquireRadius }.min(by: { $0.d < $1.d })
         let held = heldPresserFinger.flatMap { hf in cands.first { $0.finger == hf && $0.d <= keepRadius } }
@@ -1272,15 +1393,23 @@ final class CoachEngine: ObservableObject {
         if let held, let fresh {
             chosen = held.d <= fresh.d + CoachConst.presserHoldMargin ? held : fresh
         } else {
-            chosen = held ?? fresh
+            // A held finger that has drifted past the acquire band no longer counts as present —
+            // but if a FRESH finger is inside it, that one does. Falling through to `.departed` with
+            // a usable candidate available would blank the dot for two fingers straddling the
+            // boundary, which is the hopping `presserHoldMargin` was widened to stop.
+            chosen = fresh ?? held
         }
-        // No candidate this frame: return nil but KEEP heldPresserFinger, so a re-acquire of the same
-        // finger after a within-grace dropout is not misread as a switch (which would reset the smoother
-        // and lerp the dot across the gap; the caller's grace/gone branches govern the dot itself).
-        guard let c = chosen else { return nil }
+        guard let c = chosen else { return .none }
+        // Outside the acquire band. Only the HELD finger can report a departure: a stray far
+        // fingertip that was never the press has not "departed" from anything.
+        guard c.d <= acquireRadius else {
+            return c.finger == heldPresserFinger ? .departed : .none
+        }
+        // Inside: KEEP heldPresserFinger across a dropout, so a re-acquire of the same finger is not
+        // misread as a switch (which would reset the smoother and lerp the dot across the gap).
         let changed = heldPresserFinger != nil && c.finger != heldPresserFinger
         heldPresserFinger = c.finger
-        return (c.point, c.conf, changed)
+        return .tracked(point: c.point, confidence: c.conf, changed: changed, reconstructed: c.reconstructed)
     }
 
     private func assignRoles(_ hands: [Hand], target: MediaPipeTarget, requiresDorsal: Bool) -> (Hand?, Hand?) {
