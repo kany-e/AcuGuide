@@ -123,6 +123,19 @@ final class AcuGuideTests: XCTestCase {
         for r in Routine.all { check("routine[\(r.id)]", [r.zh, r.en, r.descZh, r.descEn]) }
         for f in ChatService.faqs { check("faq[\(f.topic)]", [f.aZh, f.aEn]) }
         check("persona", [CoachPersona.name])
+        // THE MOXA DATASET. A new dataset is unguarded until it is explicitly added here — this scan
+        // enumerates named collections, so `MoxaAtlas.all` was invisible to it the moment it was
+        // written, which is exactly how an unscanned dataset ships. Its source material is saturated
+        // with the banned stems (足浴治疗, 艾灸的功效与作用), so this copy had to be authored rather
+        // than translated. Note the trap the moxa/foot-soak copy nearly hit: "cure" ⊂ pedicure, and
+        // an early draft of BL23 said "always treated as a pair".
+        for m in MoxaAtlas.all {
+            check("moxa[\(m.id)]", [m.locationEn, m.locationZh, m.findEn, m.findZh,
+                                    m.traditionEn, m.traditionZh, m.cautionEn, m.cautionZh, m.pinyin])
+        }
+        for l in [MoxaLandmark.navel, .pubicBorder, .sternocostal, .iliacCrestLine, .lumbarL2] {
+            check("landmark[\(l.rawValue)]", [l.en, l.zh])
+        }
         // (ChatLLM.instructions() is deliberately NOT scanned: it QUOTES the banned words to
         // forbid them to the model, and it is model-facing, not user-facing — ChatSafety.allowed
         // enforces the rule on what the model actually says.)
