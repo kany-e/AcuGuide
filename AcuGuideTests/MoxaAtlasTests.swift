@@ -110,11 +110,23 @@ final class MoxaAtlasTests: XCTestCase {
     // No dose is stated in 壮 anywhere. The unit counts cone-burns applied to the skin, which is not
     // what a moxa box delivers — and a drafted "classical dosage 7–10 壮" was doubly wrong, since the
     // text cited beside it prescribes doses in the hundreds.
-    func testNoDoseIsStatedInZhuang() {
+    // 壮 may appear ONLY to disavow itself. The unit counts cone-burns applied to bare skin, so it
+    // does not describe anything a box does — but the honest correction to the 《扁鹊心书》 citation has
+    // to say that the text prescribes cones in the HUNDREDS, precisely to establish that the lineage
+    // does not transfer to a 20-minute warm box. Same shape as ChatLLM.instructions, which quotes the
+    // words it forbids. So the rule is not "never mention 壮", it is "never state a dose in 壮" — and
+    // a mention must carry the disavowal in the same string, where a reader cannot miss it.
+    func testZhuangAppearsOnlyToDisavowItself() {
         for m in MoxaAtlas.all {
-            for s in [m.traditionZh, m.cautionZh, m.findZh, m.locationZh] {
-                XCTAssertFalse(s.contains("壮"),
-                               "\(m.id): 壮 counts cone-burns on skin and does not apply to a box")
+            for s in [m.traditionZh, m.cautionZh, m.findZh, m.locationZh] where s.contains("壮") {
+                XCTAssertTrue(s.contains("不是一回事") || s.contains("不同"),
+                              "\(m.id): 壮 may only appear alongside the statement that it does not "
+                              + "describe what a box does — otherwise it reads as a dose")
+            }
+            for s in [m.traditionEn, m.cautionEn, m.findEn, m.locationEn] where s.contains("cones") {
+                XCTAssertTrue(s.contains("not what a box does"),
+                              "\(m.id): naming the classical cone count without disavowing it invites "
+                              + "the reader to treat it as a dose")
             }
         }
     }

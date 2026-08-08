@@ -17,6 +17,7 @@ struct MoxaTab: View {
     @State private var screening: MoxaScreening? = nil
     @State private var selected: MoxaPoint? = nil
     @State private var showLocate = false
+    @State private var selectedPlacement: MoxaPlacement? = nil
 
     var body: some View {
         NavigationStack {
@@ -36,6 +37,9 @@ struct MoxaTab: View {
         }
         .sheet(item: $selected) { MoxaPointCard(point: $0, readOnly: screening?.blocksHeat ?? true) }
         .sheet(isPresented: $showLocate) { MoxaLocateFlow { showLocate = false } }
+        .sheet(item: $selectedPlacement) { p in
+            MoxaPlacementCard(placement: p, readOnly: screening?.blocksHeat ?? true) { selected = $0 }
+        }
     }
 
     private func list(readOnly: Bool) -> some View {
@@ -74,47 +78,41 @@ struct MoxaTab: View {
                     .buttonStyle(.plain)
                 }
 
-                section(AppLocale.pick("下腹部", "Lower abdomen"),
-                        note: AppLocale.pick("只要标出肚脐和耻骨上缘两个位置，这三个穴位就都能定出来。",
-                                             "Mark two places — your navel and the top of the pubic bone — and all three of these are placed."),
-                        points: MoxaAtlas.abdomen)
+                // THE PLACEMENT CARDS replace the two hand-written region sections. They route on
+                // what the user can DO rather than on a symptom — see MoxaPlacements.
+                Text(MoxaPlacements.routingQuestion)
+                    .font(.subheadline).foregroundStyle(Ink.text)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                section(AppLocale.pick("腰部", "Lower back"),
-                        note: AppLocale.pick("背部的位置只能给出大致范围：靠摸髂嵴来数腰椎，通常会偏高一到两节。这两个穴位都需要另一个人帮忙。",
-                                             "The back can only be given as an area: finding the vertebrae by feeling for the hip bones runs one to two levels high. Both of these need a second person."),
-                        points: MoxaAtlas.lumbar)
+                ForEach(MoxaPlacements.all) { placement in
+                    Button { selectedPlacement = placement } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(placement.title)
+                                .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.gold)
+                                .multilineTextAlignment(.leading)
+                            Text(pointNames(placement))
+                                .font(.caption2).foregroundStyle(Ink.textDim)
+                                .multilineTextAlignment(.leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14).panel()
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(placement.title)
+                }
             }
             .padding()
         }
     }
 
-    private func section(_ title: String, note: String, points: [MoxaPoint]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.headline).foregroundStyle(Ink.gold)
-            Text(note).font(.caption).foregroundStyle(Ink.textDim)
-                .fixedSize(horizontal: false, vertical: true)
-            ForEach(points) { p in
-                Button { selected = p } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(p.name).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.text)
-                            Text(p.location).font(.caption2).foregroundStyle(Ink.textDim)
-                                .lineLimit(2).multilineTextAlignment(.leading)
-                        }
-                        Spacer(minLength: 8)
-                        if p.onBack {
-                            Text(AppLocale.pick("需人帮忙", "needs help"))
-                                .font(.caption2.weight(.semibold)).foregroundStyle(Ink.warn)
-                        }
-                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Ink.textDim)
-                    }
-                    .padding(12).panel()
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(p.name). \(p.location)")
-            }
-        }
+    /// The point names a placement covers, moxa dataset and main atlas together — so the card says
+    /// what it is about without duplicating either point's own copy.
+    private func pointNames(_ p: MoxaPlacement) -> String {
+        let moxa = p.points.map(\.name)
+        let atlas = p.atlasPointIds.compactMap { Acupoint.byId[$0] }.map { AppLocale.pick($0.zh, $0.en) }
+        return (moxa + atlas).joined(separator: " · ")
     }
+
 }
 
 /// The standing safety note. Shown above the points every time rather than behind a disclosure,
@@ -191,6 +189,76 @@ struct MoxaPointCard: View {
             Text(label).font(.caption.weight(.semibold)).foregroundStyle(Ink.gold)
             Text(value).font(.subheadline).foregroundStyle(Ink.text)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// One placement: what it is, and the points on it. Tapping a point opens its own card, so each
+/// point's location and caution live in exactly one place (MoxaAtlas) and the placement text never
+/// restates them — the restating is how the two drift.
+struct MoxaPlacementCard: View {
+    let placement: MoxaPlacement
+    let readOnly: Bool
+    let onPoint: (MoxaPoint) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(placement.title).font(.title3).foregroundStyle(Ink.gold)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(placement.body).font(.subheadline).foregroundStyle(Ink.text)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if !placement.points.isEmpty {
+                        Text(AppLocale.pick("这一处的穴位", "The points here"))
+                            .font(.caption.weight(.semibold)).foregroundStyle(Ink.gold)
+                        ForEach(placement.points) { p in
+                            Button { onPoint(p) } label: {
+                                HStack {
+                                    Text(p.name).font(.subheadline).foregroundStyle(Ink.text)
+                                    Spacer()
+                                    if p.onBack {
+                                        Text(AppLocale.pick("需人帮忙", "needs help"))
+                                            .font(.caption2.weight(.semibold)).foregroundStyle(Ink.warn)
+                                    }
+                                    Image(systemName: "chevron.right").font(.caption2)
+                                        .foregroundStyle(Ink.textDim)
+                                }
+                                .padding(12).panel()
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(p.name)
+                        }
+                    }
+
+                    // Points that live in the MAIN atlas are named, never copied. ST36's find guide
+                    // and caution already exist there; a second version here would be the thing that
+                    // goes stale.
+                    if !placement.atlasPointIds.isEmpty {
+                        Text(AppLocale.pick("已在主穴位图中的穴位", "Already in the main point atlas"))
+                            .font(.caption.weight(.semibold)).foregroundStyle(Ink.gold)
+                        ForEach(placement.atlasPointIds, id: \.self) { id in
+                            if let a = Acupoint.byId[id] {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(a.id) · \(AppLocale.pick(a.zh, a.en))")
+                                        .font(.subheadline).foregroundStyle(Ink.text)
+                                    Text(a.location).font(.caption2).foregroundStyle(Ink.textDim)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12).panel()
+                            }
+                        }
+                    }
+
+                    MoxaNotice(readOnly: readOnly)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+            }
+            .background(ShanshuiBackground().ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }

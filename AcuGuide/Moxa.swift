@@ -207,8 +207,8 @@ enum MoxaAtlas {
             findEn: "Nothing to measure — the point is the centre of the navel itself.",
             traditionZh: "传统上被视为最容易定位的一个穴位，也是腹部两段骨度的共同起点。",
             traditionEn: "Traditionally the easiest point on the body to locate, and the origin both abdominal spans are measured from.",
-            cautionZh: "不要往肚脐里放任何东西。传统的隔盐灸是明火直接对着皮肤，艾灸盒是更稳妥的现代做法。",
-            cautionEn: "Never put anything into the navel. The classical salt-partitioned method holds an open flame directly over the skin; a box is the steadier modern form and is what this tab points at.",
+            cautionZh: "不要往肚脐里放任何东西。传统做法是隔盐灸——把干净的干盐填平脐窝，艾炷放在盐上燃烧，盐本身就是隔热的那一层（「隔」就是隔着的意思）。艾灸盒是另一种现代替代做法。",
+            cautionEn: "Never put anything into the navel. The classical method is salt-partitioned moxa — the navel filled level with clean dry salt and the cone burned on the salt, which is itself the insulating layer that 隔 (\"separated by\") names. A box is a different modern substitute for it.",
             onBack: false),
         MoxaPoint(
             id: "CV6", zh: "气海", pinyin: "Qìhǎi",
@@ -217,8 +217,8 @@ enum MoxaAtlas {
             locationEn: "On the lower abdomen, on the anterior midline, 1.5 cun below the centre of the navel — equivalently 3.5 cun above the top edge of the pubic bone.",
             findZh: "先标出肚脐与耻骨上缘，穴位在这段距离靠近肚脐的三成处。",
             findEn: "Mark the navel and the top of the pubic bone; the point sits three tenths of the way down, nearer the navel.",
-            traditionZh: "与关元同属下腹部的一组，是《扁鹊心书》里为无病之人所记的几个穴位之一。用一个艾灸盒同时覆盖时，请以气海为中心——正好放在气海与关元中间，热源会落在石门上，而古籍对有生育打算的女性另有告诫。",
-            traditionEn: "Grouped with Guanyuan on the lower abdomen; one of the points the Song-dynasty 《扁鹊心书》 names as a practice for people who are well, rather than a response to illness. If one box is covering both, centre it ON Qihai — centring it midway between Qihai and Guanyuan puts the heat on Shimen CV5, which the classical texts single out for women who may want to conceive.",
+            traditionZh: "与关元同在脐到耻骨这一段骨度上，同处任脉前正中线。石门（CV5）就在这两处之间，一个艾灸盒无法既罩住两处又避开它；古籍对石门有专门针对有生育打算的女性的告诫，若你在意这一条，就一次只对准一个穴位。",
+            traditionEn: "On the same navel-to-pubis span as Guanyuan, and on the same Ren-vessel midline. Shimen CV5 lies between the two, so no single box covers both of them and stays off it; the classical texts single Shimen out for women who may want to conceive, and if that matters to you, place the box for one point at a time.",
             cautionZh: "下腹部穴位：怀孕期间避免。请先看本页开头的说明。",
             cautionEn: "A lower-abdomen point, avoided during pregnancy. See the note at the top of this tab before using it.",
             onBack: false),
@@ -229,8 +229,8 @@ enum MoxaAtlas {
             locationEn: "On the lower abdomen, on the anterior midline, 3 cun below the centre of the navel — equivalently 2 cun above the top edge of the pubic bone.",
             findZh: "同一段距离，穴位在靠近耻骨的六成处。量之前请先排空膀胱、平躺——膀胱充盈时会盖过耻骨上缘这个骨性标志。",
             findEn: "Same span, six tenths of the way down toward the pubic bone. Mark it lying flat with an empty bladder — a full bladder rises above the pubic border and pads the landmark you are measuring from.",
-            traditionZh: "小肠募穴，足三阴与任脉的交会处；传统上与气海、命门、中脘并称，用于日常保养。",
-            traditionEn: "The Front-Mu point of the Small Intestine and a meeting point of the three foot yin channels with the Ren vessel. Traditionally named alongside Qihai, Mingmen and Zhongwan as an everyday practice.",
+            traditionZh: "小肠募穴，足三阴与任脉的交会处。常被引来为它背书的《扁鹊心书》那一段，与气海、中脘同列的第四个穴位是命关——窦材自己指的是食窦（SP17，在胸壁上），不是命门；而且那段写的是在皮肤上烧数百壮艾炷，与艾灸盒不是一回事。这里列出它，是因为它与气海同在脐到耻骨这一段骨度上。",
+            traditionEn: "The Front-Mu point of the Small Intestine and a meeting point of the three foot yin channels with the Ren vessel. The 《扁鹊心书》 passage often quoted for it names Qihai, Zhongwan and — as its fourth point — Mingguan, which Dou Cai's own gloss puts at Shidou SP17 on the chest wall, not Mingmen; and what that passage describes is hundreds of cones burned on the skin, which is not what a box does. It is listed here because it falls on the same navel-to-pubis span as Qihai.",
             cautionZh: "下腹部穴位：怀孕期间避免——正是这个交会的位置使传统上对孕期格外谨慎。请先看本页开头的说明。",
             cautionEn: "A lower-abdomen point lying over the uterus, and avoided during pregnancy — that same crossing is why the tradition flags it. See the note at the top of this tab.",
             onBack: false),
@@ -252,8 +252,8 @@ enum MoxaAtlas {
             locationEn: "In the lumbar region, on the posterior midline, in the depression just below the spinous process of the 2nd lumbar vertebra (L2).",
             findZh: "双手叉腰、拇指向后，两侧髂嵴最高点的连线大约横过第4腰椎；从那里沿脊柱向上数两个棘突，穴位在棘突下方的凹陷里，不在骨头凸起上。",
             findEn: "Hands on hips, thumbs pointing back: the line between the highest points of your hip bones crosses the spine at about L4. Count up two spinous processes; the point is in the hollow just below the bump, not on it.",
-            traditionZh: "位于后正中线上，与两侧肾俞同高，传统上归为腰部温养的一组。",
-            traditionEn: "On the posterior midline, level with the pair of Shenshu points either side; traditionally grouped as the lower-back warming set.",
+            traditionZh: "在后正中线上，与两侧肾俞同处第2腰椎这一水平。《针灸甲乙经·卷三》记命门在「十四椎节下间」，记肾俞在「第十四椎下，两傍各一寸五分」，同为十四椎，即今之第2腰椎。",
+            traditionEn: "On the posterior midline, at the same vertebral level as the pair of Shenshu points either side. 《针灸甲乙经》 vol. 3 puts Mingmen below the 14th vertebra and Shenshu below the 14th vertebra, 1.5 cun either side — the same vertebra, which is L2 in the modern count.",
             cautionZh: "在背部——自己看不到、也够不着。需要另一个人放置并按时查看皮肤，必须计时。不要躺着使用绑带式艾灸盒：绑上以后取不下来，而这正是最糟的情况。",
             cautionEn: "On the back — you can neither see the site nor reach the box. It needs a second person to place it and check the skin at set intervals, and it needs a timer. Never use a strap-on box lying down: a strapped box cannot be got off quickly, which is the worst failure mode for a spot that is already out of reach.",
             onBack: true),
@@ -268,10 +268,10 @@ enum MoxaAtlas {
             // mitigation. Pinned by MoxaAtlasTests.
             findZh: "双手叉腰、拇指向后，两侧髂嵴最高点的连线大约横过第4腰椎；沿脊柱向上数两个棘突到第2腰椎。再从脊柱正中线向两侧各量1.5寸——把食指与中指并拢，大约就是这个宽度，成年人约3.5到4厘米。左右都要。",
             findEn: "Hands on hips, thumbs pointing back: the line between the highest points of your hip bones crosses the spine at about L4. Count up two spinous processes to L2. Then measure 1.5 cun out either side of the midline — index and middle fingers held together is about that width, roughly 3.5–4 cm on an adult. Both sides, always.",
-            traditionZh: "肾之背俞穴，与命门同属腰部温养的一组，传统上左右成对一起用。",
-            traditionEn: "The Back-Shu point of the Kidney, grouped with Mingmen in the lower-back warming set, and always worked as a pair.",
-            cautionZh: "在背部——自己看不到、也够不着，需要另一个人放置并按时查看皮肤，必须计时。不要躺着使用绑带式艾灸盒。受热皮肤是两侧、面积加倍，艾灸盒可能放偏而只烫到一边，每次都要两侧都查。宽的多孔腰部灸盒（≥10厘米）居中放置可以同时覆盖命门与两侧肾俞；常见的单孔小盒（约5–6厘米）够不到旁开4厘米的肾俞，只能居中对准命门，或两侧轮流。",
-            cautionEn: "On the back — you can neither see the site nor reach the box, so it needs a second person to place it and check the skin at set intervals, and it needs a timer. Never use a strap-on box lying down. Being a pair it also puts twice the skin area under heat, where a box can sit unevenly and burn one side only, so check both sides every time. A wide multi-hole lumbar box (10 cm or more across) centred on the midline covers Mingmen and both sides at once; a common single-hole box of about 5–6 cm does not reach 4 cm out, so centre it for Mingmen alone or work the two sides in turn.",
+            traditionZh: "肾之背俞穴，左右成对。它与命门同处第2腰椎这一水平——《针灸甲乙经》把两者都记在十四椎——这是位置上的关系，不是一个组方。",
+            traditionEn: "The Back-Shu point of the Kidney, a bilateral pair. It sits at the same vertebral level as Mingmen — 《针灸甲乙经》 records both at the 14th vertebra — which is a fact about where they are, not a prescribed set.",
+            cautionZh: "在背部——自己看不到、也够不着，需要另一个人放置并按时查看皮肤，必须计时。不要躺着使用绑带式艾灸盒。受热皮肤是两侧、面积加倍，艾灸盒可能放偏而只烫到一边，每次都要两侧都查。宽的多孔腰部灸盒（≥10厘米）居中放置可以同时覆盖命门与两侧肾俞；常见的单孔小盒（约5–6厘米）够不到旁开4厘米的肾俞，只能居中对准命门。两侧若分开做，每一次都是一次单独的施灸，各自计时；覆盖的地方多，不等于更多的热或更长的时间。",
+            cautionEn: "On the back — you can neither see the site nor reach the box, so it needs a second person to place it and check the skin at set intervals, and it needs a timer. Never use a strap-on box lying down. Being a pair it also puts twice the skin area under heat, where a box can sit unevenly and burn one side only, so check both sides every time. A wide multi-hole lumbar box (10 cm or more across) centred on the midline covers Mingmen and both sides at once; a common single-hole box of about 5–6 cm does not reach 4 cm out, so centre it for Mingmen alone. If the two sides are done separately, each turn is its own separate application, timed on its own; covering more places is not more heat and not more time.",
             onBack: true),
     ]
 
@@ -281,4 +281,72 @@ enum MoxaAtlas {
     /// than the points being individually flagged. Kept as an explicit list so the gate test can
     /// assert it covers all of them rather than trusting a comment.
     static var allRestrictedInPregnancy: Bool { all.allSatisfy { !$0.cautionEn.isEmpty } }
+}
+
+/// Terms that PASS `testNoForbiddenMedicalClaims` and are still health claims.
+///
+/// The four stems (treat/cure/heal/diagnos) are the necessary test. This is the part that test
+/// cannot see, and the moxa surfaces are where the gap bites hardest: "improves circulation" clears
+/// the existing scan, and it is the documented proximate cause of the burns in the foot-soak case
+/// series — because a reason to believe the heat is DOING something is a reason to leave it on
+/// longer, which is the injury mechanism. A claim that passes the suite is more dangerous than one
+/// that fails it, since the green run says it is fine.
+///
+/// SCOPED TO THE MOXA SURFACES on purpose. Several of these terms ship today in `Acupoint.all`
+/// beside a THUMB, where they are defensible — "vitality" on ST36, 缓解 on a chest point, 活血,
+/// 补益, 调理 — and widening the scan to the whole atlas would fail on that existing copy. Widening
+/// is the right eventual move; it is a separate edit to existing strings, not a thing to smuggle in
+/// with a new feature.
+///
+/// NOT scanned against itself: like `ChatLLM.instructions`, this array quotes what it forbids.
+enum MoxaSafety {
+    static let extendedBannedEn: [String] = [
+        "circulat",     // mechanism claim, and the most dose-escalating one available: it supplies
+                        // the reason to apply more heat for longer, and contradicts MoxaNotice's own
+                        // line that the variable which matters is TIME.
+        "blood flow",   // the same claim in phrasal form — "circulat" does not catch it.
+        "reliev", "relief",   // outcome verbs taking a symptom as object; separate stems.
+        "alleviat",     // the same verb in a clinical coat.
+        "improv",       // asserted change of state. Stem, so it also catches "improving".
+        "boost", "enhance", "strengthen",   // betterment verbs pointed at a heat source.
+        "detox",        // unfalsifiable internal mechanism with no defined referent.
+        "immun",        // immune claims are treated as medicinal.
+        "therap",       // closes a bilingual hole: zh 疗效 is banned while EN "therapy" sailed through.
+        "remedy",       // places the app in the medical-intervention register.
+        "restor",       // "restores balance" and family.
+    ]
+
+    static let extendedBannedZh: [String] = [
+        "调理",          // the tradition's own "regulate", taking a complaint as object — 主治 softened.
+        "功效", "主治",   // pharmacopoeia headings: "actions/efficacy" and "indicated for". 主治
+                        // contains 治 but the base list holds only two-character compounds, so the
+                        // most prescription-shaped word in the vocabulary was otherwise unguarded.
+        "疗程",          // "course of treatment" — implies dosing, which this tab never does.
+        "驱寒", "祛湿",   // mechanism plus an agent acting on the body; 祛湿 asserts removal of a
+                        // substance nobody can point to. Dose-escalating like "circulation".
+        "温补", "温阳", "补益",     // supplementation mechanism.
+        "排毒", "免疫",             // unfalsifiable / medicinal.
+        "保健",          // literally "health care" — the zh route back to the English string "heal".
+                        // 保养 and 温养 are the clean alternatives.
+        "血液循环", "活血",         // the zh twins of "circulation".
+        "缓解",          // the zh "relieve".
+        "改善", "增强",             // the standard zh betterment verbs.
+        "冬病夏治", "治未病",       // pass the literal test and MEAN "treat winter disease in summer"
+                        // and "treat disease before it arises". Semantic claims.
+        "长寿",          // the 长寿穴 framing that attaches itself to ST36.
+        "三里常不干",     // a provenance trap rather than a claim: 不干 means keeping a moxa sore
+                        // RUNNING. Beside a warm box it asserts continuity with a scarring practice,
+                        // and it reads as a harmless proverb, so it survives review more easily
+                        // than an explicit dose would.
+    ]
+
+    /// 养生 is deliberately absent: as a zh category label it carries no object and no outcome, so it
+    /// asserts nothing. The claim enters at TRANSLATION — which is why it must never be rendered
+    /// word-for-word into English. Likewise 温养 survives: warm-and-nourish with no pathogen expelled
+    /// and no organ supplemented, and its English twin "warming" describes what the device does.
+    ///
+    /// Also deliberately absent: bare 疗 (it would ban 医疗, and 「并非医疗工具」 is a DISCLAIMER — the
+    /// sentence that disclaims must stay writable), 作用 (bans 副作用, legitimate safety copy), and
+    /// "prevent" (needed for ordinary sentences about the box sliding).
+    static let deliberatelyPermitted = ["养生", "温养", "保养", "医疗", "副作用"]
 }
