@@ -40,11 +40,27 @@ final class CoachVoice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
 
     override init() {
         super.init()
-        // Use the app's audio session and the .ambient category so the spoken cue RESPECTS the
-        // hardware silent switch and mixes with (rather than interrupting) any other audio.
+        // `.playback`, NOT `.ambient` — changed on a device report of "there is no audio".
+        //
+        // `.ambient` is silenced by the Ring/Silent switch, and because `usesApplicationAudioSession`
+        // is true, BOTH backends went with it: the pre-rendered clips and the AVSpeech fallback fell
+        // silent together, so "the coach is never mute" was not true. With the ring switch off the
+        // app produced exactly one audible thing — the atlas read-aloud, which already uses
+        // `.playback` (see AtlasSpeaker.speak) — and the coach itself never spoke at all.
+        //
+        // `.ambient` was also in force far more of the time than the mic auto-start suggests: the
+        // whole timer-only session, which has its own CoachVoice and no mic; the window before the
+        // two async permission callbacks land; any session where permission is refused; and — the
+        // one that lasts — the rest of a session after any pause or app-switch, because those stop
+        // the mic and restoreSession() hands the category back.
+        //
+        // A coach cue is not ambient sound. The user opened the screen and started the session, and
+        // the guidance IS the feature — the same argument AtlasSpeaker's own comment already makes
+        // for the read-aloud, so the two now behave alike. `.mixWithOthers` stays, so the app still
+        // shares rather than interrupts.
         synth.usesApplicationAudioSession = true
         synth.delegate = self
-        try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
     }
 
     func speechSynthesizer(_ s: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) { isSpeaking = true }
@@ -302,7 +318,7 @@ final class AtlasSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         // with nothing to repair it (recoverFromConfigChange re-arms the task but never re-sets the
         // category).
         guard !LocateVoiceControl.micHoldsSession else { return }
-        try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
