@@ -84,6 +84,43 @@ enum MoxaBox {
     static let multiHoleToleranceCm = 3.5
 }
 
+/// The user's own body, used as its own ruler — 同身寸 supplying the unit for 骨度分寸.
+///
+/// WHY THERE IS NO CAMERA HERE. Everything else in this app locates things by pointing a camera at
+/// them, and this deliberately does not. Two reasons, both decisive: the region is the abdomen, and
+/// asking someone to photograph it is a privacy cost this feature has no need to impose; and the
+/// posture this is actually done in is lying down with a box, where holding a phone at arm's length
+/// to frame your own belly is not a thing anyone will do. The tradition's own method needs neither.
+///
+/// THE ARITHMETIC IS WHY THIS WORKS. The span from navel to pubic border is 5 cun BY DEFINITION —
+/// that is what a proportional measure means: the span is divided into a fixed number of parts
+/// whatever its physical length, so a tall person's cun is simply longer. Measure that span in any
+/// unit at all and a point at fraction f of it sits at f × (the measurement). So if someone reports
+/// their span as 7 of their own finger-widths, 关元 at 0.60 is 4.2 finger-widths below the navel —
+/// and no absolute centimetre figure is ever needed, which is exactly the property that makes the
+/// method survive different bodies.
+struct MoxaSpan: Equatable {
+    /// How many of the user's own finger-widths span navel → pubic border, as they measured it.
+    let fingerWidths: Double
+
+    /// 一夫法: four fingers held together, measured across at the crease of the middle finger's
+    /// middle joint, is 3 cun. The navel→pubis span is 5 cun, so it should come to about 6.7 finger
+    /// widths on anyone — the number is a property of the proportional system, not of body size.
+    static let cunPerFourFingers = 3.0
+    static let spanCun = 5.0
+    static var expectedFingerWidths: Double { spanCun / (cunPerFourFingers / 4.0) }
+
+    /// Finger-widths below the navel for a point at `fraction` of the span.
+    func fingerWidths(at fraction: Double) -> Double { fingerWidths * fraction }
+
+    /// A measurement far from `expectedFingerWidths` is not a differently-shaped person — the
+    /// proportional system already absorbs body size — so it means the measurement itself went
+    /// wrong. The usual causes are worth naming rather than just flagging a number: fingers held
+    /// splayed or at the wrong level, or a pubic border missed because a full bladder pads it.
+    /// Deliberately wide: this prompts a re-check, it does not block anything.
+    var looksMismeasured: Bool { fingerWidths < 4.5 || fingerWidths > 9.5 }
+}
+
 /// A body feature the user marks on themselves. Ranked by how reliably a non-expert finds the same
 /// spot twice — which is the property that decides whether this method works at all.
 enum MoxaLandmark: String {

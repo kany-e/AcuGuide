@@ -16,6 +16,7 @@ import SwiftUI
 struct MoxaTab: View {
     @State private var screening: MoxaScreening? = nil
     @State private var selected: MoxaPoint? = nil
+    @State private var showLocate = false
 
     var body: some View {
         NavigationStack {
@@ -34,6 +35,7 @@ struct MoxaTab: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .sheet(item: $selected) { MoxaPointCard(point: $0, readOnly: screening?.blocksHeat ?? true) }
+        .sheet(isPresented: $showLocate) { MoxaLocateFlow { showLocate = false } }
     }
 
     private func list(readOnly: Bool) -> some View {
@@ -49,6 +51,27 @@ struct MoxaTab: View {
                     Text(AppLocale.pick("下面是这些穴位的位置与传统说明。",
                                         "Below are the point locations and the traditional notes."))
                         .font(.footnote).foregroundStyle(Ink.textDim)
+                }
+
+                if !readOnly {
+                    Button { showLocate = true } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "hand.point.up.left")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(AppLocale.pick("在自己身上找位置", "Find it on yourself"))
+                                    .font(.subheadline.weight(.semibold))
+                                Text(AppLocale.pick("躺下，从肚脐量到耻骨上缘，用你自己的手指",
+                                                    "Lie down and measure navel to pubic bone, in your own finger-widths"))
+                                    .font(.caption2).foregroundStyle(Ink.textDim)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right").font(.caption2)
+                        }
+                        .foregroundStyle(Ink.gold)
+                        .padding(14).panel()
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 section(AppLocale.pick("下腹部", "Lower abdomen"),
