@@ -136,6 +136,16 @@ final class AcuGuideTests: XCTestCase {
         for l in [MoxaLandmark.navel, .pubicBorder, .sternocostal, .iliacCrestLine, .lumbarL2] {
             check("landmark[\(l.rawValue)]", [l.en, l.zh])
         }
+        // …and the moxa tab's own VIEW copy, which is where the risk actually is: the safety notice
+        // and the screening questions are the strings most likely to be written from source material
+        // saturated with the banned stems. Both are exposed as enumerable statics for exactly this,
+        // because a surface the scan cannot reach is a surface the scan does not cover.
+        check("moxaNotice", MoxaNotice.lines)
+        check("moxaGate", MoxaGateView.allCopy)
+        for r in Routine.excludedRegions { check("excludedRegion[\(r.rawValue)]", [r.en, r.zh]) }
+        for t in [RoutineTechnique.press, .knead, .push, .grasp, .pointed] {
+            check("technique[\(t.rawValue)]", [t.en, t.zh])
+        }
         // (ChatLLM.instructions() is deliberately NOT scanned: it QUOTES the banned words to
         // forbid them to the model, and it is model-facing, not user-facing — ChatSafety.allowed
         // enforces the rule on what the model actually says.)
