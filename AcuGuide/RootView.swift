@@ -67,6 +67,13 @@ struct RootView: View {
             CoachHome(launch: $launch)
                 .tabItem { Label(AppLocale.pick("练习", "Practice"), systemImage: "camera.viewfinder") }
 
+            // 艾灸 gets its OWN tab rather than a section inside Practice. It is a different action
+            // on the same anatomy, and folding it in would put a fire-safety surface behind a forced
+            // gate whose copy is written for fingertips — and would expose pregnancy-restricted
+            // points to a flow that has no screen. Its content sits behind MoxaGateView.
+            MoxaTab()
+                .tabItem { Label(AppLocale.pick("艾灸", "Moxa"), systemImage: "flame") }
+
             ChatView(startCoach: startCoach)
                 .tabItem { Label(CoachPersona.name, systemImage: "bubble.left.and.bubble.right") }
         }
