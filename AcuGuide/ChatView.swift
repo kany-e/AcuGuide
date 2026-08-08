@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ChatMessage: Identifiable { let id = UUID(); let role: Role; let text: String
     var suggestions: [Acupoint] = []     // practiceable points offered as tappable "Practice" buttons
@@ -400,6 +401,17 @@ struct ChatView: View {
     @State private var showClearConfirm = false
     @State private var chatGeneration = 0   // bumped on Clear; stale in-flight replies are dropped
     @FocusState private var inputFocused: Bool     // dismissable keyboard (was: no way to close it)
+
+    /// Close the keyboard in a way that works even when `inputFocused` has drifted out of step with
+    /// the field's real first-responder state — which is what a fullScreenCover round trip does to
+    /// it. The binding write keeps SwiftUI's model correct; the resignFirstResponder is what
+    /// actually puts the keyboard away when the two disagree. Belt and braces on purpose: either
+    /// one alone has a case where it silently does nothing.
+    private func dismissKeyboard() {
+        inputFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
+    }
     private let service = ChatService()
 
     static func greetingMessage() -> ChatMessage {
@@ -427,8 +439,17 @@ struct ChatView: View {
                 }
                 // Three ways out of the keyboard (user-reported trap: no way to quit it):
                 // drag the conversation, tap it, or the keyboard toolbar's 收起/Done button.
+                //
+                // …but two of those three were pure @FocusState writes, and that is not enough on
+                // its own. After a fullScreenCover is presented over the focused field and then
+                // dismissed, the field can regain first-responder status while the binding still
+                // reads false — so `inputFocused = false` is a write of the value it already holds,
+                // SwiftUI does nothing, and the keyboard stays up with no way out. That is the
+                // reported trap: open the chat, tap a point, quit the coach, and the keyboard is
+                // stuck. `dismissKeyboard()` writes the binding AND resigns first responder, so it
+                // works whether or not the two agree.
                 .scrollDismissesKeyboard(.interactively)
-                .onTapGesture { inputFocused = false }
+                .onTapGesture { dismissKeyboard() }
                 .onChange(of: messages.count) { _ in
                     if let last = messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
@@ -467,7 +488,7 @@ struct ChatView: View {
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
-                Button(AppLocale.pick("收起", "Done")) { inputFocused = false }.tint(Ink.gold)
+                Button(AppLocale.pick("收起", "Done")) { dismissKeyboard() }.tint(Ink.gold)
             }
         }
         // The greeting is generated in the language active at view creation — refresh it when the
@@ -497,7 +518,13 @@ struct ChatView: View {
     private func suggestionRow(_ pts: [Acupoint]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(pts) { p in
-                Button { startCoach = p } label: {
+                Button {
+                    // BEFORE the cover, not after. The desync happens because the cover is raised
+                    // over a field that still holds first responder; resigning first removes the
+                    // condition rather than trying to recover from it.
+                    dismissKeyboard()
+                    startCoach = p
+                } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "camera.viewfinder").font(.caption)
                         Text(AppLocale.pick("用相机练习 \(p.id) · \(p.zh)", "Practice \(p.id) · \(p.en)"))

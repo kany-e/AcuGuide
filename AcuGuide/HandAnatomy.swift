@@ -60,7 +60,11 @@ enum HandAnatomy {
         // Yuji: thenar eminence, at the midpoint of the 1st metacarpal, on the palmar side.
         "LU10": Spot(along:  0.45, across:  0.42, dorsal: false),
         // Shaofu: between the 4th and 5th metacarpals — where the LITTLE fingertip lands in a fist.
-        "HT8":  Spot(along:  0.55, across: -0.22, dorsal: false),
+        // ACROSS CORRECTED −0.22 → −0.25, same derivation as TE3 above: it names the same
+        // inter-metacarpal space, so it takes the same midpoint. Found by auditing every hand point
+        // against the scale reference after the TE3 report — HT8 carried the same radial bias in the
+        // same direction, just smaller, and nothing would have surfaced it on its own.
+        "HT8":  Spot(along:  0.55, across: -0.25, dorsal: false),
         // Laogong: centre of the palm, between the 2nd and 3rd metacarpals, nearer the 3rd — where
         // the MIDDLE fingertip lands. (WHO also admits a reading just proximal to the MCP joint,
         // ≈0.85; the app's own location text and find-guide both say "the centre of the palm", and
@@ -86,7 +90,17 @@ enum HandAnatomy {
         // prominences gives 0.71; and starting from the 4th MCP joint's TRUE height (0.94) and backing
         // off the head-and-neck gives ~0.73. The user's nine device labels point further proximal
         // still. 0.70 is the low end of the sourced band — the concession the labels earned.
-        "TE3":  Spot(along:  0.70, across: -0.19, dorsal: true),
+        // ACROSS CORRECTED −0.19 → −0.25 (device-reported: "you have TE3 on the 3-4 finger").
+        // Derived from this file's own scale reference at the top, not nudged: the MCP heads run
+        // +0.30 / +0.08 / −0.14 / −0.36, so the 4th/5th groove TE3 names is their midpoint, −0.25.
+        // −0.19 sat 0.06 radial of it — on the ULNAR SHOULDER OF THE RING METACARPAL rather than in
+        // the valley beside it. Corroborated by TE2 液门 at −0.26: TE3 is 液门直上1寸, the same
+        // inter-metacarpal line one cun proximal, so the two must share an `across` almost exactly.
+        // ALONG IS DELIBERATELY UNTOUCHED. It was already pulled 0.80 → 0.70 in an earlier round
+        // answering a related "too high up" report, and the knuckle-arc landmark was re-fitted in
+        // the same pass. Moving it a third time on a complaint about the SIDEWAYS position would be
+        // the third correction to one frame for one symptom, and would overshoot.
+        "TE3":  Spot(along:  0.70, across: -0.25, dorsal: true),
         // Houxi: ulnar border, proximal to the head of the 5th metacarpal — the end of the palm
         // crease when a loose fist is made. A red-white-flesh BORDER point, so which face it is on
         // is genuinely ambiguous; placed a little inside the border so it resolves to the DORSAL

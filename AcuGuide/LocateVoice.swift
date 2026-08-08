@@ -294,6 +294,25 @@ final class LocateVoiceControl: ObservableObject {
     /// the mic stays "listening" over a dead route with nothing to repair it.
     static private(set) var micHoldsSession = false
 
+    /// Re-assert the route after the engine has (re)started. Shared by beginListening and
+    /// recoverFromConfigChange, because restarting the engine re-instantiates the voice-processing
+    /// unit and re-applies its output attenuation — both need this, and neither may do it differently.
+    ///
+    /// THE SPEAKER OVERRIDE IS CONDITIONAL, and that matters: `.allowBluetoothA2DP` is in the
+    /// options list specifically so a user's headphones stay the OUTPUT, and
+    /// overrideOutputAudioPort(.speaker) is a HARD override that would take that away for the whole
+    /// session. Fixing "there is no audio" by moving everybody's audio onto the phone speaker is not
+    /// a fix. Re-asserting the CATEGORY is the part that undoes the attenuation; the override is
+    /// only the fallback when the built-in route is already what is playing.
+    private func reassertRoute() {
+        let session = AVAudioSession.sharedInstance()
+        Self.reclaimSession()
+        let external = session.currentRoute.outputs.contains {
+            $0.portType != .builtInSpeaker && $0.portType != .builtInReceiver
+        }
+        if !external { try? session.overrideOutputAudioPort(.speaker) }
+    }
+
     /// The session shape the MIC needs, hoisted out of beginListening so it can be re-claimed.
     ///
     /// `.voiceChat` DOES NOT, BY ITSELF, GIVE ECHO CANCELLATION. This comment used to say it
@@ -406,6 +425,15 @@ final class LocateVoiceControl: ObservableObject {
         // input). Report it honestly instead of silently no-op'ing the mic button.
         guard format.sampleRate > 0 else { restoreSession(); unavailable = true; return }
         audioEngine.prepare()
+        // RE-APPLY THE ROUTE AFTER THE ENGINE IS UP. Instantiating the voice-processing I/O unit
+        // ATTENUATES playback on its output bus for the whole session — not merely audio routed
+        // through the engine — so every coach cue played by AVAudioPlayer afterwards comes out
+        // faint or inaudible. That is the device report "there is no audio", and it is a regression
+        // from turning VPIO on: the topology here is the textbook repro, since the session is
+        // configured first, the engine started second, and every cue is a fresh AVAudioPlayer built
+        // third. Re-asserting the category and forcing the speaker after start() is Apple's
+        // documented workaround, and it is cheap. `reclaimSession` alone does not do it — it runs
+        // BEFORE the engine, which is exactly when it has no effect on this.
         if (try? audioEngine.start()) == nil {
             // VOICE PROCESSING MUST NEVER COST THE FEATURE. It reshapes the engine's I/O, and this
             // is the first release that turns it on — so if a device won't start the engine under
@@ -418,6 +446,7 @@ final class LocateVoiceControl: ObservableObject {
                   (try? audioEngine.start()) != nil else { restoreSession(); return }
         }
 
+        reassertRoute()                                     // must FOLLOW start(), not precede it
         ignoreConfigUntil = Date().addingTimeInterval(0.5)   // absorb the engine's own start-time settle
         configRecoverBurst = 0
         registerObservers()
@@ -541,14 +570,20 @@ final class LocateVoiceControl: ObservableObject {
         restoreSession()
     }
 
-    // Hand the audio session back to the gentle playback-only mode the voice cues use — also from
-    // the failure bails, so a mic that never started can't leave the session in .playAndRecord
-    // (which ignores the silent switch for every later cue; review-caught).
+    // Hand the audio session back to the shape the voice cues use — also from the failure bails, so
+    // a mic that never started cannot leave the session in .playAndRecord.
+    //
+    // THE REASON CHANGED when the cues moved to `.playback`. This restore is no longer about the
+    // silent switch — `.playback` ignores it just as `.playAndRecord` did, so the old rationale
+    // ("which ignores the silent switch for every later cue") is now false of both sides and
+    // explains nothing. What it is about now: dropping the INPUT ROUTE and the `.voiceChat` voice
+    // processing when nothing is listening. Leaving those claimed keeps the mic indicator lit and
+    // the processed I/O running for a screen that is only playing audio.
     private func restoreSession() {
         request?.endAudio(); request = nil
         tapFormat = nil
         Self.micHoldsSession = false
-        try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
     }
 
     // A system interruption (call/Siri/alarm) or route/format change stops the engine; without
@@ -602,6 +637,10 @@ final class LocateVoiceControl: ObservableObject {
             guard (try? audioEngine.start()) != nil else { failAndStop(); return }
         }
         armTask()                                        // re-installs the tap on the current format
+        // The rebuild may have restarted the engine, which re-instantiates VPIO and re-applies its
+        // output attenuation — so the route has to be re-asserted here too, or the cues go quiet
+        // again after the first route change of the session.
+        reassertRoute()
         ignoreConfigUntil = Date().addingTimeInterval(0.5)   // absorb THIS restart's own settle
     }
     private func removeObservers() {

@@ -205,7 +205,10 @@ struct ARCoachView: View {
                 engine.suspendLocate()   // frames stop → the confirm latch must not outlive them
                 locateVoice.stop()
                 camera.stop()
-            } else if sp == .active && !userPaused { camera.start() }
+            } else if sp == .active && !userPaused {
+                camera.start()
+                if locateVoice.available { locateVoice.start() }   // same re-arm as resumeSession
+            }
         }
         // Voice commands act through the SAME paths as the buttons (confirm gate included).
         // Observed, not a control-held closure: the handler is owned by the view, so it can't
@@ -616,6 +619,11 @@ struct ARCoachView: View {
     private func resumeSession() {
         userPaused = false
         camera.start()
+        // RE-ARM THE MIC. pauseSession stops it, and until now nothing started it again — so one
+        // pause, or one phone call, killed hands-free control for the rest of the session, on a
+        // screen whose whole premise is that both hands are busy. start() guards on `!listening`
+        // and bumps `generation`, so calling it when it is already running is a no-op.
+        if locateVoice.available { locateVoice.start() }
     }
 
     // THE FROZEN FRAME. A still of the user's OWN hand with the marks drawn on it, above the guide
