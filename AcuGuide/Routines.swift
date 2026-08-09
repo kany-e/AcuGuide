@@ -140,10 +140,14 @@ struct Routine: Identifiable {
                 descZh: "伏案之后的颈肩组合：后溪与外关。",
                 descEn: "The after-desk pairing for neck and shoulders: Houxi and Waiguan.",
                 steps: [RoutineStep(pointId: "SI3", rounds: 2), RoutineStep(pointId: "SJ5", rounds: 2)]),
+        // EXTENDED (Aug 2026, the carsick request): PC6 keeps the lead — it is the studied one —
+        // and ST36 joins as the stomach-channel distal, pressed once the worst of the wave passes.
+        // Still the routine to start BEFORE the ride; mid-ride, one-handed PC6 is the usable part.
         Routine(id: "travel-calm", zh: "出行安稳", en: "Travel calm", icon: "airplane",
-                descZh: "出行前后按压内关 — 恶心方向研究最多的穴位。",
-                descEn: "Neiguan around travel — the point with the most studied record for nausea.",
-                steps: [RoutineStep(pointId: "PC6", rounds: 3)]),
+                descZh: "晕车晕船方向的组合：内关为主——恶心方向研究最多的穴位——胃经的足三里收尾。上车前先做一轮效果最好。",
+                descEn: "The carsick pairing: Neiguan leads — the point with the most studied record for nausea — and Zusanli on the stomach channel closes. Best begun before the ride starts.",
+                steps: [RoutineStep(pointId: "PC6", rounds: 3),
+                        RoutineStep(pointId: "ST36", rounds: 2)]),
         Routine(id: "desk-wrists", zh: "桌前手腕", en: "Desk wrists", icon: "keyboard",
                 descZh: "打字间隙照顾手腕：阳池与大陵。",
                 descEn: "Care for typing wrists: Yangchi and Daling.",
@@ -152,5 +156,47 @@ struct Routine: Identifiable {
                 descZh: "计时引导的足部收尾：太冲与涌泉（无需相机，自行定位）。",
                 descEn: "A timer-guided foot finish: Taichong and Yongquan (no camera — self-located).",
                 steps: [RoutineStep(pointId: "LR3", rounds: 2), RoutineStep(pointId: "KI1", rounds: 2)]),
+
+        // THE AUG 2026 ADDITIONS — the young-person set (stiff neck, screens, a stomach that met a
+        // late-night meal). Same construction rules as the practitioner's head sequence: a local
+        // step where the atlas has one, distal steps with a defensible classical basis, and no
+        // borrowed claims. The atlas has no nape point (GB20/GB21 are deliberately absent), so the
+        // neck routines stay distal-only — which is also the classical 落枕 method.
+        Routine(id: "stiff-neck", zh: "落枕舒缓", en: "Stiff neck", icon: "figure.flexibility",
+                descZh: "早上转不动脖子的经典远端组合：后溪为主，配筋会阳陵泉。按完再慢慢试着转头，不要边按边转到痛的角度。",
+                descEn: "The classical distal pairing for a neck that woke up stuck: Houxi first, then Yanglingquan — the sinew-gathering point. Re-try turning the head slowly after the work, not into the painful angle during it.",
+                steps: [RoutineStep(pointId: "SI3", rounds: 3),
+                        RoutineStep(pointId: "GB34", rounds: 2)]),
+        Routine(id: "settle-stomach", zh: "安胃", en: "Settle the stomach", icon: "fork.knife",
+                descZh: "吃多了、吃乱了之后的组合：内关、足三里，再到胃经荥穴内庭。饭后隔一小时再按。",
+                descEn: "For after too much, or too random, a meal: Neiguan, Zusanli, then Neiting — the stomach channel's Ying-spring point. Leave an hour after eating before pressing.",
+                steps: [RoutineStep(pointId: "PC6", rounds: 2),
+                        RoutineStep(pointId: "ST36", rounds: 2),
+                        RoutineStep(pointId: "ST44", rounds: 2)]),
+        Routine(id: "screen-break", zh: "刷屏休息", en: "Screen break", icon: "display",
+                descZh: "长时间盯屏幕后的三处：先在太阳穴轻揉（面部力度要轻），再到颈肩的后溪、手腕的阳池。",
+                descEn: "After a long stretch of screens, three stops: a light knead at the temple (much lighter on the face), then Houxi for the neck and Yangchi for the wrist.",
+                steps: [RoutineStep(pointId: "EX-HN5", rounds: 2, technique: .knead, role: .local),
+                        RoutineStep(pointId: "SI3", rounds: 2),
+                        RoutineStep(pointId: "TE4", rounds: 2)]),
     ]
+}
+
+// SUGGESTED ROUNDS — the builder's autofill. A user adding a point they don't know asks two
+// questions the bundled data already answers: how many rounds, therefore how long. The rule is
+// bundled precedent first (the largest rounds any bundled routine assigns that point — the number a
+// practitioner-reviewed sequence was comfortable with), and the app-wide default of 2 otherwise.
+// Always within the builder's stepper range and the structural per-step cap; pinned by test for
+// every point in the atlas.
+enum RoutineAutofill {
+    static let defaultRounds = 2
+    /// The builder's per-step ceiling — what its Stepper offers and what a suggestion may reach.
+    /// Below the structural `Routine.maxRoundsPerStep` (6) on purpose: 4 rounds is already 2
+    /// minutes on one point, the top of what any bundled sequence asks.
+    static let maxBuilderRounds = 4
+
+    static func suggestedRounds(for pointId: String) -> Int {
+        let bundled = Routine.all.flatMap(\.steps).filter { $0.pointId == pointId }.map(\.rounds).max()
+        return min(bundled ?? defaultRounds, maxBuilderRounds)
+    }
 }

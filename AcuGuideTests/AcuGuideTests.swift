@@ -142,6 +142,8 @@ final class AcuGuideTests: XCTestCase {
         // because a surface the scan cannot reach is a surface the scan does not cover.
         check("moxaNotice", MoxaNotice.lines)
         check("moxaGate", MoxaGateView.allCopy)
+        check("moxaClock", MoxaClockCopy.allCopy)
+        check("moxaStrap", MoxaStrapAdvice.allCopy)
         for r in Routine.excludedRegions { check("excludedRegion[\(r.rawValue)]", [r.en, r.zh]) }
         for t in [RoutineTechnique.press, .knead, .push, .grasp, .pointed] {
             check("technique[\(t.rawValue)]", [t.en, t.zh])
