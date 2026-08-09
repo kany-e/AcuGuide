@@ -185,7 +185,10 @@ struct LocateCard: View {
 
                 Spacer(minLength: 0)
                 // Hands-free confirm: both hands are pressing, so the confirm can be SPOKEN.
-                // Opt-in per session; on-device recognition only (hidden when unsupported).
+                // Auto-started with the session while AppSettings.handsFreeVoice is on (the
+                // default) — this capsule is the per-session switch. Recognition is on-device
+                // when supported, Apple's speech service otherwise (hidden when no recognizer
+                // exists for the locale).
                 if voiceControl.available {
                     // NAMED, not a bare icon. This was an unlabeled mic glyph in a small circle,
                     // last in the row behind a Spacer — the weakest element on the card — so new

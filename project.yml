@@ -107,6 +107,10 @@ targets:
         buildPhase: resources
       - path: claude-deliverables/fixtures/fixture_5_te3_full_flow.json
         buildPhase: resources
+      # The shipped privacy policy, bundled READ-ONLY so VoiceDisclosureTests can hold its claims
+      # to the actual mic behavior (hands-free voice defaults ON; server-recognition caveat).
+      - path: docs/privacy-policy.md
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.acuguide.ios.tests

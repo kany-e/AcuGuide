@@ -2,13 +2,18 @@ import Foundation
 import Speech
 import AVFoundation
 
-// Hands-free confirm for the guided locate step: BOTH of the user's hands are occupied (one being
-// pressed, one pressing), so the "This is my spot" button is physically awkward even with the
-// confirm latch — a short spoken command does it instead (user-requested). Recognition prefers
-// ON-DEVICE when the device supports it (audio stays local) and falls back to Apple's speech service
-// otherwise (user-approved: strict on-device-only just reported "unavailable" on a device without the
-// on-device model). Listening is opt-in per session (the mic button on the LocateCard), runs only
-// while the locate step is active, and stops on confirm/skip/pause/disappear.
+// Hands-free voice control for the camera coach: BOTH of the user's hands are occupied (one being
+// pressed, one pressing), so the on-screen buttons are physically awkward even with the confirm
+// latch — a short spoken command does it instead (user-requested). Recognition prefers ON-DEVICE
+// when the device supports it (audio stays local) and falls back to Apple's speech service
+// otherwise (user-approved: strict on-device-only just reported "unavailable" on a device without
+// the on-device model) — and on that fallback path everything the open mic hears streams to Apple,
+// which the privacy disclosures state plainly (docs/privacy-policy.md, PrivacyView, the setup
+// card). Listening AUTO-STARTS with each camera session while the persisted hands-free preference
+// is on — the default, device-requested; AppSettings.handsFreeVoice is the durable off switch and
+// autoStartIfEnabled is the one gate — is session-scoped (the chrome mic button toggles it for the
+// current session), and stops on pause/background/disappear. VoiceDisclosureTests pins the
+// disclosures to this behavior.
 enum LocateVoiceCommand: Equatable {
     case confirm   // "this is my spot" — same path as tapping the button
     case skip      // "skip" — same as tapping Skip
@@ -287,7 +292,31 @@ final class LocateVoiceControl: ObservableObject {
         lastFireHandled = handled
     }
 
-    func toggle() { listening ? stop() : start() }
+    /// The user's last MANUAL choice this session — set by the mic buttons (chrome bar, LocateCard),
+    /// which all come through toggle(). This control is @StateObject-owned by ARCoachView, so the
+    /// flag's lifetime IS the session. It exists for one case: a user whose persisted preference is
+    /// OFF taps the mic on for this session, then pauses or takes a call — the re-arm must restore
+    /// their choice, not silence them until they notice and re-tap.
+    private(set) var sessionOptIn = false
+
+    func toggle() {
+        sessionOptIn = !listening
+        listening ? stop() : start()
+    }
+
+    /// The ONE session auto-start gate — every "mic on with the camera" site (session start,
+    /// scene-active return, resume from pause) comes through here, so the hands-free preference
+    /// cannot be forgotten at one of them. The decision itself is a pure static so the disclosure
+    /// test can pin it without touching audio or permissions.
+    func autoStartIfEnabled(settings: AppSettings = .shared) {
+        guard Self.autoStartAllowed(available: available,
+                                    handsFreeVoice: settings.handsFreeVoice,
+                                    sessionOptIn: sessionOptIn) else { return }
+        start()
+    }
+    static func autoStartAllowed(available: Bool, handsFreeVoice: Bool, sessionOptIn: Bool) -> Bool {
+        available && (handsFreeVoice || sessionOptIn)
+    }
 
     /// True while this control owns the shared session with a live input tap. Anything that would
     /// hand the session back to `.ambient` — a category with NO INPUT ROUTE — has to check this, or
@@ -471,9 +500,13 @@ final class LocateVoiceControl: ObservableObject {
         req.contextualStrings = LocateVoiceCommand.allPhrases
         req.taskHint = .confirmation
         // Prefer ON-DEVICE recognition when the device supports it (audio stays local); otherwise fall
-        // back to Apple's speech service so voice-confirm works at all (user-approved privacy trade —
+        // back to Apple's speech service so voice control works at all (user-approved privacy trade —
         // on-device wasn't installed for the app's language on the user's iPhone, so requiring it just
-        // reported "unavailable"). Only the short confirm phrase is ever spoken while listening.
+        // reported "unavailable"). On the server path the tap below streams EVERYTHING the mic hears
+        // while listening — every buffer, not just command phrases — so the disclosures must say so,
+        // and do: docs/privacy-policy.md, PrivacyView and the setup card all carry the caveat, pinned
+        // by VoiceDisclosureTests. (A prior comment here claimed "only the short confirm phrase is
+        // ever spoken while listening" — a hope about the user, not a property of this code.)
         req.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         request = req
         firedAtLength = 0
@@ -588,8 +621,9 @@ final class LocateVoiceControl: ObservableObject {
 
     // A system interruption (call/Siri/alarm) or route/format change stops the engine; without
     // observing them the mic stays "listening" over a dead tap forever (Haptics already models
-    // this pattern). Simplest truthful response: stop(), so the UI reflects reality and the user
-    // re-taps. (No auto-resume — the mic is opt-in.)
+    // this pattern). Simplest truthful response: stop(), so the UI reflects reality. (No auto-resume
+    // HERE — the view re-arms via autoStartIfEnabled on scene-active and on resume-from-pause; a
+    // mid-session interruption with the app still foreground leaves the mic off until re-tapped.)
     private func registerObservers() {
         guard observers.isEmpty else { return }
         let nc = NotificationCenter.default
