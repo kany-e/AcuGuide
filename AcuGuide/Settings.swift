@@ -52,6 +52,20 @@ struct SettingsSheet: View {
                             "On Apple Intelligence-capable devices, \(CoachPersona.name) answers free-form questions with a fully offline on-device model. The safety screen always runs first, and generated replies are labeled."))
                             .font(.footnote).foregroundStyle(Ink.textDim)
                     }
+                    // The durable off switch for hands-free voice control. The camera coach
+                    // auto-starts the mic while this is ON (the default — device-requested), so the
+                    // privacy story ("on by default, turn it off in Settings") depends on this row
+                    // existing. The footnote carries the same server-recognition caveat as the
+                    // privacy policy; VoiceDisclosureTests pins the copy elsewhere to the default.
+                    Section(AppLocale.pick("语音控制", "Voice control")) {
+                        Toggle(AppLocale.pick("免提语音控制", "Hands-free voice control"),
+                               isOn: $settings.handsFreeVoice)
+                            .tint(Ink.gold)
+                        Text(AppLocale.pick(
+                            "开启时，相机引导会自动打开麦克风，聆听几句短指令（确认位置、定住画面、继续）。你的语言支持设备端识别时，声音不会离开手机；不支持时，聆听期间麦克风听到的内容会发送给 Apple 的语音服务。相机画面上的麦克风按钮只控制本次引导。",
+                            "When on, camera sessions turn the microphone on automatically to listen for a few short commands (confirm a spot, freeze the picture, continue). With on-device recognition for your language, audio never leaves the phone; without it, what the microphone hears while listening is sent to Apple's speech service. The mic button on the camera screen controls just the current session."))
+                            .font(.footnote).foregroundStyle(Ink.textDim)
+                    }
                     Section(AppLocale.pick("练习提醒", "Practice reminder")) {
                         Toggle(AppLocale.pick("每日提醒", "Daily reminder"), isOn: $settings.reminderOn)
                             .tint(Ink.gold)

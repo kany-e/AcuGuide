@@ -184,18 +184,26 @@ struct ARCoachView: View {
                 // the user's press gets labeled, and their confirmed spot corrects the ring.
                 CameraGate(onAuthorized: {
                     camera.start()
-                    // MIC ON, EVERY SESSION. Device report: "the allow microphone should be
-                    // immediately enabled if the user agrees when they enter the camera coach, no
-                    // more pressing the microphone button." Right: both hands are on the point, so
-                    // reaching for a mic button is the exact thing voice control exists to avoid —
-                    // and gating the auto-start on `autoAskedMic` meant it happened ONCE per
-                    // install and never again, so from session two the user had to tap.
+                    // MIC ON, EVERY SESSION — while the hands-free preference is on, which is the
+                    // default. Device report: "the allow microphone should be immediately enabled
+                    // if the user agrees when they enter the camera coach, no more pressing the
+                    // microphone button." Right: both hands are on the point, so reaching for a mic
+                    // button is the exact thing voice control exists to avoid — and gating the
+                    // auto-start on the old `autoAskedMic` flag meant it happened ONCE per install
+                    // and never again, so from session two the user had to tap.
                     //
-                    // Calling start() unconditionally is safe and is NOT a repeated prompt:
+                    // The unconditional start() shipped, though, while every disclosure surface
+                    // still said "off until you enable the microphone" — so the auto-start is now
+                    // gated on AppSettings.handsFreeVoice (default ON, so this behavior is
+                    // unchanged out of the box), Settings carries the durable off switch, and the
+                    // disclosures say "on by default". autoStartIfEnabled is the one gate all three
+                    // re-arm sites share; VoiceDisclosureTests pins gate, default and copy.
+                    //
+                    // Auto-starting is NOT a repeated permission prompt:
                     // SFSpeechRecognizer.requestAuthorization and requestRecordPermission return
                     // the stored answer with no UI once the user has answered, so a previous
                     // refusal just lands in `denied` (surfaced on the card) instead of nagging.
-                    if locateVoice.available { locateVoice.start() }
+                    locateVoice.autoStartIfEnabled()
                     settings.coachSessions += 1   // drives the voice hint's decay (see voiceHint)
                 }, onUseTimer: onUseTimer) { coachLayer }
             }
@@ -226,7 +234,7 @@ struct ARCoachView: View {
                 camera.stop()
             } else if sp == .active {
                 restartCameraIfAllowed()
-                if !userPaused, locateVoice.available { locateVoice.start() }   // same re-arm as resumeSession
+                if !userPaused { locateVoice.autoStartIfEnabled() }   // same re-arm (and same gate) as resumeSession
             }
         }
         // Voice commands act through the SAME paths as the buttons (confirm gate included).
@@ -663,7 +671,7 @@ struct ARCoachView: View {
         // pause, or one phone call, killed hands-free control for the rest of the session, on a
         // screen whose whole premise is that both hands are busy. start() guards on `!listening`
         // and bumps `generation`, so calling it when it is already running is a no-op.
-        if locateVoice.available { locateVoice.start() }
+        locateVoice.autoStartIfEnabled()
     }
 
     // THE FROZEN FRAME. A still of the user's OWN hand with the marks drawn on it, above the guide

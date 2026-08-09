@@ -23,9 +23,6 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(seenOnboarding, forKey: Self.onboardingKey) }
     }
 
-    // Whether the mic permission has been requested automatically on entering the camera coach.
-    // iOS asks once per install and never again after a refusal, so this only guards against
-    // re-issuing a request that can no longer show a dialog — it is not a user preference.
     // How many camera-coach sessions have been started. Drives the voice hint's DECAY: research on
     // voice discoverability (NN/g) finds users abandon within the first few interactions when they
     // cannot tell what to say, so the hint has to be loud EARLY — and Google's conversation-design
@@ -35,8 +32,14 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(coachSessions, forKey: Self.coachSessionsKey) }
     }
 
-    @Published var autoAskedMic: Bool {
-        didSet { UserDefaults.standard.set(autoAskedMic, forKey: Self.autoAskedMicKey) }
+    // Hands-free voice control in the camera coach: when ON, each camera session auto-starts the
+    // mic (LocateVoiceControl.autoStartIfEnabled). Default ON — device-requested ("the allow
+    // microphone should be immediately enabled … no more pressing the microphone button") — and the
+    // disclosure surfaces (docs/privacy-policy.md, PrivacyView, the setup card) all say "on by
+    // default" and point at Settings as the durable off switch. VoiceDisclosureTests pins the
+    // default and that copy to each other; flip one without the other and it fails.
+    @Published var handsFreeVoice: Bool {
+        didSet { UserDefaults.standard.set(handsFreeVoice, forKey: Self.handsFreeVoiceKey) }
     }
 
     // Physical-setup card before the FIRST camera session (prop the phone, both hands are busy).
@@ -62,7 +65,8 @@ final class AppSettings: ObservableObject {
     private static let llmKey = "llmChat"
     private static let onboardingKey = "seenOnboarding"
     private static let cameraSetupKey = "seenCameraSetup"
-    private static let autoAskedMicKey = "autoAskedMic"
+    // Internal, not private: VoiceDisclosureTests round-trips the key directly.
+    static let handsFreeVoiceKey = "handsFreeVoice"
     private static let coachSessionsKey = "coachSessions"
     private static let voiceKey = "voiceMuted"
     private static let reminderOnKey = "reminderOn"
@@ -79,10 +83,16 @@ final class AppSettings: ObservableObject {
         llmChat = UserDefaults.standard.object(forKey: Self.llmKey) as? Bool ?? true
         seenOnboarding = UserDefaults.standard.bool(forKey: Self.onboardingKey)
         seenCameraSetup = UserDefaults.standard.bool(forKey: Self.cameraSetupKey)
-        autoAskedMic = UserDefaults.standard.bool(forKey: Self.autoAskedMicKey)
+        handsFreeVoice = Self.resolveHandsFreeVoice(from: UserDefaults.standard)
         coachSessions = UserDefaults.standard.integer(forKey: Self.coachSessionsKey)
         voiceMuted = UserDefaults.standard.bool(forKey: Self.voiceKey)
         reminderOn = UserDefaults.standard.bool(forKey: Self.reminderOnKey)
         reminderMinutes = UserDefaults.standard.object(forKey: Self.reminderMinKey) as? Int ?? 20 * 60
+    }
+
+    /// Absent key → ON. Hoisted out of init so the disclosure test can pin the default against the
+    /// copy's "on by default" claim without re-initializing the UserDefaults.standard singleton.
+    static func resolveHandsFreeVoice(from defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: handsFreeVoiceKey) as? Bool ?? true
     }
 }
