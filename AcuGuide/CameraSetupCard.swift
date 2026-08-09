@@ -15,15 +15,16 @@ import SwiftUI
 // Settings can bring this card back (nothing one-time should be unrecoverable).
 struct CameraSetupCard: View {
     let onContinue: () -> Void
-    // Hands-free voice confirm, offered HERE rather than deep in the locate step. Device report:
-    // "it should prompt the user to allow microphone at entrance to the camera guide." Requesting
-    // it unconditionally on entry is the one thing not done — a refusal is permanent (iOS never
-    // asks twice) and would kill the feature for someone who simply had not read what it was for.
-    // This card is the honest middle: it is already explaining that BOTH HANDS are busy, which is
-    // exactly why a spoken confirm exists, so the offer arrives with its reason attached and the
-    // user chooses. Declining costs nothing — the button is still there in the locate step.
+    // Hands-free voice control, DISCLOSED here — the last screen before the camera starts and the
+    // mic auto-starts with it (AppSettings.handsFreeVoice, default ON, device-requested). This card
+    // is the honest place for it: it is already explaining that BOTH HANDS are busy, which is
+    // exactly why voice control exists and why it comes on by itself — so the mic permission prompt
+    // that follows arrives with its reason attached, and anyone who would rather not be listened to
+    // can flip the toggle BEFORE any prompt appears. (This used to be a "turn it on?" offer, back
+    // when the mic was opt-in; the copy outlived that behavior, and a stale disclosure is worse
+    // than none. VoiceDisclosureTests now pins this copy to the shipped default.)
     var voiceControl: LocateVoiceControl? = nil
-    @State private var voiceRequested = false
+    @ObservedObject private var settings = AppSettings.shared
 
     private struct Tip: Identifiable {
         let id = UUID()
@@ -55,10 +56,26 @@ struct CameraSetupCard: View {
         ]
     }
 
-    // Every user-facing string on this card, for the copy tests (banned words, and the two claims
-    // the card exists to make). Reads the SAME `tips` the body renders, so a copy edit that drops
-    // "both hands" fails the test rather than silently shipping.
-    var allCopyForTesting: [String] { tips.flatMap { [$0.title, $0.text] } }
+    // The voice-control disclosure, hoisted so the body and allCopyForTesting read the SAME strings
+    // (the old inline version was invisible to the copy tests, which is how "skipping is completely
+    // fine … switch it on later" shipped for weeks after the mic became auto-on).
+    private var voiceTitle: String {
+        AppLocale.pick("语音控制（默认开启）", "Voice control (on by default)")
+    }
+    private var voiceText: String {
+        AppLocale.pick(
+            "两只手都在用的时候，可以直接说话：确认位置、或把画面定住看完整说明，都不用腾出手。所以麦克风会随相机一起开启 — 下一屏 iOS 会询问一次麦克风权限。你的语言支持设备端识别时，声音不会离开手机；不支持时，聆听期间麦克风听到的内容会发送给 Apple 的语音服务。完整指令表在相机画面顶部的问号里。不想用？在这里关掉即可 — 点按始终可用，之后也能随时在设置里更改。",
+            "With both hands busy you can just speak: confirm a spot, or freeze the picture to read the full guide — neither needs a free hand. So the microphone comes on with the camera — iOS will ask for mic access once on the next screen. With on-device recognition for your language, audio never leaves the phone; without it, what the mic hears while listening is sent to Apple's speech service. The full list of phrases lives behind the question mark at the top of the camera screen. Rather not? Turn it off here — tapping works everywhere, and Settings can change this anytime.")
+    }
+    private var voiceToggleLabel: String { AppLocale.pick("语音控制", "Voice control") }
+
+    // Every user-facing string on this card, for the copy tests (banned words, the two claims the
+    // card exists to make, and the voice-control disclosure). Reads the SAME strings the body
+    // renders, so a copy edit that drops "both hands" — or resurrects the stale opt-in story —
+    // fails the test rather than silently shipping.
+    var allCopyForTesting: [String] {
+        tips.flatMap { [$0.title, $0.text] } + [voiceTitle, voiceText, voiceToggleLabel]
+    }
 
     var body: some View {
         // Same structure as the safety gate: content SCROLLS, the single exit stays PINNED, so
@@ -87,37 +104,25 @@ struct CameraSetupCard: View {
                         // One VoiceOver stop per tip, read as a sentence rather than icon + two labels.
                         .accessibilityElement(children: .combine)
                     }
-                    // The voice offer sits AFTER the tips, so "both hands are busy" has already been
-                    // read by the time it explains the way around that. Only shown when speech
-                    // recognition actually exists for this locale — never a dead button.
+                    // The voice disclosure sits AFTER the tips, so "both hands are busy" has already
+                    // been read by the time it explains why the mic comes on by itself. Only shown
+                    // when speech recognition actually exists for this locale — never a dead toggle.
+                    // The toggle binds the PERSISTED preference directly: flipping it off here is
+                    // the same durable opt-out as Settings, and it lands before iOS ever asks for
+                    // the permission.
                     if let vc = voiceControl, vc.available {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: "mic")
                                 .font(.title3).foregroundStyle(Ink.gold).frame(width: 28)
                                 .accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(AppLocale.pick("语音控制（可选）", "Voice control (optional)"))
+                                Text(voiceTitle)
                                     .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.text)
-                                Text(AppLocale.pick(
-                                    "两只手都在用的时候，可以直接说话：确认位置、或者把画面定住看完整说明，都不用腾出手。完整指令表在相机画面顶部的问号里。现在开启会问你一次麦克风权限 — 不开也完全没问题，之后随时能在画面里打开。",
-                                    "With both hands busy you can just speak: confirm a spot, or freeze the picture to read the full guide — neither needs a free hand. The full list of phrases lives behind the question mark at the top of the camera screen. Turning it on now asks for microphone access once — skipping is completely fine, and you can switch it on later."))
+                                Text(voiceText)
                                     .font(.footnote).foregroundStyle(Ink.textDim)
                                     .fixedSize(horizontal: false, vertical: true)
-                                if voiceRequested {
-                                    Text(vc.denied
-                                         ? AppLocale.pick("没有授权 — 用点按确认就好。",
-                                                          "Not allowed — tapping to confirm works fine.")
-                                         : AppLocale.pick("已开启。", "Turned on."))
-                                        .font(.caption2)
-                                        .foregroundStyle(vc.denied ? Ink.warn : Ink.jade)
-                                } else {
-                                    Button(AppLocale.pick("开启语音控制", "Turn on Voice control")) {
-                                        voiceRequested = true
-                                        vc.toggle()     // requests permission in context, once
-                                    }
+                                Toggle(voiceToggleLabel, isOn: $settings.handsFreeVoice)
                                     .font(.caption.bold()).tint(Ink.gold)
-                                    .frame(minHeight: 44)
-                                }
                             }
                         }
                         .padding(14).panel()
