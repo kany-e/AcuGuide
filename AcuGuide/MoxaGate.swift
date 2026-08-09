@@ -17,10 +17,12 @@ import SwiftUI
 // incentive to click through. The heat questions matter at least as much as the pregnancy one and
 // are asked first, so the screen does not read as being about pregnancy alone.
 //
-// WHY IT IS PER-SESSION AND NOT PERSISTED. The answers describe a state that changes — a pregnancy,
+// WHY IT IS PER-VISIT AND NOT PERSISTED. The answers describe a state that changes — a pregnancy,
 // a healing burn, a new numbness. The safety gate before the camera is acknowledged once because
 // the red-flag list it shows is timeless; this is not that. It re-asks on every entry, which is
-// cheap (four taps) against the thing it is preventing.
+// cheap (four taps) against the thing it is preventing. That rule is enforced by
+// MoxaScreeningVisit below, not by a comment: the completed screening can only be held inside a
+// visit, and a visit ends when the user leaves the tab or the answers age out.
 struct MoxaScreening: Equatable {
     /// Reduced feeling anywhere the box would sit. THE decisive one: the entire safety model of
     /// moxibustion is "move it away when it feels too hot", and this is the answer that says the
@@ -42,6 +44,46 @@ struct MoxaScreening: Equatable {
     /// Any "yes" that rules out heat on these regions entirely.
     var blocksHeat: Bool {
         reducedFeeling == true || diabetesOrNerve == true || pregnantOrTrying == true || skinBroken == true
+    }
+}
+
+// THE PER-ENTRY RULE, AS A TYPE. MoxaTab used to hold the completed screening in a bare @State —
+// and because the tab lives inside RootView's TabView for the life of the process, "per session"
+// silently meant "per process": answered on Monday, still trusted on Thursday, while the comments
+// here and in MoxaTab promised a re-ask on every entry. This holder makes the promise structural:
+// a completed screening is stored WITH the moment it was answered, `endVisit()` (wired to the
+// tab's onDisappear) drops it whenever the user leaves, and `current(at:)` refuses to hand back
+// answers older than `maxAge` — the backstop for the one path with no onDisappear, staying on the
+// tab while the app sits in the background for days.
+struct MoxaScreeningVisit {
+    /// Long enough that a continuous sitting is never re-asked mid-read; far too short for the
+    /// answers to cross into a different day, body, or pregnancy status.
+    static let maxAge: TimeInterval = 30 * 60
+
+    private var answered: MoxaScreening?
+    private var answeredAt: Date?
+
+    mutating func record(_ s: MoxaScreening, at now: Date = Date()) {
+        answered = s
+        answeredAt = now
+    }
+    /// The user left the tab — the next entry starts at the gate again.
+    mutating func endVisit() {
+        answered = nil
+        answeredAt = nil
+    }
+    /// Actually DROPS an aged-out screening rather than merely not returning it. The distinction
+    /// matters to SwiftUI: `current(at:)` is a read and cannot trigger a re-render, so the view
+    /// calls this on foregrounding — the mutation (when something expired) is what re-presents
+    /// the gate.
+    mutating func expireIfStale(at now: Date = Date()) {
+        if answered != nil, current(at: now) == nil { endVisit() }
+    }
+    /// The screening, only while it is still fresh.
+    func current(at now: Date = Date()) -> MoxaScreening? {
+        guard let s = answered, let t = answeredAt,
+              now.timeIntervalSince(t) < Self.maxAge else { return nil }
+        return s
     }
 }
 

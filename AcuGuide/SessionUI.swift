@@ -208,3 +208,75 @@ extension View {
                                   onConfirm: onConfirm))
     }
 }
+
+// MARK: - Progress thresholds
+
+// The two progress lines a session is judged against, in ONE place. Both used to be inline
+// comparisons repeated across ARCoachView and TimerSessionView (End buttons and savePractice
+// guards), which is what let the nav-bar Close ignore them entirely — a third exit that knew about
+// neither rule. Any exit path and any recorder reads these, so they cannot drift apart again.
+enum SessionProgress {
+    /// Banked enough that ending deserves a confirmation first (the End button's long-standing rule).
+    static func banked(roundsDone: Int, heldS: Double) -> Bool {
+        roundsDone > 0 || heldS >= 5
+    }
+    /// Enough that savePractice writes a history record — below the confirm bar but above noise
+    /// (opening a session and immediately quitting must not create a "0/4 rounds" entry).
+    static func recordable(roundsDone: Int, heldS: Double) -> Bool {
+        roundsDone > 0 || heldS >= 1.0
+    }
+}
+
+// MARK: - Nav-bar Close routing
+
+/// What the nav-bar Close does to the session under it. The Close button used to set `launch = nil`
+/// unconditionally — silently discarding banked progress that the in-card End button protects with
+/// a confirmation, and skipping the recap, which is the only place savePractice runs. Close is an
+/// exit like any other, so it follows the same rules; the decision is a pure function so a test can
+/// hold it to them.
+enum SessionCloseAction: Equatable {
+    case dismiss        // nothing banked, or a reading screen (gate/recap): close means close
+    case confirmFirst   // banked progress: show the same dialog the End button shows
+    case recap          // recordable but small: end straight to the recap so savePractice runs
+
+    /// `readingScreen`: the safety gate, permission screens, and the recap — screens where Close
+    /// is the way OUT, not an interruption of live practice (the recap has already recorded).
+    static func forSession(readingScreen: Bool, roundsDone: Int, heldS: Double) -> SessionCloseAction {
+        if readingScreen { return .dismiss }
+        if SessionProgress.banked(roundsDone: roundsDone, heldS: heldS) { return .confirmFirst }
+        if SessionProgress.recordable(roundsDone: roundsDone, heldS: heldS) { return .recap }
+        return .dismiss
+    }
+}
+
+/// Carries the Close attempt from RootView's nav bar down to whichever session view is live.
+/// The bar and the session state live on opposite sides of a fullScreenCover boundary, so the
+/// session REGISTERS a handler (keyed by a token — routine steps swap views, and the outgoing
+/// step's onDisappear can fire after the incoming step's onAppear, so a bare "clear on disappear"
+/// would null out the new step's handler). The handler returns true when the session intercepted
+/// the close; false lets the caller dismiss.
+final class SessionCloseRouter {
+    private var handlers: [(token: UUID, attempt: () -> Bool)] = []
+
+    func register(_ token: UUID, attempt: @escaping () -> Bool) {
+        handlers.removeAll { $0.token == token }
+        handlers.append((token, attempt))
+    }
+    func unregister(_ token: UUID) {
+        handlers.removeAll { $0.token == token }
+    }
+    /// True when the live session took over (confirm dialog or recap); false → nothing to protect.
+    func attemptClose() -> Bool {
+        handlers.last?.attempt() ?? false
+    }
+}
+
+private struct SessionCloseRouterKey: EnvironmentKey {
+    static let defaultValue: SessionCloseRouter? = nil
+}
+extension EnvironmentValues {
+    var sessionCloseRouter: SessionCloseRouter? {
+        get { self[SessionCloseRouterKey.self] }
+        set { self[SessionCloseRouterKey.self] = newValue }
+    }
+}

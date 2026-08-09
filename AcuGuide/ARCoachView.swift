@@ -20,6 +20,11 @@ struct ARCoachView: View {
     // The only source that can tell landscapeLeft from landscapeRight — see OrientationDriver.
     @ObservedObject private var orientation = OrientationDriver.shared
     @Environment(\.scenePhase) private var scenePhase
+    // The nav-bar Close routes through this session's own end rules (see SessionUI). Token-keyed:
+    // routine steps swap session views, and the outgoing step's onDisappear can fire after the
+    // incoming step's onAppear.
+    @Environment(\.sessionCloseRouter) private var closeRouter
+    @State private var closeToken = UUID()
     @State private var acknowledged = false
     @State private var endedEarly = false          // "End" pressed — recap with partial rounds (normal, not failure)
     @State private var userPaused = false          // explicit pause: camera stops, progress is kept
@@ -83,7 +88,19 @@ struct ARCoachView: View {
     }
     private func unfreeze() {
         frozen = nil
-        if !userPaused { camera.start() }
+        restartCameraIfAllowed()
+    }
+
+    /// THE ONE RULE FOR RESTARTING THE CAPTURE — after an app-switch, a pause, or a freeze exit:
+    /// never under an explicit pause, and never behind a frozen still. The scenePhase handler used
+    /// to call camera.start() with only the pause check, so returning from an app-switch while
+    /// reading the frozen guide restarted the camera underneath the still — Vision finding hands
+    /// the user could no longer see, which is exactly the live-data-over-a-dead-photograph state
+    /// the freeze rule above exists to prevent. Every restart site goes through this gate so the
+    /// invariant cannot be violated from one site and kept by the others.
+    private func restartCameraIfAllowed() {
+        guard !userPaused, frozen == nil else { return }
+        camera.start()
     }
 
     init(acupoint: Acupoint, roundsTarget: Int = CoachConst.sessionRounds,
@@ -200,14 +217,16 @@ struct ARCoachView: View {
             // Only manage the camera past the safety gate (the locate step is on-camera now, so
             // every post-gate screen legitimately runs the capture session).
             guard acknowledged, engine.phase != .complete, !endedEarly else { return }
-            // An explicit user pause survives an app-switch: don't auto-restart the camera under it.
+            // An explicit user pause survives an app-switch, and so does a frozen still — both are
+            // states where the camera must stay off (see restartCameraIfAllowed). The mic re-arms
+            // regardless of the freeze: "continue" is the voice exit from the frozen screen.
             if sp == .background {
                 engine.suspendLocate()   // frames stop → the confirm latch must not outlive them
                 locateVoice.stop()
                 camera.stop()
-            } else if sp == .active && !userPaused {
-                camera.start()
-                if locateVoice.available { locateVoice.start() }   // same re-arm as resumeSession
+            } else if sp == .active {
+                restartCameraIfAllowed()
+                if !userPaused, locateVoice.available { locateVoice.start() }   // same re-arm as resumeSession
             }
         }
         // Voice commands act through the SAME paths as the buttons (confirm gate included).
@@ -288,7 +307,11 @@ struct ARCoachView: View {
         // and it was the one audio source the coach never stopped on the way out — a half-finished
         // point description would follow the user back to the atlas, holding a .playback/.duckOthers
         // session behind it.
-        .onDisappear { locateVoice.stop(); camera.stop(); voice.reset(); AtlasSpeaker.shared.stop() }
+        .onAppear { closeRouter?.register(closeToken) { attemptCloseFromNavBar() } }
+        .onDisappear {
+            closeRouter?.unregister(closeToken)
+            locateVoice.stop(); camera.stop(); voice.reset(); AtlasSpeaker.shared.stop()
+        }
         // LANDSCAPE FOR THE WHOLE COACH SCREEN, gate and recap included.
         //
         // This used to be gated on `acknowledged && … && feeling == nil` — the live-camera stretch
@@ -394,13 +417,30 @@ struct ARCoachView: View {
         endedEarly = true
     }
 
+    // THE NAV-BAR CLOSE IS AN END BUTTON IN DISGUISE. It used to dismiss unconditionally — the one
+    // exit that neither confirmed banked progress nor passed through the recap where savePractice
+    // runs. It now applies the same rules as End (SessionCloseAction is the shared, tested
+    // decision); returns false when there is nothing to protect, and RootView dismisses.
+    private func attemptCloseFromNavBar() -> Bool {
+        // The gates before the camera and the recap after it are reading screens — Close is the
+        // way out of them. Same predicate that picks the recap branch in coachBody.
+        let readingScreen = !acknowledged || engine.phase == .complete || endedEarly || feeling != nil
+        switch SessionCloseAction.forSession(readingScreen: readingScreen,
+                                             roundsDone: engine.roundsDone,
+                                             heldS: engine.totalHeldS) {
+        case .dismiss:      return false
+        case .confirmFirst: showEndConfirm = true; return true
+        case .recap:        endSession(); return true
+        }
+    }
+
     // One history record per session, written when the recap first appears; the self-reported
     // feeling attaches to the same record when chosen. Local-only (PracticeStore).
     private func savePractice() {
         guard practiceRecordId == nil else { return }
         // Only sessions with actual practice count — opening the coach and immediately quitting
         // must not create a "0/4 rounds" history entry or credit a streak day.
-        guard engine.roundsDone > 0 || engine.totalHeldS >= 1.0 else { return }
+        guard SessionProgress.recordable(roundsDone: engine.roundsDone, heldS: engine.totalHeldS) else { return }
         let rec = PracticeRecord(id: UUID().uuidString, date: Date(), pointId: acupoint.id,
                                  rounds: engine.roundsDone, roundsTarget: engine.roundsTarget,
                                  heldS: engine.totalHeldS, feeling: nil,
@@ -618,7 +658,7 @@ struct ARCoachView: View {
     }
     private func resumeSession() {
         userPaused = false
-        camera.start()
+        restartCameraIfAllowed()
         // RE-ARM THE MIC. pauseSession stops it, and until now nothing started it again — so one
         // pause, or one phone call, killed hands-free control for the rest of the session, on a
         // screen whose whole premise is that both hands are busy. start() guards on `!listening`
@@ -852,7 +892,13 @@ struct ARCoachView: View {
             .accessibilityHint(AppLocale.pick("暂停练习，进度保留", "Pauses the session; progress is kept"))
             Button {
                 // With real progress banked, confirm; a just-started session ends immediately.
-                if engine.roundsDone > 0 || engine.totalHeldS >= 5 { showEndConfirm = true } else { endSession() }
+                // The banked line lives in SessionProgress — shared with savePractice and the
+                // nav-bar Close, so the three exits can't disagree about what counts.
+                if SessionProgress.banked(roundsDone: engine.roundsDone, heldS: engine.totalHeldS) {
+                    showEndConfirm = true
+                } else {
+                    endSession()
+                }
             } label: {
                 Text(AppLocale.pick("结束", "End"))
                     .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)

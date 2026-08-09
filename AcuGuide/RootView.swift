@@ -51,6 +51,9 @@ struct RootView: View {
     @ObservedObject private var settings = AppSettings.shared   // re-render tab labels on toggle
     @State private var showOnboarding = !AppSettings.shared.seenOnboarding
     @State private var pendingQuickTry = false   // quick-try launch deferred to the cover's onDismiss
+    // Close-button routing: the live session view registers what Close should do (see SessionUI).
+    // Plain @State, not @StateObject — the router is imperative plumbing, never render state.
+    @State private var closeRouter = SessionCloseRouter()
 
     // Bridge for children that just hand back a point (atlas markers, chat suggestions).
     private var startCoach: Binding<Acupoint?> {
@@ -93,9 +96,17 @@ struct RootView: View {
                     }
                 }
                 .toolbar { ToolbarItem(placement: .topBarLeading) {
-                    Button(AppLocale.pick("关闭", "Close")) { launch = nil }.tint(Ink.gold)
+                    // Close is an EXIT FROM A SESSION, not just a dismissal: with banked progress
+                    // it must get the same confirm the in-card End button gives, and a recordable
+                    // session must reach the recap (the only place savePractice runs). The live
+                    // session view owns that state, so it decides — dismiss only when nothing is
+                    // at stake (gates, recap, or an unstarted session).
+                    Button(AppLocale.pick("关闭", "Close")) {
+                        if !closeRouter.attemptClose() { launch = nil }
+                    }.tint(Ink.gold)
                 } }
             }
+            .environment(\.sessionCloseRouter, closeRouter)
         }
         // First run: what the app is (and isn't), how the coach works, the privacy story —
         // with an optional 30-second quick try as the very first action. The quick-try launch is

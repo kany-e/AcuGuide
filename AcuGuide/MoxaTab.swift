@@ -14,31 +14,43 @@ import SwiftUI
 // Starting a timer is a different act, and it is the one that would make the app the author of the
 // session rather than of the map.
 struct MoxaTab: View {
-    @State private var screening: MoxaScreening? = nil
+    // NOT a bare `MoxaScreening?`. This view lives inside RootView's TabView for the life of the
+    // process, so a plain answered-once flag here silently turned the documented per-entry gate
+    // into a per-process one — pregnancy/burn/numbness answers trusted for days. The visit holder
+    // (MoxaGate.swift) owns the re-ask rule and is what the tests pin.
+    @State private var visit = MoxaScreeningVisit()
     @State private var selected: MoxaPoint? = nil
     @State private var showLocate = false
     @State private var selectedPlacement: MoxaPlacement? = nil
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
             Group {
-                if let s = screening {
+                if let s = visit.current() {
                     list(readOnly: s.blocksHeat)
                 } else {
-                    // The gate is FORCED and per-session: there is no path into the content that
+                    // The gate is FORCED and per-visit: there is no path into the content that
                     // does not pass through it, and it re-asks on every entry because the things it
                     // asks about change (a pregnancy, a healing burn, a new numbness).
-                    MoxaGateView { screening = $0 }
+                    MoxaGateView { visit.record($0) }
                 }
             }
             .background(ShanshuiBackground().ignoresSafeArea())
             .navigationTitle(AppLocale.pick("艾灸", "Moxibustion"))
             .navigationBarTitleDisplayMode(.inline)
         }
-        .sheet(item: $selected) { MoxaPointCard(point: $0, readOnly: screening?.blocksHeat ?? true) }
+        // Leaving the tab ends the visit — switching back re-asks, which is the documented rule.
+        .onDisappear { visit.endVisit() }
+        // The backstop for never leaving: on return to the foreground, drop answers that aged out
+        // while the app sat in the background (the mutation is what re-presents the gate — see
+        // MoxaScreeningVisit.expireIfStale).
+        .onChange(of: scenePhase) { if $0 == .active { visit.expireIfStale() } }
+        // `?? true`: if a sheet somehow outlives the visit, it degrades to the read-only copy.
+        .sheet(item: $selected) { MoxaPointCard(point: $0, readOnly: visit.current()?.blocksHeat ?? true) }
         .sheet(isPresented: $showLocate) { MoxaLocateFlow { showLocate = false } }
         .sheet(item: $selectedPlacement) { p in
-            MoxaPlacementCard(placement: p, readOnly: screening?.blocksHeat ?? true) { selected = $0 }
+            MoxaPlacementCard(placement: p, readOnly: visit.current()?.blocksHeat ?? true) { selected = $0 }
         }
     }
 

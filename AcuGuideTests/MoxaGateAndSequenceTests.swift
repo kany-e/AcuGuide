@@ -35,6 +35,40 @@ final class MoxaGateTests: XCTestCase {
         }
     }
 
+    // THE RE-ASK RULE, PINNED. The tab used to hold the completed screening in a bare @State
+    // inside RootView's TabView, so "per entry" silently meant "per process" — answers about a
+    // pregnancy, a healing burn or a new numbness trusted for days. MoxaScreeningVisit is the
+    // structural fix; these tests hold it to both halves of the promise.
+    func testScreeningDoesNotSurviveLeavingTheTab() {
+        let t0 = Date(timeIntervalSinceReferenceDate: 0)
+        var v = MoxaScreeningVisit()
+        XCTAssertNil(v.current(at: t0), "a fresh visit must start at the gate")
+        let s = MoxaScreening(reducedFeeling: false, diabetesOrNerve: false,
+                              pregnantOrTrying: false, skinBroken: false)
+        v.record(s, at: t0)
+        XCTAssertEqual(v.current(at: t0), s, "a just-answered screening must be honored")
+        v.endVisit()
+        XCTAssertNil(v.current(at: t0),
+                     "leaving the tab ends the visit — the gate re-asks on every entry")
+    }
+
+    func testScreeningExpiresByAgeEvenWithoutLeavingTheTab() {
+        let t0 = Date(timeIntervalSinceReferenceDate: 0)
+        var v = MoxaScreeningVisit()
+        v.record(MoxaScreening(reducedFeeling: false, diabetesOrNerve: false,
+                               pregnantOrTrying: false, skinBroken: false), at: t0)
+        XCTAssertNotNil(v.current(at: t0.addingTimeInterval(MoxaScreeningVisit.maxAge - 1)),
+                        "a continuous sitting must not be re-asked mid-read")
+        XCTAssertNil(v.current(at: t0.addingTimeInterval(MoxaScreeningVisit.maxAge)),
+                     "answers about a body must not outlive the visit by days — the app can sit "
+                     + "backgrounded on this tab indefinitely, so age is the backstop")
+        // expireIfStale must MUTATE (drop the stored answers), not merely decline to return them:
+        // a read can't trigger a SwiftUI re-render, so the mutation is what re-presents the gate.
+        v.expireIfStale(at: t0.addingTimeInterval(MoxaScreeningVisit.maxAge))
+        XCTAssertNil(v.current(at: t0),
+                     "after expiry the answers are gone, not merely masked by the clock")
+    }
+
     // The gate asks about PREGNANCY because the standard forbids warming the lower abdomen and the
     // lumbosacral region — and every point in the dataset is in one of those. This is the reason the
     // rest of the app's approach (exclude the restricted points, then need no screen) cannot be
