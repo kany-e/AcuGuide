@@ -88,7 +88,10 @@ struct RoutineBuilderView: View {
     @State private var showPicker = false
     @State private var capRefused = false
 
-    private static let maxSteps = 8
+    // THE structural cap, not a local one. This was 8 while Routine.maxSteps documented 6 as "the
+    // ceiling a sequence may have" — the builder was the one door the structural rule didn't
+    // cover (whole-app critique, Aug 2026). One constant now; RoutineSequenceTests pins them equal.
+    static var maxSteps: Int { Routine.maxSteps }
 
     init(editing: CustomRoutine? = nil) {
         self.editing = editing
@@ -125,7 +128,7 @@ struct RoutineBuilderView: View {
                                     }
                                     Spacer()
                                     Stepper(AppLocale.pick("\(step.rounds) 轮", "\(step.rounds) rounds"),
-                                            value: $step.rounds, in: 1...4)
+                                            value: $step.rounds, in: 1...RoutineAutofill.maxBuilderRounds)
                                         .font(.caption).foregroundStyle(Ink.textDim)
                                         .fixedSize()
                                 }
@@ -145,8 +148,8 @@ struct RoutineBuilderView: View {
                     }
                     if !steps.isEmpty {
                         Section {
-                            Text(AppLocale.pick("约 \(minutes) 分钟 · 长按拖动可调整顺序。",
-                                                "~\(minutes) min · touch and hold a row to reorder."))
+                            Text(AppLocale.pick("约 \(minutes) 分钟 · 轮数已按内置套组的用法预填，可随意调整 · 长按拖动可调整顺序。",
+                                                "~\(minutes) min · rounds are pre-filled from how the bundled routines use each point — adjust freely · touch and hold a row to reorder."))
                                 .font(.footnote).foregroundStyle(Ink.textDim)
                         }
                     }
@@ -179,8 +182,13 @@ struct RoutineBuilderView: View {
                 }
             }
             .sheet(isPresented: $showPicker) {
+                // AUTOFILL: a newly added point arrives with its rounds pre-filled from bundled
+                // precedent (RoutineAutofill) — the user who doesn't know "how many, how long"
+                // gets the number a practitioner-reviewed sequence uses, and the minutes preview
+                // updates from it. Still just a Stepper value; adjusting it is one tap.
                 RoutinePointPicker { pt in
-                    steps.append(CustomRoutine.Step(pointId: pt.id, rounds: 2))
+                    steps.append(CustomRoutine.Step(pointId: pt.id,
+                                                    rounds: RoutineAutofill.suggestedRounds(for: pt.id)))
                     showPicker = false
                 }
             }

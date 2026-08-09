@@ -31,6 +31,10 @@ final class MoxaPlacementTests: XCTestCase {
         check("routingQuestion", [MoxaPlacements.routingQuestion])
         check("moxaNotice", MoxaNotice.lines)
         check("moxaGate", MoxaGateView.allCopy)
+        // The clock and the strap advice are moxa surfaces like any other — a dose-escalating
+        // claim beside a TIMER would be the worst possible place for one.
+        check("moxaClock", MoxaClockCopy.allCopy)
+        check("moxaStrap", MoxaStrapAdvice.allCopy)
     }
 
     // The list must not be so wide that honest copy becomes unwritable. These are the terms the app

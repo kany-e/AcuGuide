@@ -8,11 +8,15 @@ import SwiftUI
 // "what do they most need to know". The answer turned out not to be location — it is that the box
 // is the form that removes the hand, and the hand is the safety mechanism.
 //
-// SO THIS TAB LOCATES AND DESCRIBES; IT NEVER DOSES. There is no countdown, no camera targeting and
-// no "hold it here for N minutes". Telling someone where 关元 is, is not instructing moxibustion —
-// the app already locates 33 points and a point's location does not change with what you do to it.
-// Starting a timer is a different act, and it is the one that would make the app the author of the
-// session rather than of the map.
+// SO THIS TAB LOCATES, DESCRIBES, AND KEEPS THE SAFETY CLOCK; IT STILL NEVER DOSES. The original
+// stance here was "no countdown at all" — a countdown reads as a prescription. The practitioner
+// round (Aug 2026) moved that line on purpose: this tab's own safety copy tells people to look at
+// the skin on a timer rather than by feel, and refusing to BE that timer left the one discipline
+// that prevents the burn to whatever kitchen timer the user didn't set. The distinction that
+// remains non-negotiable is dose vs. safety: MoxaClockView (MoxaSession.swift) never says how long
+// moxa "should" take or that longer does more — it interrupts for skin checks on a fixed cadence
+// and hard-stops the sitting at a cap. Every path out of a check is "continue under the same cap"
+// or "stop"; none extends the sitting. There is still no camera targeting and no per-point dose.
 struct MoxaTab: View {
     // NOT a bare `MoxaScreening?`. This view lives inside RootView's TabView for the life of the
     // process, so a plain answered-once flag here silently turned the documented per-entry gate
@@ -21,6 +25,7 @@ struct MoxaTab: View {
     @State private var visit = MoxaScreeningVisit()
     @State private var selected: MoxaPoint? = nil
     @State private var showLocate = false
+    @State private var showClock = false
     @State private var selectedPlacement: MoxaPlacement? = nil
     @Environment(\.scenePhase) private var scenePhase
 
@@ -49,6 +54,11 @@ struct MoxaTab: View {
         // `?? true`: if a sheet somehow outlives the visit, it degrades to the read-only copy.
         .sheet(item: $selected) { MoxaPointCard(point: $0, readOnly: visit.current()?.blocksHeat ?? true) }
         .sheet(isPresented: $showLocate) { MoxaLocateFlow { showLocate = false } }
+        // `?? true` mirrors the other sheets: a clock that outlives the visit hardens to the
+        // required-checks regime rather than the lenient one.
+        .sheet(isPresented: $showClock) {
+            MoxaClockView(checksRequired: visit.current()?.checksRequired ?? true) { showClock = false }
+        }
         .sheet(item: $selectedPlacement) { p in
             MoxaPlacementCard(placement: p, readOnly: visit.current()?.blocksHeat ?? true) { selected = $0 }
         }
@@ -63,6 +73,10 @@ struct MoxaTab: View {
                 // sensation, not build quality.
                 MoxaNotice(readOnly: readOnly)
 
+                // The practitioner round's product advice, HIGHLIGHTED by design: it is the one
+                // purchasable difference that changes how fast heat comes off skin.
+                MoxaStrapAdvice()
+
                 if readOnly {
                     Text(AppLocale.pick("下面是这些穴位的位置与传统说明。",
                                         "Below are the point locations and the traditional notes."))
@@ -70,6 +84,24 @@ struct MoxaTab: View {
                 }
 
                 if !readOnly {
+                    Button { showClock = true } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "timer")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(MoxaClockCopy.title)
+                                    .font(.subheadline.weight(.semibold))
+                                Text(MoxaClockCopy.tabCaption)
+                                    .font(.caption2).foregroundStyle(Ink.textDim)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right").font(.caption2)
+                        }
+                        .foregroundStyle(Ink.gold)
+                        .padding(14).panel()
+                    }
+                    .buttonStyle(.plain)
+
                     Button { showLocate = true } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "hand.point.up.left")
@@ -125,6 +157,37 @@ struct MoxaTab: View {
         return (moxa + atlas).joined(separator: " · ")
     }
 
+}
+
+/// The practitioner's product advice, visually set apart from the running copy (gold border, its
+/// own icon) because it is the single buying decision that changes outcomes: how a box fastens is
+/// how fast it comes off. A product CATEGORY is named, never a brand — the app has nothing to sell.
+struct MoxaStrapAdvice: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(Self.title, systemImage: "checkmark.seal")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.gold)
+            Text(Self.body_)
+                .font(.caption).foregroundStyle(Ink.text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Ink.gold.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Ink.gold, lineWidth: 1))
+        .accessibilityElement(children: .combine)
+    }
+
+    static var title: String {
+        AppLocale.pick("选盒建议：快拆绑带，不要胶布", "Box advice: quick-release straps, never tape")
+    }
+    static var body_: String {
+        AppLocale.pick(
+            "要把盒子固定在身上时，选带快拆扣的绑带式艾灸盒，不要用胶布把盒子粘在皮肤上——需要立刻拿开热源时，撕胶布最慢；对年长、较薄的皮肤，撕胶布本身就可能撕伤皮肤。躺着时什么盒都不要绑：直接放在身上，一抬手就能拿开。",
+            "If a box fastens to the body at all, choose one with quick-release straps — never tape a box to the skin. Tape is the slowest thing to undo at the moment heat has to come off, and on older, thinner skin pulling tape can tear the skin by itself. Lying down, strap nothing: rest the box on the body, unfastened, where one hand lifts it straight off.")
+    }
+    /// For the claims scan, like every other moxa surface.
+    static var allCopy: [String] { [title, body_] }
 }
 
 /// The standing safety note. Shown above the points every time rather than behind a disclosure,
@@ -183,8 +246,8 @@ struct MoxaPointCard: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(12).panel()
-                    Text(AppLocale.pick("本应用不会带你实际操作艾灸，也不计时。若想尝试，请当面找有资质的专业人士。",
-                                        "AcuGuide does not run a moxibustion session or time one. If you want to try it, do that in person with a qualified practitioner."))
+                    Text(AppLocale.pick("本应用不衡量艾灸「该」做多久，也不给出剂量；灸盒页的计时只做两件事——按时提醒你看皮肤、到点提醒你结束。初次尝试，请当面请教有资质的专业人士。",
+                                        "AcuGuide never measures how long moxa \"should\" take and gives no dose; the clock on the moxa tab exists only to make the skin get looked at on schedule and to end the sitting on time. For a first time, learn in person from a qualified practitioner."))
                         .font(.caption2).foregroundStyle(Ink.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                 }

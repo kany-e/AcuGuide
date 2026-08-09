@@ -13,10 +13,29 @@ final class MoxaGateTests: XCTestCase {
         s.reducedFeeling = false
         s.diabetesOrNerve = false
         s.pregnantOrTrying = false
-        XCTAssertFalse(s.complete, "three of four answered is not answered")
+        XCTAssertFalse(s.complete, "three of five answered is not answered")
         s.skinBroken = false
+        XCTAssertFalse(s.complete, "the age/fragile-skin question is part of the gate, not an extra")
+        s.olderAdultOrFragile = false
         XCTAssertTrue(s.complete)
-        XCTAssertFalse(s.blocksHeat, "four clear answers must not block")
+        XCTAssertFalse(s.blocksHeat, "five clear answers must not block")
+    }
+
+    // THE FIFTH QUESTION IS A REGIME SWITCH, NOT A BLOCK — in both directions. Age/fragile skin is
+    // not a contraindication (blocking would just push older users past the gate dishonestly); what
+    // it changes is the skin-check clock, which loses its "feels fine, skip this look" shortcut.
+    // Pinned both ways because either drift is a real failure: blocking on age locks people out,
+    // and dropping checksRequired quietly restores the skip path for the people burn-unit series
+    // are full of (mean age 64.5, low-temperature burns painless in the moment).
+    func testOlderAdultAnswerChangesTheCheckRegimeAndNeverBlocksHeat() {
+        var s = MoxaScreening(reducedFeeling: false, diabetesOrNerve: false,
+                              pregnantOrTrying: false, skinBroken: false,
+                              olderAdultOrFragile: true)
+        XCTAssertTrue(s.complete)
+        XCTAssertFalse(s.blocksHeat, "age/fragile skin must never rule heat out by itself")
+        XCTAssertTrue(s.checksRequired, "a yes must harden the check regime")
+        s.olderAdultOrFragile = false
+        XCTAssertFalse(s.checksRequired)
     }
 
     // ANY yes blocks heat. They are ORed rather than scored: these are not risk factors that add up,
@@ -28,7 +47,8 @@ final class MoxaGateTests: XCTestCase {
             [\.reducedFeeling, \.diabetesOrNerve, \.pregnantOrTrying, \.skinBroken]
         for path in paths {
             var s = MoxaScreening(reducedFeeling: false, diabetesOrNerve: false,
-                                  pregnantOrTrying: false, skinBroken: false)
+                                  pregnantOrTrying: false, skinBroken: false,
+                                  olderAdultOrFragile: false)
             s[keyPath: path] = true
             XCTAssertTrue(s.complete)
             XCTAssertTrue(s.blocksHeat, "a single yes must be sufficient to rule heat out")
@@ -44,7 +64,8 @@ final class MoxaGateTests: XCTestCase {
         var v = MoxaScreeningVisit()
         XCTAssertNil(v.current(at: t0), "a fresh visit must start at the gate")
         let s = MoxaScreening(reducedFeeling: false, diabetesOrNerve: false,
-                              pregnantOrTrying: false, skinBroken: false)
+                              pregnantOrTrying: false, skinBroken: false,
+                              olderAdultOrFragile: false)
         v.record(s, at: t0)
         XCTAssertEqual(v.current(at: t0), s, "a just-answered screening must be honored")
         v.endVisit()
@@ -56,7 +77,8 @@ final class MoxaGateTests: XCTestCase {
         let t0 = Date(timeIntervalSinceReferenceDate: 0)
         var v = MoxaScreeningVisit()
         v.record(MoxaScreening(reducedFeeling: false, diabetesOrNerve: false,
-                               pregnantOrTrying: false, skinBroken: false), at: t0)
+                               pregnantOrTrying: false, skinBroken: false,
+                               olderAdultOrFragile: false), at: t0)
         XCTAssertNotNil(v.current(at: t0.addingTimeInterval(MoxaScreeningVisit.maxAge - 1)),
                         "a continuous sitting must not be re-asked mid-read")
         XCTAssertNil(v.current(at: t0.addingTimeInterval(MoxaScreeningVisit.maxAge)),
@@ -131,6 +153,51 @@ final class RoutineSequenceTests: XCTestCase {
                 XCTAssertNotNil(s.point, "\(r.id) references missing point \(s.pointId)")
             }
         }
+    }
+
+    // THE BUILDER OBEYS THE SAME STRUCTURAL CAP. It hardcoded its own maxSteps = 8 while
+    // Routine.maxSteps documented 6 as the ceiling — the one door the structural rule didn't cover
+    // (whole-app critique, Aug 2026). One constant now, pinned so a local override cannot return.
+    func testRoutineBuilderSharesTheStructuralStepCap() {
+        XCTAssertEqual(RoutineBuilderView.maxSteps, Routine.maxSteps,
+                       "the builder must not re-declare its own sequence ceiling")
+    }
+
+    // AUTOFILL. A point the user doesn't know arrives with rounds from bundled precedent — the
+    // number a practitioner-reviewed sequence uses — and the default of 2 otherwise. Every
+    // suggestion must land inside the builder's stepper range for every point in the atlas, or the
+    // builder would construct a step its own UI cannot express.
+    func testAutofillSuggestsBundledPrecedentWithinBuilderBounds() {
+        XCTAssertEqual(RoutineAutofill.suggestedRounds(for: "TE3"), 3, "head-ease uses TE3 ×3")
+        XCTAssertEqual(RoutineAutofill.suggestedRounds(for: "PC6"), 3, "travel-calm uses PC6 ×3")
+        XCTAssertEqual(RoutineAutofill.suggestedRounds(for: "SI3"), 3, "stiff-neck uses SI3 ×3")
+        XCTAssertEqual(RoutineAutofill.suggestedRounds(for: "HT8"), RoutineAutofill.defaultRounds,
+                       "a point no bundled routine uses gets the default")
+        for pt in Acupoint.all {
+            let n = RoutineAutofill.suggestedRounds(for: pt.id)
+            XCTAssertTrue((1...RoutineAutofill.maxBuilderRounds).contains(n),
+                          "\(pt.id): suggestion \(n) is outside the builder's stepper range")
+        }
+        XCTAssertLessThanOrEqual(RoutineAutofill.maxBuilderRounds, Routine.maxRoundsPerStep,
+                                 "the builder ceiling must sit inside the structural one")
+    }
+
+    // The young-person additions exist, resolve, and follow the construction rules: the carsick
+    // extension keeps PC6 in the lead, and the screen-break routine opens local-and-kneaded at the
+    // temple like the practitioner's head sequence.
+    func testAugustAdditionsFollowTheConstructionRules() throws {
+        let travel = try XCTUnwrap(Routine.all.first { $0.id == "travel-calm" })
+        XCTAssertEqual(travel.steps.first?.pointId, "PC6", "the studied point keeps the lead")
+        XCTAssertGreaterThan(travel.steps.count, 1, "the carsick request extended this routine")
+
+        let neck = try XCTUnwrap(Routine.all.first { $0.id == "stiff-neck" })
+        XCTAssertEqual(neck.steps.first?.pointId, "SI3", "Houxi is the classical 落枕 lead")
+
+        let screen = try XCTUnwrap(Routine.all.first { $0.id == "screen-break" })
+        XCTAssertEqual(screen.steps.first?.role, .local, "local anchor first, like head-ease")
+        XCTAssertEqual(screen.steps.first?.technique, .knead, "temples are kneaded, not pressed")
+
+        XCTAssertNotNil(Routine.all.first { $0.id == "settle-stomach" })
     }
 
     // Adding head points to routines is the one genuinely new hazard in the extended sequences: the
