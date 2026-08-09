@@ -17,6 +17,35 @@ SKIP_FILES = {"ChatLLM.swift"}
 ALLOW = re.compile(r"healthy|healthcare|health|diagnostics|diagnostic|Diagnostics")
 LITERAL = re.compile(r'"([^"\\]*(?:\\.[^"\\]*)*)"')
 
+
+def strip_trailing_comment(line: str) -> str:
+    """Cut a trailing // comment, respecting string literals.
+
+    Comments are not shipped copy, and the banned-term tables (MoxaSafety.extendedBanned) document
+    their entries with QUOTED English glosses -- `"疗程", // "course of treatment"` -- which the
+    literal regex would otherwise flag. Those comments must be able to name the phrases they ban;
+    the scanner is the thing that has to know the difference. Done by walking the line rather than
+    a regex so that `//` INSIDE a string ("https://...") never truncates a real literal -- cutting
+    there would hide any banned term after a URL, silently weakening the scan.
+    """
+    in_str = False
+    i, n = 0, len(line)
+    while i < n:
+        c = line[i]
+        if in_str:
+            if c == "\\":
+                i += 2
+                continue
+            if c == '"':
+                in_str = False
+        else:
+            if c == '"':
+                in_str = True
+            elif c == "/" and i + 1 < n and line[i + 1] == "/":
+                return line[:i]
+        i += 1
+    return line
+
 bad = []
 for p in sorted(pathlib.Path("AcuGuide").rglob("*.swift")):
     if p.name in SKIP_FILES:
@@ -32,7 +61,7 @@ for p in sorted(pathlib.Path("AcuGuide").rglob("*.swift")):
             continue
         if s.startswith("//") or s.startswith("///") or s.startswith("*"):
             continue
-        for lit in LITERAL.findall(line):
+        for lit in LITERAL.findall(strip_trailing_comment(line)):
             probe = ALLOW.sub("", lit)
             low = probe.lower()
             for t in EN:
