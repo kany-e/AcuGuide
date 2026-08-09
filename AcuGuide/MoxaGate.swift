@@ -20,7 +20,7 @@ import SwiftUI
 // WHY IT IS PER-VISIT AND NOT PERSISTED. The answers describe a state that changes — a pregnancy,
 // a healing burn, a new numbness. The safety gate before the camera is acknowledged once because
 // the red-flag list it shows is timeless; this is not that. It re-asks on every entry, which is
-// cheap (four taps) against the thing it is preventing. That rule is enforced by
+// cheap (five taps) against the thing it is preventing. That rule is enforced by
 // MoxaScreeningVisit below, not by a comment: the completed screening can only be held inside a
 // visit, and a visit ends when the user leaves the tab or the answers age out.
 struct MoxaScreening: Equatable {
@@ -132,10 +132,20 @@ struct MoxaGateView: View {
           path: \.olderAdultOrFragile),
     ]
 
+    /// For the intro-count pin — the questions array itself stays private.
+    static var questionCount: Int { questions.count }
+
+    /// The intro sentence, static so the scan reaches it AND so the question COUNT it claims can
+    /// be pinned against `questions.count` — it shipped saying "four questions" over a
+    /// five-question form when the age question landed (caught on a simulator walk, then pinned).
+    static var intro: String { AppLocale.pick(
+        "艾灸是明火。这一页只在你已经有艾灸盒时，帮你找到位置——先问五个问题，因为有些情况下不适合用热，有些情况下要查得更勤。",
+        "Moxibustion is an open flame. This tab helps you find the spot if you already have a box — five questions first, because there are situations where heat is not the right idea, and situations where the skin needs looking at more often.") }
+
     /// Every user-facing string in this gate, so the claims scan can reach it. A screen whose copy
     /// is not enumerable is a screen the scan silently does not cover — which is how an unscanned
     /// surface ships, and it had already happened once to MoxaAtlas.
-    static var allCopy: [String] { questions.flatMap { [$0.zh, $0.en] } }
+    static var allCopy: [String] { [intro] + questions.flatMap { [$0.zh, $0.en] } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -143,9 +153,7 @@ struct MoxaGateView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     Text(AppLocale.pick("关于艾灸", "About moxibustion"))
                         .font(.title2).foregroundStyle(Ink.gold)
-                    Text(AppLocale.pick(
-                        "艾灸是明火。这一页只在你已经有艾灸盒时，帮你找到位置——先问四个问题，因为有些情况下不适合用热。",
-                        "Moxibustion is an open flame. This tab helps you find the spot if you already have a box — four questions first, because there are situations where heat is not the right idea."))
+                    Text(Self.intro)
                         .foregroundStyle(Ink.text)
                         .fixedSize(horizontal: false, vertical: true)
 

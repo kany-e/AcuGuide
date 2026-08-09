@@ -38,6 +38,15 @@ final class MoxaGateTests: XCTestCase {
         XCTAssertFalse(s.checksRequired)
     }
 
+    // The intro tells the user how many questions are coming, and it went stale once already —
+    // it said "four questions" over a five-question form the day the age question landed (caught
+    // on a simulator walk). The count claim and the form are pinned to each other.
+    func testIntroClaimsTheActualQuestionCount() {
+        XCTAssertEqual(MoxaGateView.questionCount, 5)
+        XCTAssertTrue(MoxaGateView.intro.contains("五个问题") || MoxaGateView.intro.contains("five questions"),
+                      "the intro must claim the real question count — it reads: \(MoxaGateView.intro)")
+    }
+
     // ANY yes blocks heat. They are ORed rather than scored: these are not risk factors that add up,
     // they are each independently sufficient. In particular `diabetesOrNerve` is asked separately
     // from `reducedFeeling` because neuropathy is frequently present and unrecognised, so someone

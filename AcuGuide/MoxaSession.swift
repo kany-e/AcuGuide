@@ -25,7 +25,7 @@ import UserNotifications
 // physics-consistent: skin under a real box measures 44–49 °C (Xu 2012, PMID 22997790), where the
 // Moritz–Henriques curve puts epidermal injury at ~45 min at 47 °C down to ~11 min at 49 °C. The
 // FIRST check comes earlier (2½ min) because the measured worst case (>49 °C at 3 cm) makes the
-// first minutes the least certain, and one early look costs four taps. These are design choices
+// first minutes the least certain, and one early look costs a single tap. These are design choices
 // grounded in burn physics and burn epidemiology, NOT citations to a standard — no standard
 // states either number, and the Sources note says so plainly.
 //
