@@ -128,6 +128,10 @@ struct TimerSessionView: View {
     @StateObject private var voice = CoachVoice()
     @StateObject private var haptics = CoachHaptics()
     @Environment(\.scenePhase) private var scenePhase
+    // Nav-bar Close routes through this session's end rules, exactly as in ARCoachView — the
+    // timer sits under the same Close button and had the same silent-discard hole.
+    @Environment(\.sessionCloseRouter) private var closeRouter
+    @State private var closeToken = UUID()
     @State private var acknowledged = false
     @State private var endedEarly = false
     @State private var feeling: String? = nil
@@ -178,7 +182,21 @@ struct TimerSessionView: View {
         // to wake without letting go of the point they are being coached to hold.
         .keepScreenAwake(while: acknowledged && !session.sessionComplete && !endedEarly
                                 && feeling == nil && session.pauseReasons.isEmpty)
-        .onDisappear { session.end(); voice.reset() }
+        .onAppear { closeRouter?.register(closeToken) { attemptCloseFromNavBar() } }
+        .onDisappear { closeRouter?.unregister(closeToken); session.end(); voice.reset() }
+    }
+
+    // Same contract as ARCoachView.attemptCloseFromNavBar — the decision itself is the shared,
+    // tested SessionCloseAction.
+    private func attemptCloseFromNavBar() -> Bool {
+        let readingScreen = !acknowledged || session.sessionComplete || endedEarly || feeling != nil
+        switch SessionCloseAction.forSession(readingScreen: readingScreen,
+                                             roundsDone: session.roundsDone,
+                                             heldS: session.totalHeldS) {
+        case .dismiss:      return false
+        case .confirmFirst: showEndConfirm = true; return true
+        case .recap:        endedEarly = true; session.end(); return true
+        }
     }
 
     private var sessionLayer: some View {
@@ -250,8 +268,13 @@ struct TimerSessionView: View {
                         .background(Capsule().stroke(session.userPaused ? Ink.gold : Ink.line, lineWidth: 1))
                         .accessibilityHint(AppLocale.pick("暂停或继续，进度保留", "Pause or resume; progress is kept"))
                     Button(AppLocale.pick("结束", "End")) {
-                        if session.roundsDone > 0 || session.totalHeldS >= 5 { showEndConfirm = true }
-                        else { endedEarly = true; session.end() }
+                        // Shared banked line (SessionProgress) — same rule as the coach's End and
+                        // the nav-bar Close.
+                        if SessionProgress.banked(roundsDone: session.roundsDone, heldS: session.totalHeldS) {
+                            showEndConfirm = true
+                        } else {
+                            endedEarly = true; session.end()
+                        }
                     }
                         .font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
                         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -295,7 +318,7 @@ struct TimerSessionView: View {
 
     private func savePractice() {
         guard practiceRecordId == nil else { return }
-        guard session.roundsDone > 0 || session.totalHeldS >= 1.0 else { return }
+        guard SessionProgress.recordable(roundsDone: session.roundsDone, heldS: session.totalHeldS) else { return }
         let rec = PracticeRecord(id: UUID().uuidString, date: Date(), pointId: acupoint.id,
                                  rounds: session.roundsDone, roundsTarget: session.roundsTarget,
                                  heldS: session.totalHeldS, feeling: nil)
