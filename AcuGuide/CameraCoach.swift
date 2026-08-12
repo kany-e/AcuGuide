@@ -512,8 +512,9 @@ enum CaptureRotation {
     /// DEVICE-MEASURED, and the opposite of what a very convincing derivation predicted.
     ///
     /// R17 swapped these two, then REVERTED the swap on the strength of an SDK-based argument. The
-    /// device has now overruled that argument. A DEBUG readout in the coach reported, with the phone
-    /// held sideways and the picture upside down:
+    /// device has now overruled that argument. A DEBUG readout in the coach — since REMOVED, having
+    /// answered the only question it was for; this comment is the surviving record of the reading —
+    /// reported, with the phone held sideways and the picture upside down:
     ///
     ///     dev devLeft · iface ifaceRight · angle 0 · mirror Y · front Y
     ///

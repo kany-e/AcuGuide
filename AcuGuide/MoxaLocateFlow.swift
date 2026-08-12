@@ -148,7 +148,7 @@ struct MoxaLocateFlow: View {
                 .font(.caption).foregroundStyle(Ink.textDim)
                 .fixedSize(horizontal: false, vertical: true)
 
-            MoxaNotice(readOnly: false)
+            MoxaNotice()
         }
     }
 

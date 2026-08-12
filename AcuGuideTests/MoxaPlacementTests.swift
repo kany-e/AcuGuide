@@ -29,7 +29,7 @@ final class MoxaPlacementTests: XCTestCase {
             check("placement[\(p.id)]", [p.titleEn, p.titleZh, p.bodyEn, p.bodyZh])
         }
         check("routingQuestion", [MoxaPlacements.routingQuestion])
-        check("moxaNotice", MoxaNotice.lines)
+        check("moxaNotice", MoxaNotice.allCopy)   // lines + the disclosure labels
         check("moxaGate", MoxaGateView.allCopy)
         // The clock and the strap advice are moxa surfaces like any other — a dose-escalating
         // claim beside a TIMER would be the worst possible place for one.
@@ -137,5 +137,40 @@ final class MoxaPlacementTests: XCTestCase {
         let cv4 = MoxaAtlas.abdomen.first { $0.id == "CV4" }!
         XCTAssertTrue(cv4.traditionEn.contains("Mingguan"),
                       "if the text is cited, the 命关/命门 substitution must be disclosed")
+    }
+
+    // MARK: - The notice's disclosure
+
+    // The notice now shows two of its six lines and folds the rest away, because six bullets at the
+    // top of the tab (and again on every placement card) is a wall nobody reads. That trade is only
+    // safe while the VISIBLE two are the mechanism and the action; a reorder of `lines` would move
+    // the fold silently and leave a user reading about carbon monoxide instead of about their skin.
+    func testTheTwoVisibleNoticeLinesAreTheMechanismAndTheAction() {
+        let zhWas = AppSettings.shared.lang
+        AppSettings.shared.lang = .en
+        defer { AppSettings.shared.lang = zhWas }
+
+        let lead = MoxaNotice.leadLines
+        XCTAssertEqual(lead.count, 2, "two lines lead; the rest are one tap away")
+        XCTAssertEqual(lead + MoxaNotice.moreLines, MoxaNotice.lines,
+                       "the split must partition the notice — no line may be dropped or duplicated")
+
+        let visible = lead.joined(separator: " ").lowercased()
+        XCTAssertTrue(visible.contains("removes the hand"),
+                      "the injury MECHANISM (the box takes away the hand that would have noticed) must stay visible")
+        XCTAssertTrue(visible.contains("on a timer") && visible.contains("lightly pink"),
+                      "the ACTION (look on a timer, stop while lightly pink) must stay visible")
+    }
+
+    // A disclosure that under-reports what it hides is a disclosure that teaches the user to leave
+    // it closed. The count is derived, and this is what keeps it derived.
+    func testTheMoreLabelReportsTheRealNumberOfHiddenLines() {
+        let zhWas = AppSettings.shared.lang
+        AppSettings.shared.lang = .en
+        defer { AppSettings.shared.lang = zhWas }
+
+        XCTAssertTrue(MoxaNotice.moreLabel.contains("\(MoxaNotice.moreLines.count)"),
+                      "the label must name how many lines are folded away — got '\(MoxaNotice.moreLabel)'")
+        XCTAssertFalse(MoxaNotice.moreLines.isEmpty, "nothing folded away means the disclosure is chrome")
     }
 }
