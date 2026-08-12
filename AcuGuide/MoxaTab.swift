@@ -108,8 +108,8 @@ struct MoxaTab: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(AppLocale.pick("在自己身上找位置", "Find it on yourself"))
                                     .font(.subheadline.weight(.semibold))
-                                Text(AppLocale.pick("躺下，从肚脐量到耻骨上缘，用你自己的手指",
-                                                    "Lie down and measure navel to pubic bone, in your own finger-widths"))
+                                Text(AppLocale.pick("从肚脐量到耻骨上缘，用你自己的手指",
+                                                    "Navel to pubic bone, in your own finger-widths"))
                                     .font(.caption2).foregroundStyle(Ink.textDim)
                                     .multilineTextAlignment(.leading)
                             }
@@ -231,24 +231,32 @@ struct MoxaStrapAdvice: View {
 /// forced on every entry and MoxaClockView enforces the skin checks structurally. This is the
 /// reminder beside them. `lines` still returns all six, in order, so the claims scan is unchanged.
 struct MoxaNotice: View {
+    /// WHERE this notice is being shown, which is what decides how much of it leads. The TAB is the
+    /// first thing a box owner sees, so it leads with the pair: the mechanism and the action. A
+    /// PLACEMENT CARD is reached only by passing the gate AND scrolling past that pair, so repeating
+    /// all of it there was the duplication the density report was really about — the card leads with
+    /// the ACTION alone, and the rest is the same one tap away.
+    enum Surface { case tab, card }
+
+    var surface: Surface = .tab
     @State private var expanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(AppLocale.pick("艾灸是明火", "Moxibustion is an open flame"), systemImage: "flame")
                 .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.terracotta)
-            ForEach(Self.leadLines, id: \.self) { bullet($0) }
+            ForEach(Self.visibleLines(surface), id: \.self) { bullet($0) }
 
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.caption2.weight(.semibold))
-                    Text(expanded ? Self.fewerLabel : Self.moreLabel)
+                    Text(expanded ? Self.fewerLabel : Self.moreLabel(for: surface))
                         .font(.caption.weight(.semibold))
                         .multilineTextAlignment(.leading)
                 }
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(Ink.gold)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -256,7 +264,7 @@ struct MoxaNotice: View {
             .buttonStyle(.plain)
 
             if expanded {
-                ForEach(Self.moreLines, id: \.self) { bullet($0) }
+                ForEach(Self.hiddenLines(surface), id: \.self) { bullet($0) }
             }
         }
         .padding(14).panel()
@@ -267,30 +275,49 @@ struct MoxaNotice: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// WHAT LEADS, per surface. The tab shows the mechanism and the action; the card shows the
+    /// action. Both are expressed as a selection FROM `lines`, and what is hidden is defined as
+    /// everything else — so no arrangement of this can drop a line or show one twice, and the
+    /// disclosure's count is always the truth about what is behind it.
+    static func visibleLines(_ surface: Surface) -> [String] {
+        switch surface {
+        case .tab:  return Array(lines.prefix(2))            // mechanism, then the action it answers
+        case .card: return Array(lines.dropFirst().prefix(1))  // the action alone
+        }
+    }
+    static func hiddenLines(_ surface: Surface) -> [String] {
+        let shown = visibleLines(surface)
+        return lines.filter { !shown.contains($0) }
+    }
+
     /// Derived from the split, never hardcoded — a count that disagrees with what unfolds is how a
     /// user learns to distrust the disclosure.
-    static var moreLabel: String {
-        let n = moreLines.count
+    static func moreLabel(for surface: Surface) -> String {
+        let n = hiddenLines(surface).count
         return AppLocale.pick("还有 \(n) 条要注意的", "\(n) more things to watch for")
     }
     static var fewerLabel: String { AppLocale.pick("收起", "Show fewer") }
 
-    /// THE ORDER IS THE SPLIT: the first two lines are the ones that lead. `lines` is what the
-    /// claims scan reads, so it must stay the whole set — see MoxaNotice.allCopy for the scanned
-    /// surface including the disclosure's own labels.
-    static var leadLines: [String] { Array(lines.prefix(2)) }
-    static var moreLines: [String] { Array(lines.dropFirst(2)) }
-    static var allCopy: [String] { lines + [moreLabel, fewerLabel] }
+    /// The tab surface, named — the split the safety tests reason about. `lines` is what the claims
+    /// scan reads, so it must stay the whole set; `allCopy` adds every label either surface can draw.
+    static var leadLines: [String] { visibleLines(.tab) }
+    static var moreLines: [String] { hiddenLines(.tab) }
+    static var moreLabel: String { moreLabel(for: .tab) }
+    static var allCopy: [String] { lines + [moreLabel(for: .tab), moreLabel(for: .card), fewerLabel] }
 
     // Every line is authored, not translated — the source material for this topic is saturated with
     // the banned stems (艾灸的功效与作用, 足浴治疗), so a translated version would fail the scan.
     static var lines: [String] {
-        [AppLocale.pick("艾灸盒把热源固定在身上，也就把「觉得烫就拿开」的那只手拿走了——这正是家用艾灸低温烫伤最常见的原因。",
-                        "A box straps the heat on and, in doing so, removes the hand that would have noticed it — which is why boxes are the commonest source of low-temperature burns at home."),
+        // THE TWO VISIBLE LINES ARE THE SHORTEST TRUE FORM OF THEMSELVES. Second device report on
+        // this tab: "too dense with words, nobody is going to read it that thoroughly." Length is
+        // not thoroughness here — these two lines are the ones a user who reads nothing else must
+        // still take away, so every clause that was context rather than instruction is gone.
+        [AppLocale.pick("盒子固定住热源，也就拿走了「觉得烫就拿开」的那只手——家用低温烫伤最常见的原因。",
+                        "A box straps the heat on and removes the hand that would have noticed it — the commonest cause of low-temperature burns at home."),
          // SECOND, AND THEREFORE VISIBLE: the mechanism above is only useful next to the thing to
          // DO about it. These two are the pair a user who reads nothing else should still have.
-         AppLocale.pick("看皮肤，别只靠感觉，定时查看。皮肤只是微微发红就该停。",
-                        "Look at the skin on a timer rather than going by feel. Stop while it is no more than lightly pink."),
+         AppLocale.pick("定时看皮肤，别只靠感觉；只是微微发红时就该停。",
+                        "Look at the skin on a timer, not by feel — stop while it is still only lightly pink."),
          AppLocale.pick("44到50度持续够久，会由浅入深地伤到皮肤，而且一开始不太痛、表面看不出来。所以「不觉得烫」并不代表安全，时间才是关键。",
                         "Held long enough, 44–50 °C injures progressively from the surface downward — and it barely hurts at first and looks like very little. So \"it doesn't feel too hot\" is not a sign that it is safe; the variable that matters is time."),
          AppLocale.pick("别在密闭房间里用，冬天关窗最容易积聚一氧化碳。",
@@ -407,7 +434,7 @@ struct MoxaPlacementCard: View {
                         }
                     }
 
-                    MoxaNotice()
+                    MoxaNotice(surface: .card)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)

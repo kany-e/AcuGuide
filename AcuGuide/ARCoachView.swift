@@ -31,7 +31,6 @@ struct ARCoachView: View {
     @State private var showEndConfirm = false      // guard banked progress against an accidental End
     @State private var feeling: String? = nil      // stable key: "relaxing" | "neutral" | "uncomfortable"
     @State private var practiceRecordId: String? = nil   // history record for this session (saved once)
-    @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
     // The ONE over-camera note, drawn on the guide ring itself (see CoachMarks.Ring.label) rather
     // than as a floating chip in the corner. It says which spot the ring is: "using your saved one"
@@ -760,11 +759,13 @@ struct ARCoachView: View {
         .accessibilityAddTraits(.isModal)
     }
 
-    // On-device field-calibration toggles (Phase 1): flip the mirror or invert the
-    // face gate in one place if they fire backwards on a given device.
-    // THE TOP CONTROL CLUSTER. (Still called `debugBar` for one more round would have been wrong —
-    // only the #if DEBUG menu at the end is debug chrome, and the comment further up already refers
-    // to a `topBar` that never existed. It is `chromeBar` now.)
+    // THE TOP CONTROL CLUSTER — every control here is a USER control. It carries no debug chrome at
+    // all now: the field-calibration menu (flip the landmark mirroring, invert the palm/dorsal gate)
+    // was the last of it and is gone with the rotation readout. Both of its switches were answered by
+    // measurement — HandCalibration.dorsalWhenSignedPositive is device-verified on 9/9 labels for BOTH
+    // hands, and the mirror follows the camera position — so what was left was a two-tap way for a
+    // stray finger to invert the coach's geometry, on the screen where being wrong is most visible.
+    // If a device ever needs those switches again they belong behind a build, not on the picture.
     //
     // Device report: "the button on the top looks out of place." It was six BARE glyphs, each
     // `Image(...).font(.callout).padding(8).background(Circle())` with no `.frame` — and a Circle
@@ -823,22 +824,6 @@ struct ARCoachView: View {
             chromeButton(voice.muted ? "speaker.slash.fill" : "speaker.wave.2.fill") { voice.muted.toggle() }
                 .accessibilityLabel(AppLocale.pick("语音提示", "Voice cues"))
                 .accessibilityValue(voice.muted ? AppLocale.pick("已关闭", "Off") : AppLocale.pick("已开启", "On"))
-            #if DEBUG
-            // Field-calibration switches (debug builds only): flip the landmark mirroring or invert
-            // the palm/dorsal gate in one place if either fires backwards on a given device.
-            Menu {
-                Toggle("Mirror preview", isOn: Binding(
-                    get: { camera.mirrorFlip }, set: { camera.mirrorFlip = $0 }))
-                Toggle("Dorsal = signed > 0", isOn: Binding(
-                    get: { dorsalPositive },
-                    set: { dorsalPositive = $0; HandCalibration.dorsalWhenSignedPositive = $0 }))
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel("Calibration")
-            #endif
         }
         .padding(.horizontal, 4)
         .background(

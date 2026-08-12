@@ -42,24 +42,15 @@ final class CameraCoach: NSObject, ObservableObject, AVCaptureVideoDataOutputSam
 
     // SINGLE SOURCE OF TRUTH for mirroring. `mirrored` (main thread) drives the preview
     // connection; `queueMirrored` is the capture-queue-confined copy that drives the landmark
-    // x-flip — so the flag is never read across threads (no data race). Flipping the debug
-    // toggle updates the queue copy and resets the One-Euro smoother (negating every landmark
-    // x is a full-frame coordinate jump that would otherwise spike the filter's velocity).
-    @Published var mirrorFlip = false {
-        didSet {
-            let m = mirrored
-            mainSceneGen += 1
-            let gen = mainSceneGen
-            queue.async { [weak self] in self?.queueMirrored = m; self?.queueSceneGen = gen }
-            // Same parity discontinuity as a camera flip: every landmark x becomes 1−x, so the
-            // engine must drop EVERYTHING keyed to the old parity — including the guided-locate
-            // window/candidate/anchors (a mid-locate toggle mixed parities into one centroid and
-            // could persist a wrong-direction calibration; review-caught). smootherReset alone
-            // was not enough.
-            engine.cameraFlipped()
-        }
-    }
-    var mirrored: Bool { usingFront != mirrorFlip }   // XOR — main thread / preview
+    // x-flip — so the flag is never read across threads (no data race).
+    //
+    // THE CAMERA POSITION IS THE WHOLE CONVENTION: front = the mirrored selfie you coach yourself
+    // in, back = an ordinary un-mirrored view of someone else's hand. It used to be XORed with a
+    // `mirrorFlip` that a DEBUG menu in the chrome bar could set, so parity had a second, hidden
+    // input that a stray tap on the live coaching screen could invert. That menu is gone (see
+    // ARCoachView.chromeBar) and so is the flag: one input, and the ONLY thing that changes parity
+    // is flipCamera(), which reconfigures the session and resets the engine for the new scene.
+    var mirrored: Bool { usingFront }                 // main thread / preview
     private var queueMirrored = true                  // capture queue only
     // Requested video rotation, queue-confined (the same main-thread/queue split as `mirrored`).
     // Updated by setRotation(angle:) when the interface rotates; the preview layer's connection is

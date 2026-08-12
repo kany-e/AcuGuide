@@ -162,6 +162,47 @@ final class MoxaPlacementTests: XCTestCase {
                       "the ACTION (look on a timer, stop while lightly pink) must stay visible")
     }
 
+    // THE PLACEMENT CARD SHOWS ONE LINE, AND IT MUST BE THE ACTION. The card is reached only by
+    // passing the gate and scrolling past the tab's own copy of this notice, so repeating all of it
+    // at the bottom of every card was the duplication the density report was really about. What
+    // survives there is the instruction that prevents the burn — not the mechanism, which the card
+    // is too late to be teaching.
+    func testThePlacementCardLeadsWithTheActionAlone() {
+        let zhWas = AppSettings.shared.lang
+        AppSettings.shared.lang = .en
+        defer { AppSettings.shared.lang = zhWas }
+
+        let visible = MoxaNotice.visibleLines(.card)
+        XCTAssertEqual(visible.count, 1, "one line leads on a card; the rest are one tap away")
+        let text = visible.joined(separator: " ").lowercased()
+        XCTAssertTrue(text.contains("on a timer") && text.contains("lightly pink"),
+                      "the card must lead with the ACTION (look on a timer, stop while lightly pink)")
+
+        // Same partition rule as the tab, stated for a selection that is not a prefix: what is shown
+        // plus what is hidden IS the notice, with nothing dropped and nothing shown twice.
+        let hidden = MoxaNotice.hiddenLines(.card)
+        XCTAssertEqual(visible.count + hidden.count, MoxaNotice.lines.count)
+        XCTAssertEqual(Set(visible + hidden), Set(MoxaNotice.lines))
+    }
+
+    // The count is per-SURFACE. A card hides five lines where the tab hides four, so a label reused
+    // from the tab would under-report by one on every card — the exact way a disclosure teaches the
+    // user that it is lying about what is behind it.
+    func testEachSurfaceCountsItsOwnHiddenLines() {
+        let zhWas = AppSettings.shared.lang
+        AppSettings.shared.lang = .en
+        defer { AppSettings.shared.lang = zhWas }
+
+        for surface in [MoxaNotice.Surface.tab, .card] {
+            let n = MoxaNotice.hiddenLines(surface).count
+            XCTAssertTrue(MoxaNotice.moreLabel(for: surface).contains("\(n)"),
+                          "the label must name what IT hides — got '\(MoxaNotice.moreLabel(for: surface))'")
+        }
+        XCTAssertNotEqual(MoxaNotice.hiddenLines(.tab).count, MoxaNotice.hiddenLines(.card).count,
+                          "if the two surfaces hid the same number, one shared label would be enough "
+                          + "and this test would be pinning nothing")
+    }
+
     // A disclosure that under-reports what it hides is a disclosure that teaches the user to leave
     // it closed. The count is derived, and this is what keeps it derived.
     func testTheMoreLabelReportsTheRealNumberOfHiddenLines() {
