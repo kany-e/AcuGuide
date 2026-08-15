@@ -140,7 +140,7 @@ final class AcuGuideTests: XCTestCase {
         // and the screening questions are the strings most likely to be written from source material
         // saturated with the banned stems. Both are exposed as enumerable statics for exactly this,
         // because a surface the scan cannot reach is a surface the scan does not cover.
-        check("moxaNotice", MoxaNotice.lines)
+        check("moxaNotice", MoxaNotice.allCopy)   // lines + the disclosure labels
         check("moxaGate", MoxaGateView.allCopy)
         check("moxaClock", MoxaClockCopy.allCopy)
         check("moxaStrap", MoxaStrapAdvice.allCopy)

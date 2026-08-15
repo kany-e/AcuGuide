@@ -60,7 +60,7 @@ struct MoxaTab: View {
             MoxaClockView(checksRequired: visit.current()?.checksRequired ?? true) { showClock = false }
         }
         .sheet(item: $selectedPlacement) { p in
-            MoxaPlacementCard(placement: p, readOnly: visit.current()?.blocksHeat ?? true) { selected = $0 }
+            MoxaPlacementCard(placement: p) { selected = $0 }
         }
     }
 
@@ -71,7 +71,7 @@ struct MoxaTab: View {
                 // better box. A well-made box strapped on for forty minutes causes the same
                 // low-temperature burn as a badly-made one: the injury mode is duration plus absent
                 // sensation, not build quality.
-                MoxaNotice(readOnly: readOnly)
+                MoxaNotice()
 
                 // The practitioner round's product advice, HIGHLIGHTED by design: it is the one
                 // purchasable difference that changes how fast heat comes off skin.
@@ -108,8 +108,8 @@ struct MoxaTab: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(AppLocale.pick("在自己身上找位置", "Find it on yourself"))
                                     .font(.subheadline.weight(.semibold))
-                                Text(AppLocale.pick("躺下，从肚脐量到耻骨上缘，用你自己的手指",
-                                                    "Lie down and measure navel to pubic bone, in your own finger-widths"))
+                                Text(AppLocale.pick("从肚脐量到耻骨上缘，用你自己的手指",
+                                                    "Navel to pubic bone, in your own finger-widths"))
                                     .font(.caption2).foregroundStyle(Ink.textDim)
                                     .multilineTextAlignment(.leading)
                             }
@@ -162,20 +162,46 @@ struct MoxaTab: View {
 /// The practitioner's product advice, visually set apart from the running copy (gold border, its
 /// own icon) because it is the single buying decision that changes outcomes: how a box fastens is
 /// how fast it comes off. A product CATEGORY is named, never a brand — the app has nothing to sell.
+///
+/// THE TITLE IS THE WHOLE RULE, so the paragraph starts COLLAPSED. Device report: "the moxibustion
+/// tab is too dense with words, nobody is going to read it that thoroughly" — and a paragraph
+/// nobody reads protects nobody. "Quick-release straps, never tape" is the instruction; the body is
+/// the reasoning behind it, which is worth one tap and is not worth spending the top of the screen
+/// on. Nothing is deleted: `allCopy` still enumerates every string for the claims scan.
 struct MoxaStrapAdvice: View {
+    @State private var expanded = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(Self.title, systemImage: "checkmark.seal")
-                .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.gold)
-            Text(Self.body_)
-                .font(.caption).foregroundStyle(Ink.text)
-                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Label(Self.title, systemImage: "checkmark.seal")
+                        .font(.subheadline.weight(.semibold))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                }
+                .foregroundStyle(Ink.gold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(AppLocale.pick("展开或收起选盒的理由", "Shows or hides why"))
+
+            if expanded {
+                Text(Self.body_)
+                    .font(.caption).foregroundStyle(Ink.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14).fill(Ink.gold.opacity(0.08)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Ink.gold, lineWidth: 1))
-        .accessibilityElement(children: .combine)
     }
 
     static var title: String {
@@ -190,31 +216,110 @@ struct MoxaStrapAdvice: View {
     static var allCopy: [String] { [title, body_] }
 }
 
-/// The standing safety note. Shown above the points every time rather than behind a disclosure,
-/// because the thing it says is the thing most box owners do not know.
+/// The standing safety note, shown above the points every time — the thing it says is the thing
+/// most box owners do not know.
+///
+/// TWO LINES ARE VISIBLE; THE OTHER FOUR ARE ONE TAP AWAY. Six bullets of authored prose at the top
+/// of the tab, repeated in full at the bottom of every placement card, is a wall — device report:
+/// "too dense with words, nobody is going to read it that thoroughly." A safety notice that is
+/// skipped conveys nothing, so the two that carry the INJURY MECHANISM and the ACTION lead (the box
+/// removes the hand that would have noticed; look at the skin on a timer and stop while it is
+/// lightly pink) and the rest — the temperature band, closed rooms, reignition, strapping while
+/// lying down — sit behind a labelled disclosure that says how many are there.
+///
+/// NOTHING IS DELETED, and nothing here is the safety GATE: MoxaGateView's five questions are
+/// forced on every entry and MoxaClockView enforces the skin checks structurally. This is the
+/// reminder beside them. `lines` still returns all six, in order, so the claims scan is unchanged.
 struct MoxaNotice: View {
-    let readOnly: Bool
+    /// WHERE this notice is being shown, which is what decides how much of it leads. The TAB is the
+    /// first thing a box owner sees, so it leads with the pair: the mechanism and the action. A
+    /// PLACEMENT CARD is reached only by passing the gate AND scrolling past that pair, so repeating
+    /// all of it there was the duplication the density report was really about — the card leads with
+    /// the ACTION alone, and the rest is the same one tap away.
+    enum Surface { case tab, card }
+
+    var surface: Surface = .tab
+    @State private var expanded = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(AppLocale.pick("艾灸是明火", "Moxibustion is an open flame"), systemImage: "flame")
                 .font(.subheadline.weight(.semibold)).foregroundStyle(Ink.terracotta)
-            ForEach(Self.lines, id: \.self) { line in
-                Text("• " + line).font(.caption).foregroundStyle(Ink.text)
-                    .fixedSize(horizontal: false, vertical: true)
+            ForEach(Self.visibleLines(surface), id: \.self) { bullet($0) }
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    Text(expanded ? Self.fewerLabel : Self.moreLabel(for: surface))
+                        .font(.caption.weight(.semibold))
+                        .multilineTextAlignment(.leading)
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Ink.gold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                ForEach(Self.hiddenLines(surface), id: \.self) { bullet($0) }
             }
         }
         .padding(14).panel()
     }
 
+    private func bullet(_ line: String) -> some View {
+        Text("• " + line).font(.caption).foregroundStyle(Ink.text)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// WHAT LEADS, per surface. The tab shows the mechanism and the action; the card shows the
+    /// action. Both are expressed as a selection FROM `lines`, and what is hidden is defined as
+    /// everything else — so no arrangement of this can drop a line or show one twice, and the
+    /// disclosure's count is always the truth about what is behind it.
+    static func visibleLines(_ surface: Surface) -> [String] {
+        switch surface {
+        case .tab:  return Array(lines.prefix(2))            // mechanism, then the action it answers
+        case .card: return Array(lines.dropFirst().prefix(1))  // the action alone
+        }
+    }
+    static func hiddenLines(_ surface: Surface) -> [String] {
+        let shown = visibleLines(surface)
+        return lines.filter { !shown.contains($0) }
+    }
+
+    /// Derived from the split, never hardcoded — a count that disagrees with what unfolds is how a
+    /// user learns to distrust the disclosure.
+    static func moreLabel(for surface: Surface) -> String {
+        let n = hiddenLines(surface).count
+        return AppLocale.pick("还有 \(n) 条要注意的", "\(n) more things to watch for")
+    }
+    static var fewerLabel: String { AppLocale.pick("收起", "Show fewer") }
+
+    /// The tab surface, named — the split the safety tests reason about. `lines` is what the claims
+    /// scan reads, so it must stay the whole set; `allCopy` adds every label either surface can draw.
+    static var leadLines: [String] { visibleLines(.tab) }
+    static var moreLines: [String] { hiddenLines(.tab) }
+    static var moreLabel: String { moreLabel(for: .tab) }
+    static var allCopy: [String] { lines + [moreLabel(for: .tab), moreLabel(for: .card), fewerLabel] }
+
     // Every line is authored, not translated — the source material for this topic is saturated with
     // the banned stems (艾灸的功效与作用, 足浴治疗), so a translated version would fail the scan.
     static var lines: [String] {
-        [AppLocale.pick("艾灸盒把热源固定在身上，也就把「觉得烫就拿开」的那只手拿走了——这正是家用艾灸低温烫伤最常见的原因。",
-                        "A box straps the heat on and, in doing so, removes the hand that would have noticed it — which is why boxes are the commonest source of low-temperature burns at home."),
+        // THE TWO VISIBLE LINES ARE THE SHORTEST TRUE FORM OF THEMSELVES. Second device report on
+        // this tab: "too dense with words, nobody is going to read it that thoroughly." Length is
+        // not thoroughness here — these two lines are the ones a user who reads nothing else must
+        // still take away, so every clause that was context rather than instruction is gone.
+        [AppLocale.pick("盒子固定住热源，也就拿走了「觉得烫就拿开」的那只手——家用低温烫伤最常见的原因。",
+                        "A box straps the heat on and removes the hand that would have noticed it — the commonest cause of low-temperature burns at home."),
+         // SECOND, AND THEREFORE VISIBLE: the mechanism above is only useful next to the thing to
+         // DO about it. These two are the pair a user who reads nothing else should still have.
+         AppLocale.pick("定时看皮肤，别只靠感觉；只是微微发红时就该停。",
+                        "Look at the skin on a timer, not by feel — stop while it is still only lightly pink."),
          AppLocale.pick("44到50度持续够久，会由浅入深地伤到皮肤，而且一开始不太痛、表面看不出来。所以「不觉得烫」并不代表安全，时间才是关键。",
                         "Held long enough, 44–50 °C injures progressively from the surface downward — and it barely hurts at first and looks like very little. So \"it doesn't feel too hot\" is not a sign that it is safe; the variable that matters is time."),
-         AppLocale.pick("看皮肤，别只靠感觉，定时查看。皮肤只是微微发红就该停。",
-                        "Look at the skin on a timer rather than going by feel. Stop while it is no more than lightly pink."),
          AppLocale.pick("别在密闭房间里用，冬天关窗最容易积聚一氧化碳。",
                         "Not in a closed room — a sealed room in winter is how carbon monoxide builds up."),
          AppLocale.pick("艾条内部会阴燃，看不到火星也可能复燃，泡过水后重新接触空气仍会冒火星。用密封灭火管，或把燃烧端深埋在干沙里。",
@@ -271,9 +376,11 @@ struct MoxaPointCard: View {
 /// One placement: what it is, and the points on it. Tapping a point opens its own card, so each
 /// point's location and caution live in exactly one place (MoxaAtlas) and the placement text never
 /// restates them — the restating is how the two drift.
+/// (No `readOnly` here. It existed only to forward to MoxaNotice, which no longer takes one — and a
+/// parameter that is threaded from the screening result but read by nothing reads like the card
+/// varies with the screening when it does not. The point cards this one opens still take it.)
 struct MoxaPlacementCard: View {
     let placement: MoxaPlacement
-    let readOnly: Bool
     let onPoint: (MoxaPoint) -> Void
 
     var body: some View {
@@ -327,7 +434,7 @@ struct MoxaPlacementCard: View {
                         }
                     }
 
-                    MoxaNotice(readOnly: readOnly)
+                    MoxaNotice(surface: .card)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)

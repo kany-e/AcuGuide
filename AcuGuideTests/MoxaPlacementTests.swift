@@ -29,7 +29,7 @@ final class MoxaPlacementTests: XCTestCase {
             check("placement[\(p.id)]", [p.titleEn, p.titleZh, p.bodyEn, p.bodyZh])
         }
         check("routingQuestion", [MoxaPlacements.routingQuestion])
-        check("moxaNotice", MoxaNotice.lines)
+        check("moxaNotice", MoxaNotice.allCopy)   // lines + the disclosure labels
         check("moxaGate", MoxaGateView.allCopy)
         // The clock and the strap advice are moxa surfaces like any other — a dose-escalating
         // claim beside a TIMER would be the worst possible place for one.
@@ -137,5 +137,81 @@ final class MoxaPlacementTests: XCTestCase {
         let cv4 = MoxaAtlas.abdomen.first { $0.id == "CV4" }!
         XCTAssertTrue(cv4.traditionEn.contains("Mingguan"),
                       "if the text is cited, the 命关/命门 substitution must be disclosed")
+    }
+
+    // MARK: - The notice's disclosure
+
+    // The notice now shows two of its six lines and folds the rest away, because six bullets at the
+    // top of the tab (and again on every placement card) is a wall nobody reads. That trade is only
+    // safe while the VISIBLE two are the mechanism and the action; a reorder of `lines` would move
+    // the fold silently and leave a user reading about carbon monoxide instead of about their skin.
+    func testTheTwoVisibleNoticeLinesAreTheMechanismAndTheAction() {
+        let zhWas = AppSettings.shared.lang
+        AppSettings.shared.lang = .en
+        defer { AppSettings.shared.lang = zhWas }
+
+        let lead = MoxaNotice.leadLines
+        XCTAssertEqual(lead.count, 2, "two lines lead; the rest are one tap away")
+        XCTAssertEqual(lead + MoxaNotice.moreLines, MoxaNotice.lines,
+                       "the split must partition the notice — no line may be dropped or duplicated")
+
+        let visible = lead.joined(separator: " ").lowercased()
+        XCTAssertTrue(visible.contains("removes the hand"),
+                      "the injury MECHANISM (the box takes away the hand that would have noticed) must stay visible")
+        XCTAssertTrue(visible.contains("on a timer") && visible.contains("lightly pink"),
+                      "the ACTION (look on a timer, stop while lightly pink) must stay visible")
+    }
+
+    // THE PLACEMENT CARD SHOWS ONE LINE, AND IT MUST BE THE ACTION. The card is reached only by
+    // passing the gate and scrolling past the tab's own copy of this notice, so repeating all of it
+    // at the bottom of every card was the duplication the density report was really about. What
+    // survives there is the instruction that prevents the burn — not the mechanism, which the card
+    // is too late to be teaching.
+    func testThePlacementCardLeadsWithTheActionAlone() {
+        let zhWas = AppSettings.shared.lang
+        AppSettings.shared.lang = .en
+        defer { AppSettings.shared.lang = zhWas }
+
+        let visible = MoxaNotice.visibleLines(.card)
+        XCTAssertEqual(visible.count, 1, "one line leads on a card; the rest are one tap away")
+        let text = visible.joined(separator: " ").lowercased()
+        XCTAssertTrue(text.contains("on a timer") && text.contains("lightly pink"),
+                      "the card must lead with the ACTION (look on a timer, stop while lightly pink)")
+
+        // Same partition rule as the tab, stated for a selection that is not a prefix: what is shown
+        // plus what is hidden IS the notice, with nothing dropped and nothing shown twice.
+        let hidden = MoxaNotice.hiddenLines(.card)
+        XCTAssertEqual(visible.count + hidden.count, MoxaNotice.lines.count)
+        XCTAssertEqual(Set(visible + hidden), Set(MoxaNotice.lines))
+    }
+
+    // The count is per-SURFACE. A card hides five lines where the tab hides four, so a label reused
+    // from the tab would under-report by one on every card — the exact way a disclosure teaches the
+    // user that it is lying about what is behind it.
+    func testEachSurfaceCountsItsOwnHiddenLines() {
+        let zhWas = AppSettings.shared.lang
+        AppSettings.shared.lang = .en
+        defer { AppSettings.shared.lang = zhWas }
+
+        for surface in [MoxaNotice.Surface.tab, .card] {
+            let n = MoxaNotice.hiddenLines(surface).count
+            XCTAssertTrue(MoxaNotice.moreLabel(for: surface).contains("\(n)"),
+                          "the label must name what IT hides — got '\(MoxaNotice.moreLabel(for: surface))'")
+        }
+        XCTAssertNotEqual(MoxaNotice.hiddenLines(.tab).count, MoxaNotice.hiddenLines(.card).count,
+                          "if the two surfaces hid the same number, one shared label would be enough "
+                          + "and this test would be pinning nothing")
+    }
+
+    // A disclosure that under-reports what it hides is a disclosure that teaches the user to leave
+    // it closed. The count is derived, and this is what keeps it derived.
+    func testTheMoreLabelReportsTheRealNumberOfHiddenLines() {
+        let zhWas = AppSettings.shared.lang
+        AppSettings.shared.lang = .en
+        defer { AppSettings.shared.lang = zhWas }
+
+        XCTAssertTrue(MoxaNotice.moreLabel.contains("\(MoxaNotice.moreLines.count)"),
+                      "the label must name how many lines are folded away — got '\(MoxaNotice.moreLabel)'")
+        XCTAssertFalse(MoxaNotice.moreLines.isEmpty, "nothing folded away means the disclosure is chrome")
     }
 }

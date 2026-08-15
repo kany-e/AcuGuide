@@ -221,9 +221,11 @@ struct Hand {
     // (`signed` = cross for a right hand, -cross for a left hand; horizontal mirroring
     //  negates cross and swaps chirality, which cancel — so it holds for front/rear camera.)
     //
-    // The comparison is gated behind ONE flag (`HandCalibration.dorsalWhenSignedPositive`) so
-    // that, if WRONG_FACE fires backwards on a device, it can be inverted in a single place
-    // (a debug toggle in the coach view) rather than hunting through the geometry.
+    // The comparison is gated behind ONE flag (`HandCalibration.dorsalWhenSignedPositive`) so that
+    // the convention lives in a single place rather than being spread through the geometry. It is a
+    // BUILD-TIME constant, not a user-reachable switch: the coach's debug menu that used to flip it
+    // in the field is gone, because the value is device-verified (see the flag) and a live toggle
+    // over the camera was only ever a way to invert a correct gate by accident.
     // nil when a required MCP landmark is missing — the caller must decide what an
     // unverifiable face means rather than silently defaulting to dorsal (which would let a
     // partially-detected palm pass the TE3 dorsal gate).

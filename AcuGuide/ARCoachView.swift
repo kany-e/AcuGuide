@@ -31,7 +31,6 @@ struct ARCoachView: View {
     @State private var showEndConfirm = false      // guard banked progress against an accidental End
     @State private var feeling: String? = nil      // stable key: "relaxing" | "neutral" | "uncomfortable"
     @State private var practiceRecordId: String? = nil   // history record for this session (saved once)
-    @State private var dorsalPositive = HandCalibration.dorsalWhenSignedPositive
     @State private var prevPhase: CoachPhase = .noHand
     // The ONE over-camera note, drawn on the guide ring itself (see CoachMarks.Ring.label) rather
     // than as a floating chip in the corner. It says which spot the ring is: "using your saved one"
@@ -607,20 +606,15 @@ struct ARCoachView: View {
 
             if let frozen { frozenOverlay(frozen) }
             if userPaused { pausedOverlay }
-            #if DEBUG
-            // ROTATION READOUT (debug builds only). The landscape picture has been reported inverted
-            // three times, and reasoning has not settled it: an iOS screenshot is rendered in
-            // INTERFACE space, so "chrome upright, camera upside down" looks identical whether the
-            // capture ANGLE is wrong or the window was sent to the WRONG LANDSCAPE. Nothing in a
-            // screenshot can separate those. This prints the three numbers that do — photograph it
-            // with another device, or just read it off the screen, and the answer is unambiguous:
-            //   • device ≠ what you are physically holding  → the driver's mapping is wrong
-            //   • device right, interface right, but inverted → CaptureRotation.angle is wrong
-            //   • angle ≠ the table's value for that interface → a stale/latched write
-            // Top-leading: the one region that is empty in BOTH orientations (the card owns the
-            // bottom in portrait and the trailing side in landscape).
-            VStack { HStack { rotationReadout; Spacer() }; Spacer() }
-            #endif
+            // NO DIAGNOSTIC READOUT OVER THE PICTURE. A monospaced dev HUD (device/interface/angle/
+            // mirror/front) used to sit top-leading in DEBUG builds. It existed to answer ONE
+            // question — whether an inverted landscape picture came from the capture angle or from
+            // the window being sent to the wrong landscape — because a screenshot is rendered in
+            // interface space and cannot separate those. That question was settled by measurement
+            // (see CaptureRotation.angle, which records the reading), so the readout was all cost
+            // and no answer: this screen's whole job is to show the user their own hand, and Xcode
+            // installs Debug, so the person testing the app on a phone got dev chrome on every
+            // frame. If it is ever needed again it belongs in a log line, not on the picture.
         }
         // Cap growth so the largest accessibility sizes can't break the camera overlay layout,
         // while still honoring Dynamic Type up to that bound.
@@ -765,11 +759,13 @@ struct ARCoachView: View {
         .accessibilityAddTraits(.isModal)
     }
 
-    // On-device field-calibration toggles (Phase 1): flip the mirror or invert the
-    // face gate in one place if they fire backwards on a given device.
-    // THE TOP CONTROL CLUSTER. (Still called `debugBar` for one more round would have been wrong —
-    // only the #if DEBUG menu at the end is debug chrome, and the comment further up already refers
-    // to a `topBar` that never existed. It is `chromeBar` now.)
+    // THE TOP CONTROL CLUSTER — every control here is a USER control. It carries no debug chrome at
+    // all now: the field-calibration menu (flip the landmark mirroring, invert the palm/dorsal gate)
+    // was the last of it and is gone with the rotation readout. Both of its switches were answered by
+    // measurement — HandCalibration.dorsalWhenSignedPositive is device-verified on 9/9 labels for BOTH
+    // hands, and the mirror follows the camera position — so what was left was a two-tap way for a
+    // stray finger to invert the coach's geometry, on the screen where being wrong is most visible.
+    // If a device ever needs those switches again they belong behind a build, not on the picture.
     //
     // Device report: "the button on the top looks out of place." It was six BARE glyphs, each
     // `Image(...).font(.callout).padding(8).background(Circle())` with no `.frame` — and a Circle
@@ -828,22 +824,6 @@ struct ARCoachView: View {
             chromeButton(voice.muted ? "speaker.slash.fill" : "speaker.wave.2.fill") { voice.muted.toggle() }
                 .accessibilityLabel(AppLocale.pick("语音提示", "Voice cues"))
                 .accessibilityValue(voice.muted ? AppLocale.pick("已关闭", "Off") : AppLocale.pick("已开启", "On"))
-            #if DEBUG
-            // Field-calibration switches (debug builds only): flip the landmark mirroring or invert
-            // the palm/dorsal gate in one place if either fires backwards on a given device.
-            Menu {
-                Toggle("Mirror preview", isOn: Binding(
-                    get: { camera.mirrorFlip }, set: { camera.mirrorFlip = $0 }))
-                Toggle("Dorsal = signed > 0", isOn: Binding(
-                    get: { dorsalPositive },
-                    set: { dorsalPositive = $0; HandCalibration.dorsalWhenSignedPositive = $0 }))
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.callout).foregroundStyle(Ink.paper.opacity(0.85))
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel("Calibration")
-            #endif
         }
         .padding(.horizontal, 4)
         .background(
@@ -851,39 +831,6 @@ struct ARCoachView: View {
                 .overlay(Capsule().stroke(Ink.gold.opacity(0.35), lineWidth: 1))
         )
     }
-
-    #if DEBUG
-    /// The three numbers that separate the candidate causes of an inverted landscape picture.
-    /// Deliberately terse and monospaced so it is legible in a photograph of the screen.
-    private var rotationReadout: some View {
-        let dev: String
-        switch UIDevice.current.orientation {
-        case .portrait: dev = "portrait"
-        case .portraitUpsideDown: dev = "portraitUD"
-        case .landscapeLeft: dev = "devLeft"
-        case .landscapeRight: dev = "devRight"
-        case .faceUp: dev = "faceUp"
-        case .faceDown: dev = "faceDown"
-        default: dev = "unknown"
-        }
-        let iface: String
-        switch CaptureRotation.interfaceOrientation {
-        case .portrait: iface = "portrait"
-        case .portraitUpsideDown: iface = "portraitUD"
-        case .landscapeLeft: iface = "ifaceLeft"
-        case .landscapeRight: iface = "ifaceRight"
-        default: iface = "unknown"
-        }
-        return Text("dev \(dev) · iface \(iface) · angle \(Int(CaptureRotation.currentAngle))° · "
-                    + "mirror \(camera.mirrored ? "Y" : "N") · front \(camera.usingFront ? "Y" : "N")")
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Capsule().fill(.black.opacity(0.7)))
-            .padding(.leading, 12).padding(.top, 6)
-            .accessibilityHidden(true)
-    }
-    #endif
 
     /// Pause and End. Hoisted into the card's HEADER row, beside the ring, so they stop competing
     /// with the prose for width — they are fixed-size chrome and the guide is not.

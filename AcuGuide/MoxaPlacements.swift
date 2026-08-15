@@ -38,9 +38,13 @@ enum MoxaPlacements {
     /// symptom and makes the next screen a prescription; this collects nothing about the body and is
     /// answerable in a second.
     static var routingQuestion: String {
+        // ONE QUESTION AND ONE CLARIFICATION. The paragraph that used to follow ("any of them can be
+        // read; the question is only which one you are in a position to do") said in two more
+        // sentences what the question itself already asks — and it sat directly above the cards,
+        // where the density report lands hardest.
         AppLocale.pick(
-            "现在方便平躺、方便坐着，还是有人能搭把手？下面三处是身体上的三个位置，不是三种不同的用途。哪一处都可以看；这个问题只关乎你眼下能做到哪一处。",
-            "Right now — can you lie flat, are you sitting, or is there someone here who can help? The three placements below are three places on the body, not three different purposes. Any of them can be read; the question is only which one you are in a position to do.")
+            "现在方便平躺、方便坐着，还是有人能搭把手？下面是身体上的三处位置，不是三种用途。",
+            "Right now — can you lie flat, are you sitting, or is someone here to help? Three places on the body, not three purposes.")
     }
 
     static let all: [MoxaPlacement] = [
