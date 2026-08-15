@@ -134,7 +134,12 @@ final class MoxaClock: ObservableObject {
         case .lookedClear, .skip:
             checksAnswered += 1
             checkPhoto = nil
-            nextCheckAt += MoxaClockPlan.checkEverySeconds
+            // THE NEXT LOOK IS FIVE MINUTES FROM THIS LOOK, not from the schedule this look was
+            // owed to. In the foreground the two are identical (a check is answered at the instant
+            // it comes due). They differ only after a background gap, where `elapsed` has already
+            // been credited past the boundary — and there `+=` would leave the next check already
+            // overdue, firing a second "look at your skin" against the same look.
+            nextCheckAt = elapsed + MoxaClockPlan.checkEverySeconds
             if elapsed >= plannedSeconds { finish(.endedByCap) } else { phase = .running; run() }
         case .stop:
             finish(.stoppedForSkin)
@@ -151,8 +156,9 @@ final class MoxaClock: ObservableObject {
     func scenePaused() { ticker?.invalidate(); ticker = nil }
     func sceneResumed(after wallSeconds: Double) {
         guard phase == .running else { return }
-        // Credit real elapsed time across the background gap, but never sail past a due check or
-        // the cap: the clock lands ON the boundary and the same rules fire as if it had ticked there.
+        // Credit the real gap IN FULL — the box was hot for all of it — and let the boundary the
+        // total crosses decide: a due look freezes the clock until it is answered, and a gap that
+        // reaches the cap ends the sitting on the spot. See tick().
         tick(wallSeconds)
         if phase == .running { run() }
     }
@@ -172,20 +178,28 @@ final class MoxaClock: ObservableObject {
         ticker = t
     }
 
-    /// Advance the clock. Public so tests drive a sitting deterministically. A single call may
-    /// cover a long gap (scene resume); the clock stops AT the first boundary it crosses — a due
-    /// check freezes time until it is answered, so heat-time is never silently credited past a look.
+    /// Advance the clock. Public so tests drive a sitting deterministically. A single call may cover
+    /// a long gap (scene resume), and then it CREDITS THE WHOLE GAP before deciding what happens.
+    ///
+    /// THE CAP IS MEASURED IN HEAT-TIME, AND A BACKGROUNDED APP IS STILL A BURNING BOX. This used to
+    /// clamp `elapsed` to the first boundary the gap crossed and drop the remainder on the floor —
+    /// so ten minutes in the background credited two and a half, and the "15-minute HARD cap" was
+    /// really a cap on time spent looking at the screen. Backgrounding the app was therefore a path
+    /// that extended the sitting, which is the one thing this file says no path may do: come back
+    /// after twenty minutes on a fifteen-minute plan and the clock would answer one check and then
+    /// run on for another fifteen. Skipping a LOOK and discarding TIME are different failures, and
+    /// the fix for the first was never to commit the second.
+    ///
+    /// So the gap is credited in full, and the boundary still fires: whichever of the two the total
+    /// crosses decides. The cap wins a tie, because there the box comes off either way.
     func tick(_ dt: Double) {
         guard phase == .running else { return }
-        let boundary = min(nextCheckAt, plannedSeconds)
-        elapsed = min(elapsed + dt, boundary)
-        guard elapsed >= boundary else { return }
-        ticker?.invalidate(); ticker = nil
-        if elapsed >= plannedSeconds, plannedSeconds <= nextCheckAt {
-            // The sitting ends here. If a check falls on the same moment, ending wins — the box is
-            // coming off anyway, which is what the check exists to make possible.
+        elapsed += dt
+        if elapsed >= plannedSeconds {
+            ticker?.invalidate(); ticker = nil
             finish(.endedByCap)
-        } else {
+        } else if elapsed >= nextCheckAt {
+            ticker?.invalidate(); ticker = nil
             phase = .checking
             MoxaHaptic.checkDue()
         }

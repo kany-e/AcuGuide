@@ -6,7 +6,7 @@ window** (Vision hand-pose, 8 camera-coached points), a **guided timer** for eve
 **fully on-device AI chat coach**.
 
 > Status: **builds, tests, and ships green.** The Xcode project is generated from `project.yml`
-> (XcodeGen). `make build` (generic iOS device, unsigned) and `make test` both pass — **136 tests,
+> (XcodeGen). `make build` (generic iOS device, unsigned) and `make test` both pass — **293 tests,
 > 0 failures**. Every branch is gated by `.github/workflows/merge-gate.yml` before it may merge.
 >
 > **Not yet verified on real hardware:** the meridian rendering and the hand-detection feel. Camera
@@ -16,8 +16,8 @@ window** (Vision hand-pose, 8 camera-coached points), a **guided timer** for eve
 The iOS app **is** this repository — it lives at the root.
 
 ```
-AcuGuide/               # app sources (SwiftUI, Vision, SceneKit) — 51 files
-AcuGuideTests/          # unit tests — 11 files, 136 tests
+AcuGuide/               # app sources (SwiftUI, Vision, SceneKit) — 61 files
+AcuGuideTests/          # unit tests — 27 files, 293 tests
 project.yml             # XcodeGen spec — the project is generated, never hand-assembled
 Makefile                # make project / build / test
 scripts/                # safety_scan.py (banned-claim scanner), pick_simulator.sh

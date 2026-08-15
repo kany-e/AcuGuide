@@ -123,16 +123,49 @@ final class MoxaClockTests: XCTestCase {
         XCTAssertEqual(c.phase, .stoppedForSkin)
     }
 
-    // A BACKGROUND GAP NEVER SAILS PAST A LOOK. Ten minutes away lands the clock exactly ON the
-    // first unanswered boundary, with the check due — not past it with heat-time silently credited.
-    func testSceneGapLandsOnTheCheckBoundaryNotPastIt() {
+    // A BACKGROUND GAP NEVER SAILS PAST A LOOK — AND NEVER LOSES THE HEAT-TIME EITHER. Ten minutes
+    // away comes back with the check due AND all ten minutes credited.
+    //
+    // This test used to assert the opposite half: that `elapsed` was clamped to the first missed
+    // boundary (150 s). That clamp DISCARDED the rest of the gap, which made the cap a limit on
+    // foreground time rather than on heat — the box was hot for the whole ten minutes. Skipping a
+    // look and dropping time are different failures; freezing at the boundary fixes the first and
+    // must not commit the second.
+    func testSceneGapCreditsTheWholeGapAndStillForcesALook() {
+        let c = MoxaClock(minutes: 15, checksRequired: false)
+        c.start()
+        c.scenePaused()
+        c.sceneResumed(after: 600)
+        XCTAssertEqual(c.phase, .checking, "a missed look must still be owed on return")
+        XCTAssertEqual(c.elapsed, 600, accuracy: 0.001,
+                       "every second the box was hot counts toward the cap, foreground or not")
+    }
+
+    // THE CAP IS A CAP ON HEAT, SO BACKGROUNDING CANNOT OUTLIVE IT. Twenty minutes away on a
+    // fifteen-minute plan is a sitting that is already over; the clock must say so on return rather
+    // than answer one check and start another fifteen minutes.
+    func testABackgroundGapPastTheCapEndsTheSitting() {
+        let c = MoxaClock(minutes: 15, checksRequired: true)
+        c.start()
+        c.scenePaused()
+        c.sceneResumed(after: 20 * 60)
+        XCTAssertEqual(c.phase, .endedByCap,
+                       "a gap longer than the whole plan ends the sitting, it does not extend it")
+    }
+
+    // One look answers one gap. The next check is due five minutes from THE LOOK, not from the
+    // schedule slot the look was owed to — otherwise a returning user is asked to look at the same
+    // skin twice in a row, which is how a check becomes something to dismiss.
+    func testAnsweringAfterAGapDoesNotImmediatelyReAsk() {
         let c = MoxaClock(minutes: 15, checksRequired: false)
         c.start()
         c.scenePaused()
         c.sceneResumed(after: 600)
         XCTAssertEqual(c.phase, .checking)
-        XCTAssertEqual(c.elapsed, MoxaClockPlan.firstCheckSeconds, accuracy: 0.001,
-                       "the gap credits time only up to the first missed look")
+        c.answer(.lookedClear)
+        XCTAssertEqual(c.phase, .running, "the answered look resumes the sitting")
+        XCTAssertEqual(c.secondsToNextCheck, MoxaClockPlan.checkEverySeconds, accuracy: 0.001,
+                       "the next look is a full interval away, measured from this one")
     }
 
     // The photos live exactly as long as the sitting — every exit wipes both. (In-memory-only is a
