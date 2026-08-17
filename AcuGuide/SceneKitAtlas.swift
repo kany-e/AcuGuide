@@ -131,7 +131,7 @@ enum AtlasMarkers {
     // answer in the app, in tests, every time. Low-poly meshes → the brute-force cost is trivial.
     static func screenMarker(cameraZ: Float, mesh: SCNNode, u: Float, v: Float, farSide: Bool,
                              id: String, color: UIColor, core: CGFloat, halo: CGFloat)
-        -> (node: SCNNode, onSurface: Bool, snapped: Bool)? {
+        -> (node: SCNNode, onSurface: Bool, snapped: Bool, face: SIMD3<Float>)? {
         let (lo, hi) = mesh.boundingBox
         var mn = SIMD3<Float>(repeating: .greatestFiniteMagnitude); var mx = -mn
         for a in [lo.x, hi.x] { for b in [lo.y, hi.y] { for c in [lo.z, hi.z] {
@@ -181,7 +181,20 @@ enum AtlasMarkers {
         let node = domeMarker(id: id, color: color, radius: core, halo: halo,
                               at: SCNVector3(wp.x, wp.y, wp.z), normal: SCNVector3(nrm.x, nrm.y, nrm.z),
                               depthTested: true)
-        return (node, onSurface, snapped)
+        // WHICH FACE THIS MARKER IS ON — for culling, and deliberately NOT the geometric normal
+        // above. `nrm` is a facet normal from wherever the ray happened to land, corrected only to
+        // point away from the model centre, and at the wrist that correction cannot tell palmar from
+        // dorsal: the outward direction there is dominated by the forearm axis, and the surface is
+        // nearly edge-on to the view. Measured — culling on `nrm` left LU9 and PC7, both PALMAR,
+        // reading as camera-facing from the dorsal pose, i.e. exactly the two wrist-crease points
+        // the wrong-label report was about.
+        //
+        // `farSide` is the authoritative fact and it is an input, not an inference: the marker was
+        // raycast onto the near or the far surface BECAUSE of it. So the face vector is the view ray
+        // itself — pointing away from the camera for a far-side point, back at it for a near one.
+        // Exact by construction, and immune to grazing geometry.
+        let face = farSide ? baseDir : -baseDir
+        return (node, onSurface, snapped, face)
     }
 
     // Nearest-first spiral of uv offsets: 8 directions per ring, radius growing to ~a tenth of
@@ -349,6 +362,11 @@ enum AtlasMarkers {
     // Resolve a hit-test to an acupoint by walking up to a node named "acu:<id>". (Body3DView keeps
     // its own variant because it also resolves meridian channels in the same pass.)
     //
+    // THE FACE A MARKER SITS ON DECIDES WHETHER IT CAN BE AIMED AT — see facesCamera below, which
+    // hides the away-facing ones. hitTest skips hidden nodes by default, so culling and tapping
+    // cannot disagree: the dot you can see is the dot you can select, and the two are the same
+    // decision rather than two mechanisms that happen to line up.
+    //
     // Only the NEAREST hit decides: hitTest returns results nearest-first, so if the first thing
     // under the finger is the mesh, a depth-hidden far-side marker behind it (KI1 under the foot
     // dorsum, palm points through the dorsal hand) must NOT be tappable straight through the
@@ -362,6 +380,40 @@ enum AtlasMarkers {
             n = node.parent
         }
         return nil
+    }
+
+    // MARK: - Face culling
+    //
+    // WHY A DOT ON THE FAR SIDE MUST NOT BE SELECTABLE. On the hand sheet, four marker pairs sit on
+    // OPPOSITE FACES within one halo diameter of each other in the viewing plane — LI5/LU9 are
+    // 0.005 apart, i.e. the same screen position, and PC7/TE4 (the palmar and dorsal wrist creases)
+    // are 0.016. That is anatomy, not a placement error: those points genuinely are back-to-back
+    // through the wrist. But it means a tap in that overlap is decided by camera DISTANCE alone,
+    // which has nothing to do with which dot the user was aiming at — from the dorsal pose the
+    // near-side dot answers for both, so tapping the palmar one opens the dorsal one's card
+    // (device report: the labels are on the wrong dots).
+    //
+    // Depth testing was already meant to hide the far side (domeMarker(depthTested:)), and inside
+    // the silhouette it does. Relying on it alone makes selectability a consequence of per-pixel
+    // depth at the edges of a mesh, which is not a thing to reason about — so the rule is made
+    // explicit instead: a marker is aimable only while its own surface faces the viewer.
+
+    /// Is the face this marker sits on turned toward the camera? `face` is screenMarker's face
+    /// vector (out of the hand's palmar or dorsal side, not the local facet normal) and
+    /// `cameraForward` is the direction the camera LOOKS — a node's world −Z. A face turned toward
+    /// the viewer therefore has a negative dot product with it.
+    static func facesCamera(face: SIMD3<Float>, cameraForward: SIMD3<Float>) -> Bool {
+        simd_dot(face, cameraForward) < 0
+    }
+
+    /// Hide every marker whose face is turned away from the camera. Called per frame while the user
+    /// orbits, so the visible set follows the pose — and, because hitTest skips hidden nodes, so
+    /// does the set that can answer a tap.
+    static func updateMarkerVisibility(_ markers: [(node: SCNNode, face: SIMD3<Float>)],
+                                       cameraForward: SIMD3<Float>) {
+        for m in markers {
+            m.node.isHidden = !facesCamera(face: m.face, cameraForward: cameraForward)
+        }
     }
 
     // Shared GLB scaffolding for the detailed drill-down views (hand + head/arm/foot). Resolves the
@@ -517,6 +569,10 @@ final class AcuTapCoordinator: NSObject {
     weak var cameraNode: SCNNode?
     private var initialCameraTransform = SCNMatrix4Identity
     var lastResetToken = 0
+    /// The acupoint markers this view placed, each with the face it sits on, for per-frame face
+    /// culling (see the renderer delegate below). Empty on views that place none, which turns the
+    /// culling off by itself.
+    var markers: [(node: SCNNode, face: SIMD3<Float>)] = []
     init(onSelect: @escaping (Acupoint) -> Void) { self.onSelect = onSelect }
 
     func registerCamera(_ cam: SCNNode) {
@@ -538,7 +594,20 @@ final class AcuTapCoordinator: NSObject {
 
     @objc func handleTap(_ g: UITapGestureRecognizer) {
         guard let view = view else { return }
+        // ignoreHiddenNodes defaults to TRUE, which is what couples this to the face culling below:
+        // an away-facing marker is hidden, so it cannot be hit, so it cannot answer for a dot in
+        // front of it. Do not pass .ignoreHiddenNodes: false here.
         let hits = view.hitTest(g.location(in: view), options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
         if let pt = AtlasMarkers.acupoint(in: hits) { onSelect(pt) }
+    }
+}
+
+// Per-frame face culling for the detail sheets. The markers sit in world space and the CAMERA
+// orbits, so which ones face the viewer changes every frame the user drags — this is the cheapest
+// place to keep the visible set honest (a dot product per marker, ~12 of them).
+extension AcuTapCoordinator: SCNSceneRendererDelegate {
+    func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+        guard !markers.isEmpty, let pov = renderer.pointOfView else { return }
+        AtlasMarkers.updateMarkerVisibility(markers, cameraForward: pov.simdWorldFront)
     }
 }
