@@ -29,6 +29,7 @@ struct HandModel3DView: UIViewRepresentable {
         let scene = SCNScene()
         AtlasMarkers.addStudioLighting(to: scene)
         view.scene = scene
+        view.delegate = context.coordinator     // per-frame marker face culling (SceneKitAtlas)
         context.coordinator.view = view
         // A re-presented sheet can carry a non-zero token from its parent into a FRESH coordinator
         // (lastResetToken 0); sync here so the first updateUIView doesn't fire a spurious reset.
@@ -44,7 +45,7 @@ struct HandModel3DView: UIViewRepresentable {
                                        euler: SCNVector3(0, 0.72, Float.pi), cameraZ: 2.3,
                                        in: scene, view: view, coordinator: context.coordinator,
                                        loading: loading) { mesh in
-            placeMarkers(mesh: mesh, in: scene)
+            placeMarkers(mesh: mesh, in: scene, coordinator: context.coordinator)
         }
 
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(AcuTapCoordinator.handleTap(_:)))
@@ -66,8 +67,15 @@ struct HandModel3DView: UIViewRepresentable {
     // Points with no detailUV (the forearm's PC6/SJ5) are simply not placed here — they belong to
     // the full-body atlas. Consumes AcupointPlacements.detailLayout — the ONE registry-consumption
     // rule shared with the part sheets and the snapshot test. Pure geometry — no view timing.
-    private func placeMarkers(mesh: SCNNode, in scene: SCNScene) {
+    //
+    // Markers are REGISTERED with the coordinator so it can cull the ones facing away each frame.
+    // The hand needs this more than any other sheet: four of its pairs are back-to-back through the
+    // hand within one halo diameter (LI5/LU9 at 0.005, PC7/TE4 at 0.016 — the palmar and dorsal
+    // wrist creases really are the same spot on two faces), so without culling a tap in the overlap
+    // is decided by camera distance and the near dot answers for the far one.
+    private func placeMarkers(mesh: SCNNode, in scene: SCNScene, coordinator: AcuTapCoordinator) {
         let d = AcupointPlacements.detailLayout(region: "hand")
+        var placed: [(node: SCNNode, face: SIMD3<Float>)] = []
         for (id, uv) in d.layout {
             guard let pt = Acupoint.byId[id] else { continue }
             if let m = AtlasMarkers.screenMarker(cameraZ: 2.3, mesh: mesh, u: uv.x, v: uv.y,
@@ -75,7 +83,9 @@ struct HandModel3DView: UIViewRepresentable {
                                                  id: id, color: UIColor(MeridianColors.color(pt.meridian)),
                                                  core: 0.022, halo: 0.04) {
                 scene.rootNode.addChildNode(m.node)
+                placed.append((m.node, m.face))
             }
         }
+        coordinator.markers = placed
     }
 }

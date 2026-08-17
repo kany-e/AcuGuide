@@ -97,6 +97,7 @@ struct PartModel3DView: UIViewRepresentable {
         let scene = SCNScene()
         AtlasMarkers.addStudioLighting(to: scene)
         view.scene = scene
+        view.delegate = context.coordinator     // per-frame marker face culling (SceneKitAtlas)
         context.coordinator.view = view
         // A re-presented sheet can carry a non-zero token from its parent into a FRESH coordinator
         // (lastResetToken 0); sync here so the first updateUIView doesn't fire a spurious reset.
@@ -109,7 +110,7 @@ struct PartModel3DView: UIViewRepresentable {
                                        euler: cfg.euler, cameraZ: cfg.cameraZ,
                                        in: scene, view: view, coordinator: context.coordinator,
                                        loading: loading) { mesh in
-            placeMarkers(in: scene, mesh: mesh, config: cfg)
+            placeMarkers(in: scene, mesh: mesh, config: cfg, coordinator: context.coordinator)
         }
 
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(AcuTapCoordinator.handleTap(_:)))
@@ -129,15 +130,24 @@ struct PartModel3DView: UIViewRepresentable {
     // of the model (AtlasMarkers.screenMarker) so dots land on the VISIBLE surface regardless of pose —
     // replaces the old world-Z raycast that drifted off / missed on these arbitrarily-posed GLBs. Pure
     // geometry, so no dependence on view layout/render timing.
-    private func placeMarkers(in scene: SCNScene, mesh: SCNNode, config: PartDetail) {
+    //
+    // Registered with the coordinator for the same per-frame face culling the hand sheet needs: the
+    // foot has KI1 on the SOLE directly under LR3/ST44 on the dorsum, which is the same back-to-back
+    // overlap, so a tap there would otherwise be settled by camera distance rather than by which dot
+    // is facing the user.
+    private func placeMarkers(in scene: SCNScene, mesh: SCNNode, config: PartDetail,
+                              coordinator: AcuTapCoordinator) {
+        var placed: [(node: SCNNode, face: SIMD3<Float>)] = []
         for pt in config.points {
             guard let uv = config.layout[pt.id] else { continue }
             if let m = AtlasMarkers.screenMarker(cameraZ: config.cameraZ, mesh: mesh, u: uv.x, v: uv.y, farSide: config.back.contains(pt.id),
                                                  id: pt.id, color: UIColor(MeridianColors.color(pt.meridian)),
                                                  core: 0.03, halo: 0.055) {
                 scene.rootNode.addChildNode(m.node)
+                placed.append((m.node, m.face))
             }
         }
+        coordinator.markers = placed
     }
 }
 
