@@ -31,7 +31,7 @@ enum Evidence {
     // AcuTrials indexed counts + one flagship review each (verified item URLs). Honest framing only.
     static let entries: [EvidenceEntry] = [
         EvidenceEntry(symptomZh: "恶心 / 反胃", symptomEn: "Nausea & queasiness", conditionEn: "Vomiting", count: 44,
-            citationZh: "Cheong 等，《PLoS ONE》2013 — 内关(PC6)指压综述与荟萃分析。",
+            citationZh: "Cheong 等，《PLoS ONE》2013 — 内关（PC6）指压综述与荟萃分析。",
             citationEn: "Cheong et al., PLoS ONE 2013 — systematic review & meta-analysis of PC6 stimulation.",
             url: "https://acutrials.ocom.edu/s/acutrials/item/10842", pointIds: ["PC6"]),
         EvidenceEntry(symptomZh: "头部紧张", symptomEn: "Head tension", conditionEn: "Headache Disorders", count: 88,
@@ -93,7 +93,7 @@ enum Evidence {
             noteEn: "A synthetic RGB-D head/neck acupoint dataset that validates the landmark-based localization approach. Needs depth data and is non-commercial-licensed, so it is not embedded.",
             url: "https://www.nature.com/articles/s41597-025-04934-9"),
         SourceRef(nameZh: "MetaAcuPoint — 合成手部穴位数据集（2025）", nameEn: "MetaAcuPoint — synthetic hand-acupoint dataset (2025)",
-            noteZh: "开放许可(CC BY 4.0)的合成 RGB 手/前臂穴位定位数据集，且包含 TE3 与 TE5。仅需普通 RGB、部位相符，是未来端上穴位识别最可行的基础；本版本暂未并入。",
+            noteZh: "开放许可（CC BY 4.0）的合成 RGB 手/前臂穴位定位数据集，且包含 TE3 与 TE5。仅需普通 RGB、部位相符，是未来端上穴位识别最可行的基础；本版本暂未并入。",
             noteEn: "An openly-licensed (CC BY 4.0) synthetic RGB dataset for hand/forearm acupoint localization that includes TE3 and TE5. RGB-only and on-region, so it is the most viable basis for a future on-device point-finder; not embedded in this build.",
             url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC12691809/"),
         SourceRef(nameZh: "FAcupoint — 面部穴位数据集（《Expert Systems with Applications》2025）", nameEn: "FAcupoint — facial acupoint dataset (Expert Systems with Applications 2025)",
@@ -156,7 +156,7 @@ struct SourcesView: View {
             Text(AppLocale.pick("我们如何看待“效果”", "How we talk about “effects”"))
                 .font(Typo.serif(18, weight: .semibold)).foregroundStyle(Ink.gold)
             Text(AppLocale.pick(
-                "穴位定位有充分的国际标准依据；而“是否有效”在科学上仍有争议——多数穴位源自传统、证据有限，最有力的例外是用于恶心的内关(PC6)。我们把它视为温和的放松性自我保养。",
+                "穴位定位有充分的国际标准依据；而“是否有效”在科学上仍有争议——多数穴位源自传统、证据有限，最有力的例外是用于恶心的内关（PC6）。我们把它视为温和的放松性自我保养。",
                 "Point locations are well supported by an international standard; whether pressing them is effective is still scientifically contested — most points are traditional with limited evidence, the strongest exception being PC6 for nausea. We frame it as gentle, relaxing self-care."))
                 .font(.subheadline).foregroundStyle(Ink.text).fixedSize(horizontal: false, vertical: true)
         }
