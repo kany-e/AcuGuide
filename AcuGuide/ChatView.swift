@@ -319,7 +319,7 @@ final class ChatService {
 
     private func generalReply() -> String {
         AppLocale.pick(
-            "我是 \(CoachPersona.name) — 可以带你认识全身的安全穴位（手部如 中渚 TE3、内关 PC6；头部如 印堂、太阳；腿部如 足三里 ST36；足部如 太冲 LR3 等），讲讲十四经络，也可以聊按压方法、时长、安全这些常见问题。按名称问我任意穴位或经络就行。仅供养生自我保养参考。",
+            "我是 \(CoachPersona.name) — 可以带你认识全身的安全穴位（手部如中渚 TE3、内关 PC6；头部如印堂、太阳；腿部如足三里 ST36；足部如太冲 LR3 等），讲讲十四经络，也可以聊按压方法、时长、安全这些常见问题。按名称问我任意穴位或经络就行。仅供养生自我保养参考。",
             "I'm \(CoachPersona.name) — I can walk you through safe acupoints across the body (hand points like TE3 / PC6, head points like Yintang / Taiyang, the leg point ST36 Zusanli, the foot point LR3 Taichong, and more), tell you about the fourteen meridians, and chat about how to press, how long, and safety. Just ask about any point or meridian by name. Wellness self-care only.")
     }
 
@@ -379,15 +379,15 @@ final class ChatService {
             aEn: "Some popular points are left out of this app because they need training or screening for safe self-pressure. Excluded: LI4 Hegu, SP6 Sanyinjiao, GB21 Jianjing, BL60 Kunlun, and BL67 Zhiyin (traditionally cautioned in pregnancy), and any deep pressure over the eyeball, the carotid/throat, or the deep lower abdomen. This app only offers gentle fingertip points safe for a general adult audience."),
         CoachFAQ(topic: "point-categories",
             keywords: ["point category", "point categories", "five shu", "shu-stream", "shu stream", "yuan source", "yuan-source", "luo point", "luo connecting", "he-sea", "he sea", "xi-cleft", "xi cleft", "ghost point", "front mu", "what does shu", "classical role", "什么是五输", "五输穴", "原穴", "络穴", "郄穴", "募穴", "穴位归类", "经典归类"],
-            aZh: "许多穴位带有经典“归类”，用来说明它在经络上的传统角色，例如五输穴（井、荥、输、经、合）、原穴、络穴、郄穴、募穴等。在本应用中，中渚(TE3)是输(木)穴，内关(PC6)是络穴（并为阴维脉的八脉交会穴），神门(HT7)是原穴。这些只是传统分类，并非医疗判断——每个穴位卡片都会显示其归类。",
+            aZh: "许多穴位带有经典“归类”，用来说明它在经络上的传统角色，例如五输穴（井、荥、输、经、合）、原穴、络穴、郄穴、募穴等。在本应用中，中渚（TE3）是输（木）穴，内关（PC6）是络穴（并为阴维脉的八脉交会穴），神门（HT7）是原穴。这些只是传统分类，并非医疗判断——每个穴位卡片都会显示其归类。",
             aEn: "Many points carry classical category tags describing their traditional role on a channel — for example the Five-Shu points (Jing-Well, Ying-Spring, Shu-Stream, Jing-River, He-Sea), the Yuan-Source point, the Luo-Connecting point, the Xi-Cleft point, and Front-Mu points. In this app TE3 is a Shu-Stream (Wood) point, PC6 is a Luo-Connecting point (and Master of the Yin Wei vessel), and HT7 is a Yuan-Source point. These labels are traditional classifications, not medical claims — each point's card shows its role."),
         CoachFAQ(topic: "research-evidence",
             keywords: ["how strong is the evidence", "how many studies", "acutrials", "is there research", "how strong is the research", "does it work for", "evidence for headache", "evidence for nausea", "有多少研究", "有没有研究", "证据有多强", "研究支持", "有多少证据"],
-            aZh: "我们把应用中的养生方向对应到 OCOM 的 AcuTrials 数据库（针刺随机对照试验与系统综述的精选索引）。例如：恶心/呕吐 44 项、头部不适 88 项、睡眠 35 项、颈部 50 项、经期 31 项。其中证据最强的是用于恶心的内关(PC6)。有研究文献并不等于确定有效，个体反应因人而异。在设置的「来源与证据」中可查看各项数量与一篇代表性综述。",
+            aZh: "我们把应用中的养生方向对应到 OCOM 的 AcuTrials 数据库（针刺随机对照试验与系统综述的精选索引）。例如：恶心/呕吐 44 项、头部不适 88 项、睡眠 35 项、颈部 50 项、经期 31 项。其中证据最强的是用于恶心的内关（PC6）。有研究文献并不等于确定有效，个体反应因人而异。在设置的「来源与证据」中可查看各项数量与一篇代表性综述。",
             aEn: "We link the app's wellness concerns to OCOM's AcuTrials database, a curated index of randomized trials and systematic reviews of acupuncture. It indexes, for example, 44 studies for nausea/vomiting, 88 for headache, 35 for sleep, 50 for neck and 31 for menstrual comfort. The strongest single case is PC6 for nausea. A research literature existing is not the same as assured relief — individual results vary. See 'Sources & Evidence' in Settings for the counts and a flagship review for each."),
         CoachFAQ(topic: "self-location",
             keywords: ["how do i find the point on my hand", "find the point on my hand", "self location", "loose fist", "middle finger trick", "pisiform", "locate on my hand", "怎么在手上找", "自己找穴位", "怎么定位手上", "握拳找穴"],
-            aZh: "除了相机叠加，这里有几个来自经典的自我定位小技巧：轻轻握拳可让中渚(TE3，无名指与小指掌指关节后方)与后溪(SI3，小指侧掌横纹尽头)的凹陷显现；将中指弯向掌心，指尖所落处即劳宫(PC8)；内关(PC6)在腕横纹上三横指、两条中央肌腱之间（外关 SJ5 正对其背面）；神门(HT7)在小指侧掌根小圆骨(豌豆骨)的内侧。请在光线充足、不慌不忙时在自己身上定位。",
+            aZh: "除了相机叠加，这里有几个来自经典的自我定位小技巧：轻轻握拳可让中渚（TE3，无名指与小指掌指关节后方）与后溪（SI3，小指侧掌横纹尽头）的凹陷显现；将中指弯向掌心，指尖所落处即劳宫（PC8)；内关（PC6）在腕横纹上三横指、两条中央肌腱之间（外关 SJ5 正对其背面）；神门（HT7）在小指侧掌根小圆骨（豌豆骨）的内侧。请在光线充足、不慌不忙时在自己身上定位。",
             aEn: "Besides the camera overlay, a few self-location tricks from the classical texts: make a loose fist to open the dip for TE3 (behind the ring/little-finger knuckles) and SI3 (the very end of the palm crease on the little-finger side); curl your middle finger to the palm to find PC8 where the tip lands; for PC6 measure three finger-widths above the wrist crease between the two central tendons (SJ5 is directly opposite on the back); HT7 sits just inside the small round pisiform bone at the little-finger base of the palm. Find points on yourself, in good light, without rushing."),
     ]
 }
@@ -416,7 +416,7 @@ struct ChatView: View {
 
     static func greetingMessage() -> ChatMessage {
         .init(role: .coach, text: AppLocale.pick(
-            "你好，我是 \(CoachPersona.name) — 可以问我任意穴位或经络（如 足三里、肺经），也可以聊聊按压方法、时长、孕期与安全。",
+            "你好，我是 \(CoachPersona.name) — 可以问我任意穴位或经络（如足三里、肺经），也可以聊聊按压方法、时长、孕期与安全。",
             "Hi, I'm \(CoachPersona.name) — ask me about any acupoint or meridian (e.g. Zusanli, the Lung meridian), or about how to press, how long, pregnancy, and safety."))
     }
 

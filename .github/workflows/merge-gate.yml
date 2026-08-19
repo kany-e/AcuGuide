@@ -81,6 +81,14 @@ jobs:
       - name: Safety copy contains no medical claims
         run: python3 scripts/safety_scan.py
 
+      # The bilingual checks that can be made mechanical: one register (你, never 您), no ASCII
+      # punctuation stranded inside Chinese, and — the one that is a real bug rather than a style
+      # problem — THE TWO LANGUAGES AGREEING ABOUT EVERY NUMBER. That has shipped here before: the
+      # moxa gate's intro said "four questions" over five. It is exactly what a reader trusts and
+      # cannot check.
+      - name: Copy reads as written, not as translated
+        run: python3 scripts/copy_scan.py
+
       # LI4 (Hegu) is pregnancy-contraindicated and excluded from the app ENTIRELY — that exclusion is
       # why the app can skip pregnancy screening, so it is load-bearing, not cosmetic.
       - name: LI4 stays excluded from the shipped atlas
