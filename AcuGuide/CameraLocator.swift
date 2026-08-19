@@ -95,6 +95,11 @@ struct LocatorMark: Identifiable {
     let acuId: String            // atlas id (for colour + tapped-point highlight)
     let label: String            // "EX-HN3 · 印堂"
     let point: CGPoint           // normalized, TOP-LEFT origin, already mirrored to match the preview
+    /// Meridian colour key, for marks whose id is NOT in the main atlas. The moxa points live in
+    /// their own dataset (a point belongs to exactly one, and the tests pin that), so looking their
+    /// colour up in `Acupoint.byId` returns nothing and they would all draw in the "extra" grey.
+    /// Defaulted, so every existing atlas call site keeps resolving colour the way it did.
+    var meridianKey: String? = nil
 }
 
 // Map a normalized (top-left) point through the preview's aspect-fill crop, so a marker lands on the
@@ -131,7 +136,7 @@ struct LocatorMarkersOverlay: View {
     }
 
     @ViewBuilder private func marker(_ m: LocatorMark) -> some View {
-        let col = MeridianColors.color(Acupoint.byId[m.acuId]?.meridian ?? "extra")
+        let col = MeridianColors.color(m.meridianKey ?? Acupoint.byId[m.acuId]?.meridian ?? "extra")
         let hot = m.acuId == focusId
         ZStack {
             Circle().fill(col.opacity(hot ? 0.9 : 0.55))

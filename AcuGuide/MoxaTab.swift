@@ -16,7 +16,15 @@ import SwiftUI
 // remains non-negotiable is dose vs. safety: MoxaClockView (MoxaSession.swift) never says how long
 // moxa "should" take or that longer does more — it interrupts for skin checks on a fixed cadence
 // and hard-stops the sitting at a cap. Every path out of a check is "continue under the same cap"
-// or "stop"; none extends the sitting. There is still no camera targeting and no per-point dose.
+// or "stop"; none extends the sitting. There is no per-point dose, and the camera LOCATES only —
+// MoxaCameraLocateView marks the abdominal midline by proportion and does not coach, time, or
+// decide that a box may go on.
+//
+// THE TAB IS POINT-FIRST. Device report: "the user should tap on where they want to moxibate, and
+// then guide them to find it, then the select timer and picture." It used to open with the clock
+// and a finding walkthrough side by side at the top, either startable before a point had been
+// chosen at all — an order that matched nothing a person actually does. Choosing now comes first
+// (placement → point) and the two steps live ON the point's own card, in the order they happen.
 struct MoxaTab: View {
     // NOT a bare `MoxaScreening?`. This view lives inside RootView's TabView for the life of the
     // process, so a plain answered-once flag here silently turned the documented per-entry gate
@@ -24,8 +32,6 @@ struct MoxaTab: View {
     // (MoxaGate.swift) owns the re-ask rule and is what the tests pin.
     @State private var visit = MoxaScreeningVisit()
     @State private var selected: MoxaPoint? = nil
-    @State private var showLocate = false
-    @State private var showClock = false
     @State private var selectedPlacement: MoxaPlacement? = nil
     @Environment(\.scenePhase) private var scenePhase
 
@@ -51,13 +57,14 @@ struct MoxaTab: View {
         // while the app sat in the background (the mutation is what re-presents the gate — see
         // MoxaScreeningVisit.expireIfStale).
         .onChange(of: scenePhase) { if $0 == .active { visit.expireIfStale() } }
-        // `?? true`: if a sheet somehow outlives the visit, it degrades to the read-only copy.
-        .sheet(item: $selected) { MoxaPointCard(point: $0, readOnly: visit.current()?.blocksHeat ?? true) }
-        .sheet(isPresented: $showLocate) { MoxaLocateFlow { showLocate = false } }
-        // `?? true` mirrors the other sheets: a clock that outlives the visit hardens to the
-        // required-checks regime rather than the lenient one.
-        .sheet(isPresented: $showClock) {
-            MoxaClockView(checksRequired: visit.current()?.checksRequired ?? true) { showClock = false }
+        // BOTH `?? true` defaults harden rather than relax: a card that somehow outlives the visit
+        // degrades to the read-only copy, and the clock it can start inherits the required-checks
+        // regime. The card carries `checksRequired` because the clock it opens must not re-decide a
+        // screening answer for itself.
+        .sheet(item: $selected) {
+            MoxaPointCard(point: $0,
+                          readOnly: visit.current()?.blocksHeat ?? true,
+                          checksRequired: visit.current()?.checksRequired ?? true)
         }
         .sheet(item: $selectedPlacement) { p in
             MoxaPlacementCard(placement: p) { selected = $0 }
@@ -81,45 +88,6 @@ struct MoxaTab: View {
                     Text(AppLocale.pick("下面是这些穴位的位置与传统说明。",
                                         "Below are the point locations and the traditional notes."))
                         .font(.footnote).foregroundStyle(Ink.textDim)
-                }
-
-                if !readOnly {
-                    Button { showClock = true } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "timer")
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(MoxaClockCopy.title)
-                                    .font(.subheadline.weight(.semibold))
-                                Text(MoxaClockCopy.tabCaption)
-                                    .font(.caption2).foregroundStyle(Ink.textDim)
-                                    .multilineTextAlignment(.leading)
-                            }
-                            Spacer(minLength: 8)
-                            Image(systemName: "chevron.right").font(.caption2)
-                        }
-                        .foregroundStyle(Ink.gold)
-                        .padding(14).panel()
-                    }
-                    .buttonStyle(.plain)
-
-                    Button { showLocate = true } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "hand.point.up.left")
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(AppLocale.pick("在自己身上找位置", "Find it on yourself"))
-                                    .font(.subheadline.weight(.semibold))
-                                Text(AppLocale.pick("从肚脐量到耻骨上缘，用你自己的手指",
-                                                    "Navel to pubic bone, in your own finger-widths"))
-                                    .font(.caption2).foregroundStyle(Ink.textDim)
-                                    .multilineTextAlignment(.leading)
-                            }
-                            Spacer(minLength: 8)
-                            Image(systemName: "chevron.right").font(.caption2)
-                        }
-                        .foregroundStyle(Ink.gold)
-                        .padding(14).panel()
-                    }
-                    .buttonStyle(.plain)
                 }
 
                 // THE PLACEMENT CARDS replace the two hand-written region sections. They route on
@@ -335,6 +303,16 @@ struct MoxaNotice: View {
 struct MoxaPointCard: View {
     let point: MoxaPoint
     let readOnly: Bool
+    /// From the screening — the clock this card starts must inherit it, not re-decide it.
+    var checksRequired: Bool = true
+
+    @State private var showCamera = false
+    @State private var showWalkthrough = false
+    @State private var showClock = false
+    /// Set once the user has been through either finding route. It only changes emphasis: the clock
+    /// is never BLOCKED on it, because someone who already knows where their own Qihai is should not
+    /// have to walk a tutorial to reach the one screen that enforces the skin checks.
+    @State private var found = false
 
     var body: some View {
         NavigationStack {
@@ -343,6 +321,7 @@ struct MoxaPointCard: View {
                     Text(point.name).font(.title3).foregroundStyle(Ink.gold)
                     field(AppLocale.pick("位置", "Location"), point.location)
                     if !readOnly { field(AppLocale.pick("怎么找", "Finding it"), point.find) }
+                    if !readOnly { flowSteps }
                     field(AppLocale.pick("传统说法", "Traditionally"), point.tradition)
                     VStack(alignment: .leading, spacing: 6) {
                         Label(AppLocale.pick("注意", "Take care"), systemImage: "exclamationmark.triangle")
@@ -362,6 +341,88 @@ struct MoxaPointCard: View {
             .background(ShanshuiBackground().ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
         }
+        .sheet(isPresented: $showCamera) {
+            MoxaCameraLocateView(focus: point) { showCamera = false; found = true }
+        }
+        .sheet(isPresented: $showWalkthrough) {
+            MoxaLocateFlow { showWalkthrough = false; found = true }
+        }
+        .sheet(isPresented: $showClock) {
+            MoxaClockView(checksRequired: checksRequired) { showClock = false }
+        }
+    }
+
+    // THE ORDER THE JOB ACTUALLY HAS: find the place, then start the clock that makes you look at
+    // the skin. It used to be the other way round by accident — the clock sat at the top of the tab
+    // where it could be started before a point had been chosen at all, and finding was a separate
+    // button beside it that belonged to no point in particular.
+    @ViewBuilder private var flowSteps: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(MoxaFlowCopy.stepsTitle)
+                .font(.caption.weight(.semibold)).foregroundStyle(Ink.gold)
+
+            step(1, MoxaFlowCopy.step1Title, done: found) {
+                if MoxaTorsoAcupoints.isLocatable(point) {
+                    Text(MoxaFlowCopy.step1Body).font(.caption).foregroundStyle(Ink.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        Button { showCamera = true } label: {
+                            Label(MoxaFlowCopy.showMeOnCamera, systemImage: "camera.viewfinder")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered).tint(Ink.gold)
+                        Button { showWalkthrough = true } label: {
+                            Label(MoxaFlowCopy.measureWithFingers, systemImage: "hand.point.up.left")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered).tint(Ink.gold)
+                    }
+                } else {
+                    // The back points get NO camera step, and this says why rather than leaving a
+                    // button conspicuously missing. See MoxaTorsoAcupoints: they are anchored to the
+                    // iliac-crest line, they are behind you, and their own data already marks them
+                    // as an area because that landmark runs one to two vertebral levels high.
+                    Text(MoxaFlowCopy.step1BodyOnBack).font(.caption).foregroundStyle(Ink.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            step(2, MoxaFlowCopy.step2Title, done: false) {
+                Text(MoxaFlowCopy.step2Body).font(.caption).foregroundStyle(Ink.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { showClock = true } label: {
+                    Label(MoxaFlowCopy.openTheClock, systemImage: "timer")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered).tint(Ink.gold)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14).panel()
+    }
+
+    @ViewBuilder private func step<Content: View>(_ n: Int, _ title: String, done: Bool,
+                                                 @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            ZStack {
+                Circle().fill(done ? Ink.jade.opacity(0.25) : Ink.gold.opacity(0.18))
+                    .frame(width: 22, height: 22)
+                if done {
+                    Image(systemName: "checkmark").font(.caption2.weight(.bold)).foregroundStyle(Ink.jade)
+                } else {
+                    Text("\(n)").font(.caption2.weight(.bold)).foregroundStyle(Ink.gold)
+                }
+            }
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                content()
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(done ? AppLocale.pick("第 \(n) 步，已完成：\(title)", "Step \(n), done: \(title)")
+                                 : AppLocale.pick("第 \(n) 步：\(title)", "Step \(n): \(title)"))
     }
 
     private func field(_ label: String, _ value: String) -> some View {
@@ -370,6 +431,40 @@ struct MoxaPointCard: View {
             Text(value).font(.subheadline).foregroundStyle(Ink.text)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// The two steps a point card puts in order, in one enumerable place — the claims scans walk
+/// `allCopy`, so a string rendered by the flow cannot be an unscanned surface.
+///
+/// THE WORDING IS DELIBERATELY ABOUT PLACE AND TIME, NEVER ABOUT EFFECT. "Find it" and "start the
+/// clock" are things the user does; neither says the heat will do anything, and step two describes
+/// the clock as what makes you look at the skin rather than as a treatment length.
+enum MoxaFlowCopy {
+    static var stepsTitle: String { AppLocale.pick("接下来两步", "Two steps from here") }
+
+    static var step1Title: String { AppLocale.pick("先找到位置", "First, find the place") }
+    static var step1Body: String {
+        AppLocale.pick("用相机按你自己的身体比例标出来，或者自己用手指量一遍。两种都可以，量一遍更准。",
+                       "Have the camera mark it by your own body's proportions, or measure it yourself in finger-widths. Either works; measuring is the more accurate of the two.")
+    }
+    static var step1BodyOnBack: String {
+        AppLocale.pick("这一处在背后，自己看不到，相机也帮不上——照着上面「怎么找」的步骤，请人帮你找、帮你放盒子。",
+                       "This one is on your back, where you cannot see it and the camera cannot help either. Use the finding steps above, and have someone else find it and place the box for you.")
+    }
+    static var showMeOnCamera: String { AppLocale.pick("用相机看", "Show me on camera") }
+    static var measureWithFingers: String { AppLocale.pick("用手指量", "Measure in finger-widths") }
+
+    static var step2Title: String { AppLocale.pick("再开始看皮肤的钟", "Then start the skin-check clock") }
+    static var step2Body: String {
+        AppLocale.pick("在钟上选时长，也可以先拍一张皮肤的照片作对照。照片只留在这次里，不会保存。",
+                       "The clock is where you pick how long, and where you can take a before photo of the skin to compare against. The photo stays in this sitting only and is never saved.")
+    }
+    static var openTheClock: String { AppLocale.pick("打开计时", "Open the clock") }
+
+    static var allCopy: [String] {
+        [stepsTitle, step1Title, step1Body, step1BodyOnBack, showMeOnCamera, measureWithFingers,
+         step2Title, step2Body, openTheClock]
     }
 }
 
