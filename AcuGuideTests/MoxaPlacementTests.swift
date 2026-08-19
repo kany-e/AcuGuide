@@ -35,6 +35,9 @@ final class MoxaPlacementTests: XCTestCase {
         // claim beside a TIMER would be the worst possible place for one.
         check("moxaClock", MoxaClockCopy.allCopy)
         check("moxaStrap", MoxaStrapAdvice.allCopy)
+        // The point-first flow and the camera locator are moxa surfaces like any other.
+        check("moxaFlow", MoxaFlowCopy.allCopy)
+        check("moxaLocate", MoxaLocateCopy.allCopy)
     }
 
     // The list must not be so wide that honest copy becomes unwritable. These are the terms the app
