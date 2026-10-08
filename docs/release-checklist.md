@@ -55,8 +55,9 @@ Connect requires a reachable support page or email. Provide one of:
 > AcuGuide is a wellness self-care app. It makes no medical claims and performs no medical
 > assessment. A non-skippable safety screen appears before the camera every session (Practice → any
 > point → "Before you begin"). Reporting a session as "uncomfortable" shows stop-and-rest guidance and
-> removes any continue option. Pregnancy-cautioned points, including LI4 (Hegu), are excluded from the
-> app entirely. Point locations follow the WHO Standard Acupuncture Point Locations (2008); the in-app
+> removes any continue option. Points contraindicated in pregnancy, including LI4 (Hegu), are excluded
+> from the app entirely; seven gentler points carry an asterisk whose notice says to hold off in
+> pregnancy until a doctor or midwife has been asked. Point locations follow the WHO Standard Acupuncture Point Locations (2008); the in-app
 > Sources & Evidence screen (Settings → Sources) states plainly which claims are established and which
 > are traditional. The camera, the AI coach, and all history run on device; the only optional network
 > use is Apple's speech service as a fallback for the hands-free voice confirm, disclosed in the

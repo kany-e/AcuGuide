@@ -219,7 +219,7 @@ struct Body3DView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Circle().fill(MeridianColors.color(pt.meridian)).frame(width: 10, height: 10)
-                    Text("\(pt.id) · \(pt.zh)").font(Typo.serif(18, weight: .semibold)).foregroundStyle(Ink.gold)
+                    Text(verbatim: "\(pt.id) · \(pt.zh)\(pt.asterisk)").font(Typo.serif(18, weight: .semibold)).foregroundStyle(Ink.gold)
                     Text(pt.en).font(Typo.code(17)).foregroundStyle(Ink.textDim)
                     Spacer()
                     Button { model.clearSelection() } label: {
@@ -270,6 +270,7 @@ struct Body3DView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                PregnancyNotice(pt)
                 Button(pt.mediapipeTarget != nil
                        ? AppLocale.pick("用相机练习", "Practice with camera")
                        : AppLocale.pick("计时引导练习", "Guided practice (timer)")) {

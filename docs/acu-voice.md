@@ -71,14 +71,19 @@ clear.
 5. **One register per language** (你, never 您) and no machine-translated pairs — `copy_scan.py`
    enforces the mechanical half.
 6. **Raise nothing unprompted.** Acu does not bring up pregnancy — or any condition — unless the person
-   asks. The one exception is a specific point's own caution (four points carry a pregnancy note), which
-   is about that point and is never dropped.
+   asks. Seven points the tradition cautions in pregnancy (CV12, ST25, ST36, SP10, LR3, ST44, KI1) carry
+   an asterisk after their name instead of a sentence in their caution, and the asterisk's one notice
+   sits beside the caution. Within a point's own copy (card, caution, chat answer), that notice is the
+   only place pregnancy appears unasked; the forced safety gate's one general line is separate.
 7. **No commentary on sources in an answer.** Research counts, the classical category, meridian
    bookkeeping: the atlas card and the Sources screen carry them for anyone who looks.
 8. **The self-care disclaimer is said once, on the screen** (`WellnessFooter`), not at the end of every
    reply, where repetition had made it say nothing.
 9. **Spoken lines are recorded audio.** Rewording one changes its clip key; spoken changes are
    batched and re-rendered together (`tools/voice/`), and `VoiceScriptTests` must pass both ways.
+10. **Cautions are instructions, said plainly.** What to do, what to avoid, when to stop — in the words
+   you'd use with a friend beside you. No label prefixes (「腹部穴位——」), no officialese
+   (切勿、请勿、应避免、出于谨慎、被视为), no praise or classical categories. Every safety fact stays.
 
 ## As shipped
 
@@ -99,6 +104,17 @@ Printed by the app's own code, not retyped.
 > you meet a small pea-shaped bone; the spot sits just before it, on the crease. Commonly associated in
 > acupuncture practice with restless sleep, an unsettled spirit, and emotional tension. Press gently for
 > 30 to 60 seconds, breathing slowly, and stop if it feels wrong.
+
+**A point with an asterisk** — the same four parts; the caution says nothing about pregnancy, and the
+asterisk's notice closes the answer on its own line.
+
+> 找中脘\*（CV12）：在上腹正中线上，肚脐与胸骨下端的正中间。传统上常和上腹舒适、饭后轻松、胃里安稳联系在一起。
+> 轻轻按 30 到 60 秒，慢慢呼吸，不舒服就停。注意：只用手掌或指腹轻轻打圈，别往深处按。刚吃完饭或者肚子不舒服，就先别按。
+> \*如果你怀孕了，或者有可能怀孕，标\*的穴位先别按，问过医生再说。
+>
+> To find Zhongwan\* (CV12): … Caution: Stick to gentle circles with your palm or fingertips, never deep
+> pressure. Skip it right after a meal or when your belly feels uncomfortable.
+> \*If you're pregnant or might be, hold off on points marked \* until you've asked your doctor or midwife.
 
 **A symptom** — who presses what, and the safety half whole.
 

@@ -25,7 +25,7 @@ enum ChatSafety {
     static let bannedEn = ["treat", "cure", "heal", "diagnos"]
     static let bannedZh = ["治疗", "治愈", "根治", "诊断", "医治", "疗效"]
 
-    // Points deliberately excluded from the app (pregnancy-cautioned / screening-dependent). The
+    // Points deliberately excluded from the app (pregnancy-contraindicated / screening-dependent). The
     // app skips pregnancy screening precisely BECAUSE these can never appear — so a generated
     // reply that names one must never surface (review-caught: the filter only checked claim
     // terms). Substring match like the banned terms; a rejected reply falls back to canned copy.
@@ -96,7 +96,7 @@ enum ChatLLM {
         Atlas points (id 名称 name — region):
         \(points)
         Technique: firm-but-comfortable fingertip pressure on intact skin, about 30–60 seconds per \
-        point with slow breathing, gentle small circles; stop if uncomfortable. Pregnancy-cautioned \
+        point with slow breathing, gentle small circles; stop if uncomfortable. Pregnancy-contraindicated \
         points are excluded from this app on purpose — NEVER name or suggest LI4/Hegu, SP6, GB21, \
         BL60, or BL67 in a reply; if asked about them, say the app leaves them out deliberately \
         and suggest a point from the atlas instead.
