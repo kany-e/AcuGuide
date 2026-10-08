@@ -183,12 +183,18 @@ struct Acupoint: Identifiable, Hashable {
             // TE3 anchors are FITTED FROM OWNED EXPERT LABELS (Jul 7 2026): 9 device-captured
             // labels (M3 harness, both hands; claude-deliverables/data/te3_labels_2026-07-07.jsonl),
             // shared-weight least squares in isotropic units, leave-one-out mean error 0.096·handSize
-            // (max 0.154) — vs 0.233 mean / 1-of-9 inside tolerance for the previous WHO-text-derived
+            // (max 0.154; a later reproduction with hand-size-normalised residuals recovers these same
+            // weights but scores 0.124 / max 0.214, 6-of-9 inside — claude-deliverables/experiments/
+            // metaacupoint-eval) — vs 0.233 mean / 1-of-9 inside tolerance for the previous WHO-text-derived
             // ring .46/pinky .34/wrist .20. The fit is more ULNAR and much more PROXIMAL than the
             // anatomical fractions suggested because Vision's MCP landmarks sit distal of the
             // anatomical joint heads (on the knuckle bumps) — exactly the bias text-derivation can't
             // see. Richer joint sets LOO-scored marginally better but with |w|≈2–3 (noise-amplifying
             // overfit on n=9); this 3-anchor form keeps every weight ≤ 0.5. Re-fit if more labels land.
+            // DO NOT POOL THE MetaAcuPoint RENDERS INTO THIS FIT. Measured (same experiment folder):
+            // adding them makes real-hand error worse at every weight tried, monotonically, because
+            // Vision places joints differently on renders than on real frames — the labels agree,
+            // the landmarks do not. Re-fit on REAL labels only.
             mediapipeTarget: MediaPipeTarget(
                 anchors: [
                     AnchorWeight(landmark: .ringMCP, weight: 0.11),

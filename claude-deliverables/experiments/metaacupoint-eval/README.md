@@ -92,6 +92,16 @@ MetaAcuPoint images 900; Vision found the four anchor joints in 900
    within the dataset, leave-one-SKELETON-out (5 folds): mean 0.073, inside 0.16: 98%
    (leave-one-hand-out, which leaks skeleton-mates: mean 0.075, inside 0.16: 98%)
    on the 9 real labels:  dataset fit mean 0.158, inside 5/9   |   shipped (in-sample) mean 0.112, inside 8/9
+   (the shipped model's own leave-one-out score is section 4, lambda 0)
+
+4. REFINE, NOT REPLACE: the shipped TE3 form, fit on real labels + synthetic at weight λ,
+   scored leave-one-REAL-label-out
+   refit on all 9 real labels: ring 0.12, little 0.46, wrist 0.42  (shipped 0.11 / 0.47 / 0.42)
+          lambda 0: mean 0.124  worst 0.214  inside 0.16: 6/9
+       lambda 0.25: mean 0.133  worst 0.205  inside 0.16: 6/9
+          lambda 1: mean 0.169  worst 0.281  inside 0.16: 5/9
+         lambda 10: mean 0.349  worst 0.499  inside 0.16: 0/9
+    synthetic only: mean 0.448  worst 0.599  inside 0.16: 0/9
 ```
 
 ## What it means
@@ -113,10 +123,20 @@ real hand (0.65/+0.39) — and those agree within about 0.05 hand-sizes. The shi
 0.63/+0.38. That is good evidence that a "the marker is off the hand" report is not caused by the TE3
 anchor math — but it rests on 9 labels from one session on the real side.
 
-**3. Do not refit the CURRENT coach on this dataset.** A hand-frame TE3 model fit on it alone is 98%
-inside the ring within the dataset (leave-one-skeleton-out) and 5/9 on the real labels it never saw,
-against the shipped formula's 8/9 — in-sample, which flatters it, but its original leave-one-out mean
-of 0.096 also beats the dataset fit's 0.158. The loss comes from Vision, not from the labels.
+**3. Do not refit — or refine — the CURRENT coach with this dataset.** Two tests, both negative.
+*Replacing* (section 3): a hand-frame TE3 model fit on the dataset alone is 98% inside the ring
+within it (leave-one-skeleton-out) and 5/9 on the real labels it never saw (mean 0.158).
+*Refining* (section 4): adding the synthetic labels to the shipped model's own fit makes it worse on
+real hands at every weight tried, and monotonically — 0.124 with real labels only, 0.169 at equal
+weight, 0.448 with synthetic only. As the synthetic weight grows the fit slides onto the
+little-finger knuckle, because that is where Vision's joints sit relative to the label on renders.
+The loss comes from Vision, not from the labels.
+
+A correction to a number quoted earlier: the comment on TE3's weights in `Acupoints.swift` cites a
+leave-one-out mean error of 0.096. Reproducing that fit here recovers the same weights (0.12 / 0.46 /
+0.42 against the shipped 0.11 / 0.47 / 0.42) but a leave-one-out mean of **0.124** (6/9 inside the
+ring). The difference is probably in how the original fit weighted or normalised its residuals; with
+9 labels both are noisy. Every comparison in this README uses the reproduced number.
 
 **4. SJ5 checks out, with less certainty.** Its formula uses only the wrist and middle MCP — the
 frame itself — so it is the least exposed to the gap. The labels sit at −0.63 along against the
@@ -144,6 +164,8 @@ front-camera view of one hand pressing another.
 
 For the coach as built: more **real** labels — several people, both hands, varied lighting, and the
 occluded mid-press frames — captured with the existing label-capture tool (Settings → Developer in
-Debug builds). Nine labels from one session is the binding constraint on every real-hand number here.
+Debug builds). Nine labels from one session is the binding constraint on every real-hand number here
+— the shipped fit scores 0.112 on the labels it was fit on and 0.124 on a label it was not, which is
+what a model short of data looks like.
 If the coach ever moves to an image-based point detector, this dataset becomes a strong training
 source rather than a check, and the real labels become its validation set.

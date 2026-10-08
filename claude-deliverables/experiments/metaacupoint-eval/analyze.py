@@ -68,6 +68,47 @@ def pct(xs, q):
     xs = sorted(xs); return xs[min(len(xs) - 1, int(q * len(xs)))]
 
 
+def pooled_affine(real_samples, syn_samples):
+    """Section 4: can the dataset REFINE the shipped model, rather than replace it?
+
+    Same form as the shipped TE3 anchor — label ≈ wrist + α(ringMCP − wrist) + β(littleMCP − wrist),
+    weights summing to 1 — fit by least squares in hand-size units on the real labels PLUS the
+    synthetic ones at total weight λ, scored leave-one-REAL-label-out. λ = 0 is the shipped model's
+    own refit; anything that beats it would be the dataset genuinely helping."""
+    def fit(samples, weights):
+        a11 = a12 = a22 = b1 = b2 = 0.0
+        for (w, r, l, lab, hs), wt in zip(samples, weights):
+            for k in (0, 1):
+                u = (r[k] - w[k]) / hs; v = (l[k] - w[k]) / hs; y = (lab[k] - w[k]) / hs
+                a11 += wt * u * u; a12 += wt * u * v; a22 += wt * v * v; b1 += wt * u * y; b2 += wt * v * y
+        det = a11 * a22 - a12 * a12
+        return ((a22 * b1 - a12 * b2) / det, (a11 * b2 - a12 * b1) / det)
+
+    def err(s, ab):
+        w, r, l, lab, hs = s; a, b = ab
+        q = tuple(w[k] + a * (r[k] - w[k]) + b * (l[k] - w[k]) for k in (0, 1))
+        return ((q[0] - lab[0]) ** 2 + (q[1] - lab[1]) ** 2) ** .5 / hs
+
+    full = fit(real_samples, [1] * len(real_samples))
+    print("4. REFINE, NOT REPLACE: the shipped TE3 form, fit on real labels + synthetic at weight λ,")
+    print("   scored leave-one-REAL-label-out")
+    print(f"   refit on all {len(real_samples)} real labels: ring {full[0]:.2f}, little {full[1]:.2f}, "
+          f"wrist {1 - full[0] - full[1]:.2f}  (shipped 0.11 / 0.47 / 0.42)")
+    for lam in (0, 0.25, 1, 10, None):
+        errs = []
+        for i in range(len(real_samples)):
+            train = real_samples[:i] + real_samples[i + 1:]
+            if lam is None:
+                ab = fit(syn_samples, [1] * len(syn_samples))
+            else:
+                ab = fit(train + syn_samples,
+                         [1] * len(train) + [lam * len(train) / len(syn_samples)] * len(syn_samples))
+            errs.append(err(real_samples[i], ab))
+        tag = "synthetic only" if lam is None else f"lambda {lam:g}"
+        print(f"   {tag:>15}: mean {st.mean(errs):.3f}  worst {max(errs):.3f}  inside 0.16: "
+              f"{sum(e <= .16 for e in errs)}/{len(errs)}")
+
+
 def main(results_csv, real_jsonl, xlsx):
     skel = skeleton_of(xlsx)
     syn = [r for r in csv.DictReader(open(results_csv))]
@@ -85,7 +126,7 @@ def main(results_csv, real_jsonl, xlsx):
           f"true left → {dict((k[1], v) for k, v in c.items() if k[0] == 'left')}\n")
 
     # 2. Where things sit in the hand frame, per source
-    groups, by_skel, syn_t, syn_lab, syn_te5 = {}, {}, [], [], []
+    groups, by_skel, syn_t, syn_lab, syn_te5, syn_aff = {}, {}, [], [], [], []
     for r in det:
         P = lambda k: (float(r[k + "_x"]), float(r[k + "_y"]))
         to, back, hs = basis(P("wrist"), P("middleMCP"), P("littleMCP"), SYN_ASPECT)
@@ -93,11 +134,14 @@ def main(results_csv, real_jsonl, xlsx):
         lab = to((float(r["te3_x"]), float(r["te3_y"])))
         syn_t.append(to(t)); syn_lab.append(lab)
         syn_te5.append(to((float(r["te5_x"]), float(r["te5_y"]))))
+        iso = lambda q: (q[0], q[1] / SYN_ASPECT)
+        syn_aff.append((iso(P("wrist")), iso(P("ringMCP")), iso(P("littleMCP")),
+                        iso((float(r["te3_x"]), float(r["te3_y"]))), hs))
         groups.setdefault(r["avatar"] + r["side"], []).append(lab)
         by_skel.setdefault(skel[r["avatar"]], []).append(lab)
 
     real = [json.loads(l) for l in open(real_jsonl) if l.strip()]
-    real_t, real_lab, real_frames = [], [], []
+    real_t, real_lab, real_frames, real_aff = [], [], [], []
     for r in real:
         j = r["joints"]; g = lambda k: tuple(j[k])
         w, m = g("wrist"), g("middleMCP"); dx = m[0] - w[0]; dy = m[1] - w[1]
@@ -107,6 +151,8 @@ def main(results_csv, real_jsonl, xlsx):
              .11 * g("ringMCP")[1] + .47 * g("pinkyMCP")[1] + .42 * w[1])
         real_t.append(to(t)); real_lab.append(to(tuple(r["target"])))
         real_frames.append((back, hs, asp, t, tuple(r["target"])))
+        iso = lambda q, a=asp: (q[0], q[1] / a)
+        real_aff.append((iso(w), iso(g("ringMCP")), iso(g("pinkyMCP")), iso(tuple(r["target"])), hs))
 
     med = lambda xs, i: st.median(x[i] for x in xs)
     print("2. TE3 IN THE HAND FRAME (along: 0 wrist → 1 middle knuckle; across: + toward little finger)")
@@ -137,6 +183,8 @@ def main(results_csv, real_jsonl, xlsx):
           f"inside 0.16: {100 * sum(x <= .16 for x in loo) / len(loo):.0f}%)")
     print(f"   on the {len(real)} real labels:  dataset fit mean {st.mean(fm):.3f}, inside {sum(x <= .16 for x in fm)}/{len(fm)}"
           f"   |   shipped (in-sample) mean {st.mean(sh):.3f}, inside {sum(x <= .16 for x in sh)}/{len(sh)}")
+    print("   (the shipped model's own leave-one-out score is section 4, lambda 0)\n")
+    pooled_affine(real_aff, syn_aff)
 
 
 if __name__ == "__main__":
