@@ -44,6 +44,13 @@ _archive/
 TrainingVid/
 drive-download-*/
 
+# --- Third-party datasets live beside the repo, never in it. This repo is PUBLIC and its history
+# already carries 360 MB of committed .MOV files that cannot be removed without rewriting every
+# hash. MetaAcuPoint (CC BY 4.0, 465 MB) is evaluated in
+# claude-deliverables/experiments/metaacupoint-eval/ — the scripts and the findings are tracked,
+# the images are not. Download from https://doi.org/10.5281/zenodo.17713204 to rerun.
+dataset_MetaAcuPoint/
+
 # --- Voice render pipeline (tools/voice) — build-time only, never committed ---
 # The documented re-render downloads a ~350 MB Kokoro model and writes clips next to the script.
 tools/voice/kokoro-*/
