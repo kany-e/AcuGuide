@@ -164,16 +164,35 @@ struct SessionRecapView: View {
         }
     }
 
-    // Two exact wordings, kept character-identical to the originals: the camera coach vouches for
-    // a STEADY press (it verified the hold); the timer paced the rounds but couldn't watch.
+    // What the summary may CLAIM depends on who was watching: the camera coach verified a STEADY
+    // press, so it says so; the timer paced the rounds but could not see the hand, so it does not.
+    // That distinction is the honest part (信) and survives any rewording.
+    //
+    // The closing line is Acu's (docs/acu-voice.md). It used to be one sentence for every outcome —
+    // "stopping whenever you like is exactly right" — which reads oddly after a FINISHED session,
+    // where nobody stopped. Now a finished session gets the constancy note (细水长流: a little,
+    // often) and an early stop gets plain permission. Neither ever nudges anyone to do more.
     private func summaryLine(held: Int) -> String {
-        verifiedHold
+        Self.summaryText(point: point, roundsDone: roundsDone, roundsTarget: roundsTarget, held: held,
+                         verifiedHold: verifiedHold, finished: sessionComplete)
+    }
+
+    /// Pure, so the two rules above are tested rather than asserted: "steady press" only when the
+    /// camera verified the hold, and a closing line that never asks for more. `finished` is the
+    /// engine's own `sessionComplete`, not a second definition of done from the round counts.
+    static func summaryText(point: Acupoint, roundsDone: Int, roundsTarget: Int, held: Int,
+                            verifiedHold: Bool, finished: Bool) -> String {
+        let close = finished
+            ? AppLocale.pick("少一点、常一点，细水长流。", "A little, often, is the whole idea.")
+            : AppLocale.pick("想停就停，本来就该如此——短一点也算数。",
+                             "Stopping when you like is exactly right — a short practice still counts.")
+        return verifiedHold
             ? AppLocale.pick(
-                "你在 \(point.id)（\(point.zh)）上完成了 \(roundsDone)/\(roundsTarget) 轮，累计稳定按压约 \(held) 秒。想停就停，本来就该如此。",
-                "You did \(roundsDone) of \(roundsTarget) rounds on \(point.id) (\(point.zh)) — about \(held) seconds of steady press. Stopping whenever you like is exactly right.")
+                "在\(point.zh)（\(point.id)）上按了 \(roundsDone)/\(roundsTarget) 轮，累计稳定按压约 \(held) 秒。\(close)",
+                "\(roundsDone) of \(roundsTarget) rounds on \(point.en) (\(point.id)) — about \(held) seconds of steady press. \(close)")
             : AppLocale.pick(
-                "你在 \(point.id)（\(point.zh)）上完成了 \(roundsDone)/\(roundsTarget) 轮，累计约 \(held) 秒。想停就停，本来就该如此。",
-                "You did \(roundsDone) of \(roundsTarget) rounds on \(point.id) (\(point.zh)) — about \(held) seconds. Stopping whenever you like is exactly right.")
+                "在\(point.zh)（\(point.id)）上按了 \(roundsDone)/\(roundsTarget) 轮，累计约 \(held) 秒。\(close)",
+                "\(roundsDone) of \(roundsTarget) rounds on \(point.en) (\(point.id)) — about \(held) seconds. \(close)")
     }
 }
 

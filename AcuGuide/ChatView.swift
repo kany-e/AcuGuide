@@ -244,22 +244,44 @@ final class ChatService {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return Acupoint.all.first { trimmed.contains($0.zh) && trimmed.count <= $0.zh.count + 1 }
     }
+    // A point answer in Acu's voice (docs/acu-voice.md): what it is called, how to find it, what the
+    // tradition says, how to press — then the caution — and only then the classical asides. It used to
+    // read as a database record (id · meridian · role · the WHO location string · uses · disclaimer),
+    // and the one thing a person needs first — how to find the spot with their own fingers — was not
+    // in it at all, though every point has a plain-language finding guide.
+    //
+    // It also sent people to "the Coach tab" (「引导」), which does not exist: the tabs are Atlas,
+    // Practice (练习) and Acu.
     private func pointReply(_ p: Acupoint) -> String {
-        let practice = p.mediapipeTarget != nil
-            ? AppLocale.pick(" 你也可以在「引导」中用相机练习。", " You can also practice it with the camera in the Coach tab.")
-            : ""
-        let caution = p.caution.isEmpty ? "" : AppLocale.pick(" 注意：\(p.cautionZh)", " Caution: \(p.cautionEn)")
-        // Classical role (Five-Shu / Yuan / Luo …) + standard English name — traditional framing.
-        let name = p.englishName.isEmpty ? p.en : AppLocale.pick(p.en, "\(p.en) “\(p.englishName)”")
-        let role = p.roleEn.isEmpty ? "" : AppLocale.pick(" 传统归类：\(p.roleZh)。", " Classical role: \(p.roleEn).")
-        // Honest research pointer: how many studies AcuTrials indexes for the related concern.
-        let ev = Evidence.forPoint(p.id)
-        let evidence = ev == nil ? "" : AppLocale.pick(
-            " 研究：OCOM 的 AcuTrials 数据库就相关方向收录了 \(ev!.count) 项研究（详见设置中的「来源与证据」，个体反应因人而异）。",
-            " Research: OCOM's AcuTrials database indexes \(ev!.count) studies on the related concern (see Sources & Evidence in Settings; individual results vary).")
-        return AppLocale.pick(
-            "\(p.id) · \(p.zh)（\(name)，\(p.meridianZh)）。\(role) 定位：\(p.locationZh) 传统用途：\(p.indicationsZh) 作为自我保养：放松身体，找到该处，用稳而舒适的力度配合缓慢呼吸按压约30–60秒；如有不适请停止。\(practice)\(evidence)\(caution) 仅供养生自我保养参考。",
-            "\(p.id) · \(name) (\(p.zh), \(p.meridianEn)).\(role) Location: \(p.locationEn) Traditional uses: \(p.indicationsEn) As self-care: relax, find the spot, and apply firm-but-comfortable pressure with slow breathing for about 30–60 seconds; stop if it’s uncomfortable.\(practice)\(evidence)\(caution) Wellness self-care only.")
+        let zh = AppLocale.isChinese
+        // Every piece is a whole sentence. Chinese joins with no space after its 。, English with one.
+        func sentence(_ text: String) -> String {
+            let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let last = t.last else { return "" }
+            if zh { return "。！？".contains(last) ? t : t + "。" }
+            return ".!?".contains(last) ? t : t + "."
+        }
+        let name = zh
+            ? "\(p.zh)（\(p.id)，\(p.meridianZh)）。"
+            : "\(p.en) (\(p.id), \(p.meridianEn))" + (p.englishName.isEmpty ? "." : " — “\(p.englishName)”.")
+        let find = sentence(p.hasFindGuide ? p.findHow : p.location)
+        let uses = sentence(zh ? p.indicationsZh : p.indicationsEn)
+        let press = AppLocale.pick("轻轻按约 30–60 秒，配合缓慢呼吸，有任何不舒服就停。",
+                                   "Press gently for about 30–60 seconds with slow breaths, and stop if anything feels wrong.")
+        let practice = p.mediapipeTarget == nil ? "" : AppLocale.pick(
+            "想用相机跟着练，打开「练习」就行。", "To practice it with the camera, open the Practice tab.")
+        let caution = p.caution.isEmpty ? "" : (zh ? "注意：" + sentence(p.cautionZh)
+                                                    : "Caution: " + sentence(p.cautionEn))
+        // The classical asides come last: knowledge offered once the practical answer is complete.
+        let role = p.roleEn.isEmpty ? "" : (zh ? "传统归类：" + sentence(p.roleZh)
+                                                : "Classical role: " + sentence(p.roleEn))
+        // Honest research pointer. "Indexed" is not "shown to work", and the reply says so (信).
+        let evidence = Evidence.forPoint(p.id).map { e in AppLocale.pick(
+            "研究方面：OCOM 的 AcuTrials 数据库就相关方向收录了 \(e.count) 项研究——收录不等于有效，详见设置里的「来源与证据」。",
+            "On the research side: OCOM's AcuTrials database indexes \(e.count) studies on the related concern — indexed isn't the same as shown to work; see Sources & Evidence in Settings.") } ?? ""
+        let tag = AppLocale.pick("仅供养生自我保养参考。", "Wellness self-care only.")
+        let parts = [name, find, uses, press, practice, caution, role, evidence, tag].filter { !$0.isEmpty }
+        return parts.joined(separator: zh ? "" : " ")
     }
 
     // Match a meridian when the query clearly asks about a channel/meridian (gates English-organ
@@ -318,9 +340,10 @@ final class ChatService {
     }
 
     private func generalReply() -> String {
+        // The count is read from the atlas, so this line cannot drift when a point is added.
         AppLocale.pick(
-            "我是 \(CoachPersona.name) — 可以带你认识全身的安全穴位（手部如中渚 TE3、内关 PC6；头部如印堂、太阳；腿部如足三里 ST36；足部如太冲 LR3 等），讲讲十四经络，也可以聊按压方法、时长、安全这些常见问题。按名称问我任意穴位或经络就行。仅供养生自我保养参考。",
-            "I'm \(CoachPersona.name) — I can walk you through safe acupoints across the body (hand points like TE3 / PC6, head points like Yintang / Taiyang, the leg point ST36 Zusanli, the foot point LR3 Taichong, and more), tell you about the fourteen meridians, and chat about how to press, how long, and safety. Just ask about any point or meridian by name. Wellness self-care only.")
+            "我是 \(CoachPersona.name)，陪你练按压的伙伴。这个应用里的 \(Acupoint.all.count) 个穴位我都认得——手上的中渚 TE3、内关 PC6，头上的印堂、太阳，腿上的足三里 ST36，脚上的太冲 LR3——还有它们所在的十四条经络。按名字问我任意一个：在哪儿、怎么找、怎么按。传统的说法和研究的证据，我会分开讲。仅供养生自我保养参考。",
+            "I'm \(CoachPersona.name) — a practice companion for acupressure. I know the \(Acupoint.all.count) points in this app, from the hand (Zhongzhu TE3, Neiguan PC6) to the head (Yintang, Taiyang), the leg (Zusanli ST36) and the foot (Taichong LR3), and the fourteen meridians they sit on. Ask me about any of them by name — where it is, how to find it, how to press it — and I'll keep the tradition and the evidence apart. Wellness self-care only.")
     }
 
     // Verified general-knowledge FAQ (sourced + adversarially reviewed; wellness-only framing).
@@ -416,8 +439,8 @@ struct ChatView: View {
 
     static func greetingMessage() -> ChatMessage {
         .init(role: .coach, text: AppLocale.pick(
-            "你好，我是 \(CoachPersona.name) — 可以问我任意穴位或经络（如足三里、肺经），也可以聊聊按压方法、时长、孕期与安全。",
-            "Hi, I'm \(CoachPersona.name) — ask me about any acupoint or meridian (e.g. Zusanli, the Lung meridian), or about how to press, how long, pregnancy, and safety."))
+            "你好，我是 \(CoachPersona.name)。想了解哪个穴位都可以问我——在哪儿、怎么摸到、怎么轻轻按；安全方面的事，包括孕期，也可以问。传统怎么说、现在知道多少，我都照实告诉你。",
+            "Hi, I'm \(CoachPersona.name). Ask me about any point — where it is, how to find it by feel, how to press it gently — or about staying safe, pregnancy included. I'll tell you what the tradition says, and what's actually known."))
     }
 
     var body: some View {
