@@ -9,6 +9,9 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var reminderDenied = false
     @State private var setupTipsReset = false
+    #if DEBUG
+    @AppStorage(ReleaseScope.devShowMoxaKey) private var devShowMoxa = false
+    #endif
 
     // Bridge reminderMinutes (minutes past midnight) ⇄ the hour-and-minute DatePicker.
     private var reminderTime: Binding<Date> {
@@ -158,6 +161,11 @@ struct SettingsSheet: View {
                             LabelCaptureView()
                         } label: {
                             Label("Label capture (\(LabelStore.shared.count))", systemImage: "hand.tap")
+                        }
+                        // Moxibustion is held out of this release (ReleaseScope). This reveals the tab
+                        // so it can be verified on a phone first; it does not exist in Release builds.
+                        Toggle(isOn: $devShowMoxa) {
+                            Label("Show the unreleased Moxa tab", systemImage: "flame")
                         }
                     }
                     #endif
