@@ -60,13 +60,21 @@ struct Acupoint: Identifiable, Hashable {
     var coachHoldZh: String = ""
     let mediapipeTarget: MediaPipeTarget?   // non-nil for the 8 coached points (test-pinned)
     var region: String = "hand"     // head/chest/abdomen/arm/leg/foot/hand — groups the body atlas
-    var cautionZh: String = ""      // per-point safety note (shown in the detail card); empty = none
+    var cautionZh: String = ""      // per-point safety note, shown wherever the point is pressed; empty = none
     var cautionEn: String = ""
+    // Pregnancy is never written into a caution. A point the tradition cautions in pregnancy gets an
+    // asterisk after its name instead, and the asterisk's ONE notice (`pregnancyNotice`) is shown on
+    // the same screen. Acu raises nothing unprompted (docs/acu-voice.md), so within a point's own copy
+    // (card, caution, chat answer) this notice is the only place pregnancy appears unasked; the forced
+    // safety gate's one general line is separate. Test-pinned set: SafetyInvariantTests.
+    var pregnancyAsterisk: Bool = false
 
     // Localized accessors for the atlas UI + the AR coach card.
     var location: String     { AppLocale.pick(locationZh, locationEn) }
     var indications: String  { AppLocale.pick(indicationsZh, indicationsEn) }
     var caution: String      { AppLocale.pick(cautionZh, cautionEn) }
+    // Display-only. Never append it to a spoken string — that would change the clip key.
+    var asterisk: String     { pregnancyAsterisk ? Acupoint.asteriskMark : "" }
     var meridianName: String { AppLocale.pick(meridianZh, meridianEn) }
     // AR cue accessors: prefer the point's own stored cue (TE3), else the shared per-point cue table
     // (the other 7 coachable points), so the searching-phase cue can be point-specific. See
@@ -343,8 +351,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsEn: "Commonly associated in acupuncture practice with cough, shortness of breath, and aching of the wrist.",
             coachAlign: "", coachHold: "",
             mediapipeTarget: nil,
-            cautionZh: "此处可触及桡动脉搏动，按压需轻柔，勿用力压迫脉搏。",
-            cautionEn: "The radial pulse runs here — keep pressure light and avoid pressing hard on the artery."
+            cautionZh: "这里能摸到脉搏。轻轻按就好，别用力压住它。",
+            cautionEn: "You can feel your pulse here. Keep your touch light, and don't press hard on it."
         ),
         Acupoint(
             id: "LI5", zh: "阳溪", en: "Yangxi", pinyin: "Yángxī",
@@ -372,7 +380,9 @@ struct Acupoint: Identifiable, Hashable {
         // ── Body-region atlas points (display + tappable 3D markers; no AR coaching). ──────────
         // WHO Standard 2008 locations; all gentle, fingertip-safe points. Pregnancy-contraindicated
         // points (LI4/SP6/GB21/BL60/BL67) are excluded entirely; abdominal/strong points carry an
-        // explicit caution. Sourced + adversarially verified (see claude-deliverables/references).
+        // explicit caution, and the seven the tradition cautions in pregnancy carry
+        // `pregnancyAsterisk` instead of a pregnancy sentence. Sourced + adversarially verified
+        // (see claude-deliverables/references).
 
         // Head & face
         Acupoint(id: "EX-HN3", zh: "印堂", en: "Yintang", pinyin: "Yìntáng",
@@ -383,8 +393,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和心神安定、放松紧张情绪、舒展眉头联系在一起。",
             indicationsEn: "Traditionally associated with a sense of calm, easing mental tension, and relaxing the brow.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "head",
-            cautionZh: "仅用指尖轻柔静压，勿压向眼睛；皮肤破损或不适时请勿按压。",
-            cautionEn: "Use light, still fingertip pressure on the bone only — not toward the eyes. Avoid if the skin is broken or irritated."),
+            cautionZh: "用指尖轻轻按在骨头上，按住别动，别往眼睛那边压。皮肤破了或者发红发痒，就先别按。",
+            cautionEn: "Rest a fingertip lightly on the bone and keep it still. Don't press toward your eyes. Skip it if the skin is broken or irritated."),
         Acupoint(id: "EX-HN5", zh: "太阳", en: "Taiyang", pinyin: "Tàiyáng",
             meridian: "extra", meridianZh: "经外奇穴", meridianEn: "Extra Point",
             x: 0, y: 0, requiresDorsal: false,
@@ -393,8 +403,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和放松太阳穴一带的紧绷、让眼睛休息联系在一起。",
             indicationsEn: "Traditionally associated with easing tension around the temples and relaxing the eyes.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "head",
-            cautionZh: "仅用指尖轻柔按压；此处血管丰富，切勿用力或长时间深压。",
-            cautionEn: "Gentle fingertip pressure only; this area is vascular, so do not press hard or hold deep force."),
+            cautionZh: "这里血管多。用指尖轻轻按，别使劲，也别长时间往深处压。",
+            cautionEn: "There are lots of blood vessels here. Press lightly with a fingertip, and don't push hard or hold deep pressure."),
         Acupoint(id: "GV20", zh: "百会", en: "Baihui", pinyin: "Bǎihuì",
             meridian: "du", meridianZh: "督脉", meridianEn: "Governing Vessel",
             x: 0, y: 0, requiresDorsal: false,
@@ -403,8 +413,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和头脑清醒安定、放松头部紧绷联系在一起。",
             indicationsEn: "Traditionally associated with a clear, settled mind and easing overall head tension.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "head",
-            cautionZh: "仅用指尖轻柔按压或轻轻打圈。",
-            cautionEn: "Use gentle fingertip pressure or light circular motion only."),
+            cautionZh: "用指尖轻轻按，或者轻轻打小圈就好。",
+            cautionEn: "Just a light fingertip press, or small, light circles."),
         Acupoint(id: "EX-HN1", zh: "四神聪", en: "Sishencong", pinyin: "Sìshéncōng",
             meridian: "extra", meridianZh: "经外奇穴", meridianEn: "Extra Point",
             x: 0, y: 0, requiresDorsal: false,
@@ -413,8 +423,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和安神、入睡安稳、思绪平静联系在一起。",
             indicationsEn: "Traditionally associated with calm, restful ease, and relaxing a busy mind.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "head",
-            cautionZh: "在四个点上各用指尖轻压即可，无需深压。",
-            cautionEn: "Use light fingertip pressure on each of the four spots; no deep pressing needed."),
+            cautionZh: "四个点各用指尖轻轻按一按，不用往深处按。",
+            cautionEn: "Press each of the four spots lightly with a fingertip. No need to go deep."),
 
         // Chest (gentle pressure only)
         Acupoint(id: "CV17", zh: "膻中", en: "Shanzhong", pinyin: "Shānzhōng",
@@ -425,8 +435,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和胸口舒展、气机顺畅、情绪平和、呼吸自在联系在一起。",
             indicationsEn: "Traditionally associated with an open, relaxed chest, smooth flow of qi, emotional calm, and easeful breathing.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "chest",
-            cautionZh: "胸部穴位——仅用指尖在胸骨上轻柔打圈，切勿用力。局部酸痛、淤青或发炎请避开。",
-            cautionEn: "Chest point — only light fingertip circles over the breastbone; never press hard. Skip if the area is sore, bruised, or inflamed."),
+            cautionZh: "只用指尖在胸骨上轻轻打圈，别用力按。这一块酸痛、有淤青或者发炎，就先别按。",
+            cautionEn: "Stick to light fingertip circles on the breastbone, and never press hard. Skip it if the area is sore, bruised, or inflamed."),
         Acupoint(id: "KI27", zh: "俞府", en: "Shufu", pinyin: "Shūfǔ",
             meridian: "kidney", meridianZh: "足少阴肾经", meridianEn: "Kidney Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -435,10 +445,10 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和上胸舒展、呼吸顺畅、胸闷缓解联系在一起。",
             indicationsEn: "Traditionally associated with an open upper chest, easeful breathing, and relief of chest tightness.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "chest",
-            cautionZh: "胸部穴位——仅在锁骨下方凹陷处用指尖轻浅按压，切勿向胸腔深按或下压。",
-            cautionEn: "Chest point — light, shallow fingertip pressure in the hollow under the collarbone; never press deep or down into the chest."),
+            cautionZh: "只在锁骨下面的小凹窝里，用指尖轻轻、浅浅地按。千万别往深处按，也别朝胸口里压。",
+            cautionEn: "Keep to the hollow under your collarbone, with light, shallow fingertip pressure. Never press deep or down into your chest."),
 
-        // Abdomen (gentle pressure; avoid in pregnancy / after meals)
+        // Abdomen (gentle pressure; not right after meals; both asterisked for pregnancy)
         Acupoint(id: "CV12", zh: "中脘", en: "Zhongwan", pinyin: "Zhōngwǎn",
             meridian: "ren", meridianZh: "任脉", meridianEn: "Conception Vessel",
             x: 0, y: 0, requiresDorsal: false,
@@ -447,8 +457,9 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和上腹舒适、饭后轻松、胃里安稳联系在一起。",
             indicationsEn: "Traditionally associated with upper-abdominal comfort, an easeful feeling after meals, and a settled stomach.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "abdomen",
-            cautionZh: "腹部穴位——仅用手掌或指腹轻柔打圈，切勿深按。饭后、腹部不适时请避免；孕期请勿按腹部穴位并先咨询专业人士。",
-            cautionEn: "Abdominal point — gentle palm or fingertip circles only, never deep pressure. Avoid right after meals or with abdominal discomfort; in pregnancy avoid abdominal points and check with a professional first."),
+            cautionZh: "只用手掌或指腹轻轻打圈，别往深处按。刚吃完饭或者肚子不舒服，就先别按。",
+            cautionEn: "Stick to gentle circles with your palm or fingertips, never deep pressure. Skip it right after a meal or when your belly feels uncomfortable.",
+            pregnancyAsterisk: true),
         Acupoint(id: "ST25", zh: "天枢", en: "Tianshu", pinyin: "Tiānshū",
             meridian: "stomach", meridianZh: "足阳明胃经", meridianEn: "Stomach Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -457,8 +468,9 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和肠胃通畅、肚子舒服、消化规律联系在一起。",
             indicationsEn: "Traditionally associated with comfortable digestion and a settled abdomen.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "abdomen",
-            cautionZh: "腹部穴位——仅用指腹轻柔按压。孕期应避免按压腹部穴位，并请先咨询专业人士。",
-            cautionEn: "Abdominal point — gentle fingertip pressure only. Avoid abdominal points in pregnancy and check with a professional first."),
+            cautionZh: "只用指腹轻轻按，别往肚子深处压。",
+            cautionEn: "Gentle fingertip pressure only. Don't push deep into your belly.",
+            pregnancyAsterisk: true),
 
         // Arm (elbow + wrist)
         Acupoint(id: "LI11", zh: "曲池", en: "Quchi", pinyin: "Qūchí",
@@ -469,8 +481,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和手臂舒适、皮肤清爽、全身放松联系在一起。",
             indicationsEn: "Traditionally associated with a sense of ease in the arm, refreshed skin comfort, and general relaxation.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "arm",
-            cautionZh: "仅用指腹轻柔按压；若出现疼痛、刺痛或麻木请停止。",
-            cautionEn: "Gentle fingertip pressure only; stop if you feel pain, tingling, or numbness."),
+            cautionZh: "用指腹轻轻按就好。觉得疼、刺痛或者发麻，就停下来。",
+            cautionEn: "Gentle fingertip pressure only. Stop if you feel pain, tingling, or numbness."),
         Acupoint(id: "LU5", zh: "尺泽", en: "Chize", pinyin: "Chǐzé",
             meridian: "lung", meridianZh: "手太阴肺经", meridianEn: "Lung Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -479,8 +491,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和胸口舒畅、呼吸平顺、肘臂放松联系在一起。",
             indicationsEn: "Traditionally associated with an open chest, easy comfortable breathing, and relaxation of the elbow and arm.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "arm",
-            cautionZh: "保持在肌腱的拇指侧并只用轻力，避免用力压向肘横纹正中血管经过之处。",
-            cautionEn: "Stay on the thumb-side of the tendon with gentle pressure; avoid pressing hard into the centre of the elbow crease where vessels run."),
+            cautionZh: "按在大筋靠拇指的那一边，轻轻按。肘窝正中有血管经过，别往那儿使劲压。",
+            cautionEn: "Stay on the thumb side of the tendon and press gently. Blood vessels run through the middle of the elbow crease, so don't press hard there."),
         Acupoint(id: "TE4", zh: "阳池", en: "Yangchi", pinyin: "Yángchí",
             meridian: "sj", meridianZh: "手少阳三焦经", meridianEn: "Sanjiao Meridian",
             x: 0, y: 0, requiresDorsal: true,
@@ -497,8 +509,8 @@ struct Acupoint: Identifiable, Hashable {
                 AnchorWeight(landmark: .ringMCP,   weight: 0.07),
             ], toleranceXHandSize: 0.16, pressFinger: .indexTip),
             region: "arm",
-            cautionZh: "在腕背用指腹轻柔按压；若有疼痛或麻木即停。",
-            cautionEn: "Light fingertip pressure on the back of the wrist; stop if you feel pain or numbness."),
+            cautionZh: "在手腕背面用指腹轻轻按，疼了或者发麻就停。",
+            cautionEn: "Press lightly on the back of your wrist with your fingertips. Stop if it hurts or goes numb."),
         Acupoint(id: "PC7", zh: "大陵", en: "Daling", pinyin: "Dàlíng",
             meridian: "pc", meridianZh: "手厥阴心包经", meridianEn: "Pericardium Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -514,8 +526,8 @@ struct Acupoint: Identifiable, Hashable {
                 AnchorWeight(landmark: .middleMCP, weight: 0.10),
             ], toleranceXHandSize: 0.12, pressFinger: .indexTip),
             region: "arm",
-            cautionZh: "在腕横纹正中用指腹轻柔、短暂按压；若有刺麻感传向手部即放松。",
-            cautionEn: "Gentle, brief fingertip pressure at the centre of the wrist crease; ease off if you feel tingling into the hand."),
+            cautionZh: "在腕横纹正中用指腹轻轻按，别按太久。要是有麻的感觉窜到手上，就松一松。",
+            cautionEn: "Press gently and briefly at the centre of the wrist crease. If tingling runs into your hand, ease off."),
 
         // Leg (knee + lower leg)
         Acupoint(id: "ST36", zh: "足三里", en: "Zusanli", pinyin: "Zúsānlǐ",
@@ -526,8 +538,9 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和脾胃消化、精力充沛、身体强健联系在一起。",
             indicationsEn: "Traditionally associated with comfortable digestion, steady energy, and a sense of overall vitality.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "leg",
-            cautionZh: "用指腹稳而舒适地按压，是最常用的保健穴位之一。孕期请只用轻柔接触并先咨询专业人士。",
-            cautionEn: "Press with the thumb pad, firm but comfortable — one of the most widely used wellness points. In pregnancy keep contact light and check with a professional first."),
+            cautionZh: "用拇指指腹按，可以稍微用点力，但要舒服，疼了就放轻。",
+            cautionEn: "Press with the pad of your thumb, firm but comfortable. Ease off if it starts to hurt.",
+            pregnancyAsterisk: true),
         Acupoint(id: "GB34", zh: "阳陵泉", en: "Yanglingquan", pinyin: "Yánglíngquán",
             meridian: "gb", meridianZh: "足少阳胆经", meridianEn: "Gallbladder Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -536,8 +549,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和筋肉舒展、膝盖周围舒适联系在一起。",
             indicationsEn: "Traditionally associated with ease and comfort in the muscles, tendons, and area around the knee.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "leg",
-            cautionZh: "先找到腓骨头的骨性突起，再在其前下方的凹陷处轻柔按压。",
-            cautionEn: "Find the bony fibular head first, then press gently in the hollow just below and in front of it."),
+            cautionZh: "在凹陷里轻轻按，别压在骨头上，疼就停。",
+            cautionEn: "Press gently in the hollow, not on the bone, and stop if it hurts."),
         Acupoint(id: "SP10", zh: "血海", en: "Xuehai", pinyin: "Xuèhǎi",
             meridian: "spleen", meridianZh: "足太阴脾经", meridianEn: "Spleen Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -546,8 +559,9 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和经期舒适、皮肤清爽联系在一起。",
             indicationsEn: "Traditionally associated with menstrual-cycle comfort and a sense of skin freshness.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "leg",
-            cautionZh: "传统上为活血力较强的穴位，孕期宜避免。仅用轻柔按压。",
-            cautionEn: "Traditionally a strong blood-moving point and best avoided during pregnancy. Use gentle pressure only."),
+            cautionZh: "只轻轻按，别使劲，疼就停。",
+            cautionEn: "Gentle pressure only. Don't dig in, and stop if it hurts.",
+            pregnancyAsterisk: true),
         Acupoint(id: "ST34", zh: "梁丘", en: "Liangqiu", pinyin: "Liángqiū",
             meridian: "stomach", meridianZh: "足阳明胃经", meridianEn: "Stomach Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -556,8 +570,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上多用在膝盖周围或上腹部一时不舒服的时候。",
             indicationsEn: "Traditionally associated with easing transient discomfort around the knee and upper abdomen.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "leg",
-            cautionZh: "作为郄穴传统上用于急性、短暂的不适；用指腹轻柔按压。",
-            cautionEn: "As a 'cleft' point it is traditionally used for short-lived discomfort; gentle fingertip pressure."),
+            cautionZh: "用指腹轻轻按，疼就停。",
+            cautionEn: "Press gently with your fingertips, and stop if it hurts."),
         Acupoint(id: "ST35", zh: "犊鼻", en: "Dubi", pinyin: "Dúbí",
             meridian: "stomach", meridianZh: "足阳明胃经", meridianEn: "Stomach Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -566,8 +580,8 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和膝盖周围舒适、活动灵便联系在一起。",
             indicationsEn: "Traditionally associated with comfort and ease of movement around the knee joint.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "leg",
-            cautionZh: "屈膝使凹陷显现，在髌韧带旁的柔软凹陷处轻柔按压。",
-            cautionEn: "Bend the knee to open the hollow, then press gently into the soft depression beside the kneecap tendon."),
+            cautionZh: "膝盖弯着，在软软的凹窝里轻轻按，疼就停。",
+            cautionEn: "Keep your knee bent and press gently into the soft hollow. Stop if it hurts."),
 
         // Foot & ankle
         Acupoint(id: "LR3", zh: "太冲", en: "Taichong", pinyin: "Tàichōng",
@@ -578,8 +592,9 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和放松减压、头和眼睛舒适、整体平衡联系在一起。",
             indicationsEn: "Traditionally associated with calm, easing tension and stress, comfort around the head and eyes, and a feeling of overall balance.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "foot",
-            cautionZh: "仅用指尖轻柔按压。被视为行气较强的穴位，妊娠期传统上应避免或仅极轻接触。避免重压凹槽中可触及搏动的动脉处。",
-            cautionEn: "Gentle fingertip pressure only. Considered a strong qi-moving point, so traditionally avoided or used very lightly in pregnancy. Don't press hard on the pulsing artery in the groove."),
+            cautionZh: "指尖轻轻按就好。这条缝里有时能摸到脉搏，别用力压住它。",
+            cautionEn: "Press lightly with a fingertip. You can sometimes feel a pulse in the groove, so don't press hard on it.",
+            pregnancyAsterisk: true),
         Acupoint(id: "ST44", zh: "内庭", en: "Neiting", pinyin: "Nèitíng",
             meridian: "stomach", meridianZh: "足阳明胃经", meridianEn: "Stomach Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -588,8 +603,9 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和清凉舒爽、面部和口周舒适、饭后上腹轻松联系在一起。",
             indicationsEn: "Traditionally associated with a cooling, refreshed feeling, comfort around the face and mouth, and ease in the upper abdomen after meals.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "foot",
-            cautionZh: "仅用指尖轻柔按压。出于谨慎，妊娠期应避免强刺激。",
-            cautionEn: "Gentle fingertip pressure only. As a precaution, avoid strong stimulation in pregnancy."),
+            cautionZh: "用指尖轻轻按，别使劲，疼就停。",
+            cautionEn: "Light fingertip pressure only. Don't press hard, and stop if it hurts.",
+            pregnancyAsterisk: true),
         Acupoint(id: "KI1", zh: "涌泉", en: "Yongquan", pinyin: "Yǒngquán",
             meridian: "kidney", meridianZh: "足少阴肾经", meridianEn: "Kidney Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -598,8 +614,9 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和放松静心、睡得安稳、沉稳踏实的感觉联系在一起。",
             indicationsEn: "Traditionally associated with relaxation and winding down, restful sleep, and a calm, grounded feeling.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "foot",
-            cautionZh: "用拇指以舒适的力度轻柔按压。出于谨慎，妊娠期保持刺激轻柔。足底皮肤破损或过于敏感时请略过。",
-            cautionEn: "Gentle, comfortable thumb pressure. As a precaution, keep stimulation light in pregnancy. Skip if the sole skin is broken or very ticklish."),
+            cautionZh: "用拇指轻轻按，舒服就好。脚底皮肤破了，或者特别敏感、怕痒，就先别按。",
+            cautionEn: "Press gently with your thumb, only as hard as feels comfortable. Skip it if your sole has broken skin or is very sensitive or ticklish.",
+            pregnancyAsterisk: true),
         Acupoint(id: "KI3", zh: "太溪", en: "Taixi", pinyin: "Tàixī",
             meridian: "kidney", meridianZh: "足少阴肾经", meridianEn: "Kidney Meridian",
             x: 0, y: 0, requiresDorsal: false,
@@ -608,12 +625,22 @@ struct Acupoint: Identifiable, Hashable {
             indicationsZh: "传统上常和精力充沛、睡得安稳、腰膝舒适联系在一起。",
             indicationsEn: "Traditionally associated with a sense of energy and vitality, restful sleep, and ease in the lower back and knees.",
             coachAlign: "", coachHold: "", mediapipeTarget: nil, region: "foot",
-            cautionZh: "用指尖轻柔按压。一般被视为温和的补益穴位，耐受性良好；若感到动脉搏动请减轻力度。",
-            cautionEn: "Gentle fingertip pressure. Generally a mild, well-tolerated point; ease off if you feel the artery throbbing in the hollow."),
+            cautionZh: "用指尖轻轻按。要是凹窝里能摸到脉搏在跳，就放轻一点。",
+            cautionEn: "Press gently with a fingertip. If you feel a pulse throbbing in the hollow, ease off."),
     ]
 
     // Id → point index, so tap hit-tests and lookups don't linear-scan `all` every time.
     static let byId: [String: Acupoint] = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+
+    // The asterisk and its notice (see `pregnancyAsterisk`). ONE notice for all seven points, as
+    // strict as the strictest caution it replaced (SP10's "best avoided in pregnancy"), so the
+    // gentler ones (ST36/KI1 "keep it light") became stricter, never looser. ASCII * in both
+    // languages so the mark on the name and the mark opening the notice look the same. Render it
+    // with Text(verbatim:) — two asterisks in a Text literal would be read as Markdown italics.
+    static let asteriskMark = "*"
+    static let pregnancyNoticeZh = "*如果你怀孕了，或者有可能怀孕，标*的穴位先别按，问过医生再说。"
+    static let pregnancyNoticeEn = "*If you're pregnant or might be, hold off on points marked * until you've asked your doctor or midwife."
+    static var pregnancyNotice: String { AppLocale.pick(pregnancyNoticeZh, pregnancyNoticeEn) }
 
     // ── Reference side tables (factual TCM data; sourced + verified) ──────────────────────────────
     // See claude-deliverables/references/acuguide_source_upgrade.md. Kept out of the 27 point

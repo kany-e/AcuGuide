@@ -19,14 +19,15 @@ final class AcuVoiceTests: XCTestCase {
                           "self-care only", "仅供养生", "Coach tab", "「引导」"]
 
     // HELPFUL FIRST, AND NOTHING ELSE: how to find it, what the tradition links it with, how to press
-    // and when to stop, the point's own caution. In that order, and the caution is never dropped.
+    // and when to stop, the point's own caution. In that order, and the caution is never dropped. (An
+    // asterisked point's notice follows the caution: SafetyInvariantTests pins that half.)
     func testEveryPointAnswerIsFindUsesPressCaution() async {
         for lang in AppSettings.Lang.allCases {
             await inLanguage(lang) {
                 let zh = AppLocale.isChinese
                 for p in Acupoint.all {
                     let a = await ChatService().reply(to: p.id, history: []).text
-                    let lead = zh ? "找\(p.zh)（\(p.id)）：" : "To find \(p.en) (\(p.id)): "
+                    let lead = zh ? "找\(p.zh)\(p.asterisk)（\(p.id)）：" : "To find \(p.en)\(p.asterisk) (\(p.id)): "
                     XCTAssertTrue(a.hasPrefix(lead), "[\(lang)] \(p.id): must open with how to find it — got: \(a.prefix(30))")
                     let press = zh ? "不舒服就停" : "stop if it feels wrong"
                     guard let pressAt = a.range(of: press) else {

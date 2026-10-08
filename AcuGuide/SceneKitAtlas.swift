@@ -501,7 +501,7 @@ struct AtlasPointCard: View {
         VStack(spacing: 6) {
             HStack(spacing: 8) {
                 Circle().fill(MeridianColors.color(pt.meridian)).frame(width: 9, height: 9)
-                Text("\(pt.id) · \(pt.zh)").font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
+                Text(verbatim: "\(pt.id) · \(pt.zh)\(pt.asterisk)").font(Typo.serif(17, weight: .semibold)).foregroundStyle(Ink.gold)
                 Text(pt.en).font(Typo.code(15)).foregroundStyle(Ink.textDim)
                 // Read aloud: speaks the point's name + where to find it (for anyone who'd rather hear
                 // it than read, and hands-free while positioning the hand). Tap again to stop.
@@ -537,6 +537,7 @@ struct AtlasPointCard: View {
                 Text(pt.caution).font(.caption2).foregroundStyle(Ink.gold.opacity(0.9))
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             }
+            PregnancyNotice(pt).multilineTextAlignment(.center)
         }
         .accessibilityElement(children: .contain)
         // Stop the previous point's narration when the card is swapped in place to another marker

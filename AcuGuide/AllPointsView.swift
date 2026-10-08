@@ -132,7 +132,7 @@ struct PointInfoView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 8) {
                         Circle().fill(MeridianColors.color(point.meridian)).frame(width: 10, height: 10)
-                        Text("\(point.id) · \(point.zh)").font(Typo.serif(22, weight: .semibold)).foregroundStyle(Ink.gold)
+                        Text(verbatim: "\(point.id) · \(point.zh)\(point.asterisk)").font(Typo.serif(22, weight: .semibold)).foregroundStyle(Ink.gold)
                         Text(point.en).font(Typo.code(15)).foregroundStyle(Ink.textDim)
                     }
                     Text(point.meridianEn + (point.englishName.isEmpty ? "" : " · “\(point.englishName)”"))
@@ -155,7 +155,8 @@ struct PointInfoView: View {
                     }
                     labeled(AppLocale.pick("传统用途", "Traditional uses"), point.indications)
                     if !point.caution.isEmpty {
-                        labeled(AppLocale.pick("注意", "Caution"), point.caution, tint: Ink.terracotta)
+                        labeled(AppLocale.pick("注意", "Caution"), point.caution, tint: Ink.terracotta,
+                                noticeFor: point)
                     }
 
                     // Session length is the user's choice — 1 round ≈ half a minute.
@@ -224,11 +225,15 @@ struct PointInfoView: View {
 
     private var sessionMinutes: Int { Routine.minutes(forRounds: rounds) }
 
-    private func labeled(_ title: String, _ text: String, tint: Color = Ink.text) -> some View {
+    // `noticeFor`: the caution panel carries the asterisk's notice (PregnancyNotice draws nothing
+    // for a point without an asterisk).
+    private func labeled(_ title: String, _ text: String, tint: Color = Ink.text,
+                         noticeFor point: Acupoint? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title).font(.caption.weight(.semibold)).foregroundStyle(Ink.textDim)
             Text(text).font(.subheadline).foregroundStyle(tint)
                 .fixedSize(horizontal: false, vertical: true)
+            if let point { PregnancyNotice(point).padding(.top, 3) }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading).panel()
     }
