@@ -54,6 +54,14 @@ struct RootView: View {
     // Close-button routing: the live session view registers what Close should do (see SessionUI).
     // Plain @State, not @StateObject — the router is imperative plumbing, never render state.
     @State private var closeRouter = SessionCloseRouter()
+    // Moxibustion is held out of this release (ReleaseScope). Debug builds can still reveal it from
+    // Settings → Developer, so it can be checked on a phone before it ships.
+    #if DEBUG
+    @AppStorage(ReleaseScope.devShowMoxaKey) private var devShowMoxa = false
+    private var showMoxa: Bool { ReleaseScope.moxaShipsInThisRelease || devShowMoxa }
+    #else
+    private var showMoxa: Bool { ReleaseScope.moxaShipsInThisRelease }
+    #endif
 
     // Bridge for children that just hand back a point (atlas markers, chat suggestions).
     private var startCoach: Binding<Acupoint?> {
@@ -74,8 +82,12 @@ struct RootView: View {
             // on the same anatomy, and folding it in would put a fire-safety surface behind a forced
             // gate whose copy is written for fingertips — and would expose pregnancy-restricted
             // points to a flow that has no screen. Its content sits behind MoxaGateView.
-            MoxaTab()
-                .tabItem { Label(AppLocale.pick("艾灸", "Moxa"), systemImage: "flame") }
+            // NOT IN THIS RELEASE — see ReleaseScope.moxaShipsInThisRelease for why. This entry is
+            // the only route into moxa from anywhere in the app, so hiding it is the whole cut.
+            if showMoxa {
+                MoxaTab()
+                    .tabItem { Label(AppLocale.pick("艾灸", "Moxa"), systemImage: "flame") }
+            }
 
             ChatView(startCoach: startCoach)
                 .tabItem { Label(CoachPersona.name, systemImage: "bubble.left.and.bubble.right") }
