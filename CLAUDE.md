@@ -5,6 +5,9 @@
 - **End every session with a short summary.** When a working session wraps up, give a brief recap:
   what changed, the current state (build/tests), and what's next. Keep it to a few lines — no need
   to re-explain everything.
+- **Acu's voice is specified in `docs/acu-voice.md`.** Any user-facing copy Acu speaks or writes —
+  chat, summaries, cues, the on-device AI's instructions — follows it, including where personality
+  must step back (safety gate, red flags, crisis, "felt worse").
 - **Build and test on this machine after every change.** `xcodegen` and `xcodebuild` both work here;
   never claim otherwise. `make test` is the gate.
 

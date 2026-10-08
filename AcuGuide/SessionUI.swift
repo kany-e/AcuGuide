@@ -164,16 +164,33 @@ struct SessionRecapView: View {
         }
     }
 
-    // Two exact wordings, kept character-identical to the originals: the camera coach vouches for
-    // a STEADY press (it verified the hold); the timer paced the rounds but couldn't watch.
+    // What the summary may CLAIM depends on who was watching: the camera coach verified a STEADY
+    // press, so it says so; the timer paced the rounds but could not see the hand, so it does not.
+    // That distinction is the honest part (信) and survives any rewording.
+    //
+    // The closing line is Acu's (docs/acu-voice.md), and short: a finished session gets "a little each
+    // day is plenty", an early stop gets plain permission. Neither ever asks for more. (It used to say
+    // "stopping whenever you like is exactly right" after FINISHED sessions too, where nobody stopped.)
     private func summaryLine(held: Int) -> String {
-        verifiedHold
-            ? AppLocale.pick(
-                "你在 \(point.id)（\(point.zh)）上完成了 \(roundsDone)/\(roundsTarget) 轮，累计稳定按压约 \(held) 秒。想停就停，本来就该如此。",
-                "You did \(roundsDone) of \(roundsTarget) rounds on \(point.id) (\(point.zh)) — about \(held) seconds of steady press. Stopping whenever you like is exactly right.")
-            : AppLocale.pick(
-                "你在 \(point.id)（\(point.zh)）上完成了 \(roundsDone)/\(roundsTarget) 轮，累计约 \(held) 秒。想停就停，本来就该如此。",
-                "You did \(roundsDone) of \(roundsTarget) rounds on \(point.id) (\(point.zh)) — about \(held) seconds. Stopping whenever you like is exactly right.")
+        Self.summaryText(point: point, roundsDone: roundsDone, roundsTarget: roundsTarget, held: held,
+                         verifiedHold: verifiedHold, finished: sessionComplete)
+    }
+
+    /// Pure, so the two rules above are tested rather than asserted: "steady press" only when the
+    /// camera verified the hold, and a closing line that never asks for more. `finished` is the
+    /// engine's own `sessionComplete`, not a second definition of done from the round counts.
+    static func summaryText(point: Acupoint, roundsDone: Int, roundsTarget: Int, held: Int,
+                            verifiedHold: Bool, finished: Bool) -> String {
+        let heldZh = verifiedHold ? "稳稳按住约 \(held) 秒" : "共约 \(held) 秒"
+        let heldEn = verifiedHold ? "about \(held) seconds of steady press" : "about \(held) seconds"
+        if finished {
+            return AppLocale.pick(
+                "\(point.zh)（\(point.id)）\(roundsDone) 轮都按完了，\(heldZh)。每天按一会儿就好。",
+                "All \(roundsDone) rounds on \(point.en) (\(point.id)) done — \(heldEn). A little each day is plenty.")
+        }
+        return AppLocale.pick(
+            "\(point.zh)（\(point.id)）按了 \(roundsDone)/\(roundsTarget) 轮，\(heldZh)。想停就停，这样也很好。",
+            "\(roundsDone) of \(roundsTarget) rounds on \(point.en) (\(point.id)) — \(heldEn). Stopping whenever you like is fine.")
     }
 }
 

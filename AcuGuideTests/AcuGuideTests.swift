@@ -513,7 +513,11 @@ final class ChatLLMTests: XCTestCase {
         let mock = MockGen(reply: "should never be used")
         let a = await ChatService(generator: mock).reply(to: "TE3", history: [])
         XCTAssertEqual(mock.calls, 0, "a direct point lookup must not consult the model")
-        XCTAssertTrue(a.text.contains("Location:"))
+        // Fingerprint of the deterministic card: the point's own plain-language finding guide, which
+        // the model has no way to reproduce. (It was the literal "Location:", until Acu's answers led
+        // with how to FIND the spot instead of the WHO location string — docs/acu-voice.md.)
+        let guide = String(Acupoint.byId["TE3"]?.findHow.prefix(14) ?? "missing")
+        XCTAssertTrue(a.text.contains(guide), "a point query must return the validated card, not model text")
     }
 
     // Model output violating the banned-claim rule is rejected wholesale → canned general reply.

@@ -163,12 +163,18 @@ final class ChatService {
         }
         return nil
     }
+    // A symptom gets the points some people press, when to stop, and when to see someone — the
+    // safety half stays whole. "Tap a button below" went (the buttons are right there), and so did
+    // the stiff 「作为温和的自我保养，有些人会按压：」 framing.
     private func symptomReply(_ pts: [Acupoint]) -> String {
-        let names = pts.map { "\($0.id) \(AppLocale.pick($0.zh, $0.en))" }
-            .joined(separator: AppLocale.pick("、", ", "))
+        let items = pts.map { AppLocale.pick("\($0.zh)（\($0.id)）", "\($0.en) (\($0.id))") }
+        // Chinese lists with 、; English needs its "and" ("A, B and C"), or it reads like a data dump.
+        let names = AppLocale.isChinese || items.count < 2
+            ? items.joined(separator: "、")
+            : items.dropLast().joined(separator: ", ") + " and " + (items.last ?? "")
         return AppLocale.pick(
-            "作为温和的自我保养，有些人会按压：\(names)。点按下方按钮即可用相机练习。如有不适，或症状严重、持续，请停止并咨询专业人士。仅供养生自我保养参考。",
-            "As gentle self-care, some people press: \(names). Tap a button below to practice it with the camera. Stop if it’s uncomfortable, and see a professional if symptoms are severe or persistent. Wellness self-care only.")
+            "有些人会轻轻按这几个穴位：\(names)。不舒服就停；如果比较严重或一直不见好，请找专业人士看看。",
+            "Some people gently press \(names). Stop if it's uncomfortable, and see a professional if it's severe or doesn't settle.")
     }
 
     // Self-harm / suicidal-ideation screen. Runs before everything else. Whole-word or
@@ -244,22 +250,32 @@ final class ChatService {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return Acupoint.all.first { trimmed.contains($0.zh) && trimmed.count <= $0.zh.count + 1 }
     }
+    // A point answer in Acu's voice (docs/acu-voice.md) is four things: how to find it, what the
+    // tradition links it with, how to press and when to stop, and the point's own caution — which is
+    // never dropped, because it is the one part that is about safety. That is the whole answer.
+    //
+    // Device feedback asked for concise answers and no commentary on sources, so the research count,
+    // the classical category, the meridian bookkeeping and the trailing disclaimer are gone from the
+    // reply. They are not lost: the atlas card and the Sources screen carry them, and the disclaimer
+    // is now said ONCE on the chat screen (WellnessFooter) instead of at the end of every bubble. The
+    // "open the Practice tab" line went too — camera points already get a Practice button underneath.
     private func pointReply(_ p: Acupoint) -> String {
-        let practice = p.mediapipeTarget != nil
-            ? AppLocale.pick(" 你也可以在「引导」中用相机练习。", " You can also practice it with the camera in the Coach tab.")
-            : ""
-        let caution = p.caution.isEmpty ? "" : AppLocale.pick(" 注意：\(p.cautionZh)", " Caution: \(p.cautionEn)")
-        // Classical role (Five-Shu / Yuan / Luo …) + standard English name — traditional framing.
-        let name = p.englishName.isEmpty ? p.en : AppLocale.pick(p.en, "\(p.en) “\(p.englishName)”")
-        let role = p.roleEn.isEmpty ? "" : AppLocale.pick(" 传统归类：\(p.roleZh)。", " Classical role: \(p.roleEn).")
-        // Honest research pointer: how many studies AcuTrials indexes for the related concern.
-        let ev = Evidence.forPoint(p.id)
-        let evidence = ev == nil ? "" : AppLocale.pick(
-            " 研究：OCOM 的 AcuTrials 数据库就相关方向收录了 \(ev!.count) 项研究（详见设置中的「来源与证据」，个体反应因人而异）。",
-            " Research: OCOM's AcuTrials database indexes \(ev!.count) studies on the related concern (see Sources & Evidence in Settings; individual results vary).")
-        return AppLocale.pick(
-            "\(p.id) · \(p.zh)（\(name)，\(p.meridianZh)）。\(role) 定位：\(p.locationZh) 传统用途：\(p.indicationsZh) 作为自我保养：放松身体，找到该处，用稳而舒适的力度配合缓慢呼吸按压约30–60秒；如有不适请停止。\(practice)\(evidence)\(caution) 仅供养生自我保养参考。",
-            "\(p.id) · \(name) (\(p.zh), \(p.meridianEn)).\(role) Location: \(p.locationEn) Traditional uses: \(p.indicationsEn) As self-care: relax, find the spot, and apply firm-but-comfortable pressure with slow breathing for about 30–60 seconds; stop if it’s uncomfortable.\(practice)\(evidence)\(caution) Wellness self-care only.")
+        let zh = AppLocale.isChinese
+        // Every piece is a whole sentence. Chinese joins with no space after its 。, English with one.
+        func sentence(_ text: String) -> String {
+            let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let last = t.last else { return "" }
+            if zh { return "。！？".contains(last) ? t : t + "。" }
+            return ".!?".contains(last) ? t : t + "."
+        }
+        let lead = zh ? "找\(p.zh)（\(p.id)）：" : "To find \(p.en) (\(p.id)): "
+        let find = sentence(p.hasFindGuide ? p.findHow : p.location)
+        let uses = sentence(zh ? p.indicationsZh : p.indicationsEn)
+        let press = AppLocale.pick("轻轻按 30 到 60 秒，慢慢呼吸，不舒服就停。",
+                                   "Press gently for 30 to 60 seconds, breathing slowly, and stop if it feels wrong.")
+        let caution = p.caution.isEmpty ? "" : (zh ? "注意：" + sentence(p.cautionZh)
+                                                    : "Caution: " + sentence(p.cautionEn))
+        return lead + [find, uses, press, caution].filter { !$0.isEmpty }.joined(separator: zh ? "" : " ")
     }
 
     // Match a meridian when the query clearly asks about a channel/meridian (gates English-organ
@@ -301,12 +317,11 @@ final class ChatService {
     private func meridianReply(_ m: Meridian) -> String {
         let pts = m.points
         let list = pts.isEmpty
-            ? AppLocale.pick("（本图谱暂未收录此经的穴位。）", " (No points from this channel are in this atlas yet.)")
-            : AppLocale.pick(" 本图谱中此经的穴位：" + pts.map { "\($0.id) \($0.zh)" }.joined(separator: "、") + "。",
-                             " Points on this channel in this atlas: " + pts.map { "\($0.id) \($0.en)" }.joined(separator: ", ") + ".")
-        return AppLocale.pick(
-            "\(m.zh)（\(m.en)，\(m.ab)）。\(m.descZh)\(list) 仅供养生自我保养参考。",
-            "\(m.en) Meridian (\(m.zh), \(m.ab)). \(m.descEn)\(list) Wellness self-care only.")
+            ? AppLocale.pick("应用里还没有收录这条经上的穴位。", "None of its points are in this app yet.")
+            : AppLocale.pick("应用里收录了这条经上的" + pts.map { "\($0.zh)（\($0.id)）" }.joined(separator: "、") + "。",
+                             "Its points in this app: " + pts.map { "\($0.en) (\($0.id))" }.joined(separator: ", ") + ".")
+        return AppLocale.pick("\(m.zh)（\(m.ab)）：\(m.descZh)\(list)",
+                              "The \(m.en) Meridian (\(m.ab)): \(m.descEn) \(list)")
     }
 
     // General-knowledge FAQ: first entry whose keyword is in the query (English/pinyin via lowered,
@@ -318,9 +333,10 @@ final class ChatService {
     }
 
     private func generalReply() -> String {
+        // The count is read from the atlas, so this line cannot drift when a point is added.
         AppLocale.pick(
-            "我是 \(CoachPersona.name) — 可以带你认识全身的安全穴位（手部如中渚 TE3、内关 PC6；头部如印堂、太阳；腿部如足三里 ST36；足部如太冲 LR3 等），讲讲十四经络，也可以聊按压方法、时长、安全这些常见问题。按名称问我任意穴位或经络就行。仅供养生自我保养参考。",
-            "I'm \(CoachPersona.name) — I can walk you through safe acupoints across the body (hand points like TE3 / PC6, head points like Yintang / Taiyang, the leg point ST36 Zusanli, the foot point LR3 Taichong, and more), tell you about the fourteen meridians, and chat about how to press, how long, and safety. Just ask about any point or meridian by name. Wellness self-care only.")
+            "我是 \(CoachPersona.name)。这个应用里的 \(Acupoint.all.count) 个穴位和十四条经络我都熟，比如手上的中渚、内关，头上的印堂、太阳，腿上的足三里，脚上的太冲。报个名字，我告诉你在哪、怎么按。",
+            "I'm \(CoachPersona.name). I know the \(Acupoint.all.count) points in this app and the fourteen meridians they sit on — Zhongzhu and Neiguan on the hand, Yintang and Taiyang on the head, Zusanli on the leg, Taichong on the foot. Name one and I'll tell you where it is and how to press it.")
     }
 
     // Verified general-knowledge FAQ (sourced + adversarially reviewed; wellness-only framing).
@@ -414,10 +430,13 @@ struct ChatView: View {
     }
     private let service = ChatService()
 
+    // Concise, and about what you can ask — not a list of topics. Pregnancy is answered when someone
+    // asks (the safety screen and the points' own cautions cover it); a greeting that raises it
+    // unprompted reads as if the app expects it.
     static func greetingMessage() -> ChatMessage {
         .init(role: .coach, text: AppLocale.pick(
-            "你好，我是 \(CoachPersona.name) — 可以问我任意穴位或经络（如足三里、肺经），也可以聊聊按压方法、时长、孕期与安全。",
-            "Hi, I'm \(CoachPersona.name) — ask me about any acupoint or meridian (e.g. Zusanli, the Lung meridian), or about how to press, how long, pregnancy, and safety."))
+            "你好，我是 \(CoachPersona.name)。想知道哪个穴位在哪、怎么找、怎么按，直接问我就行。",
+            "Hi, I'm \(CoachPersona.name). Ask me where a point is, how to find it, or how to press it."))
     }
 
     var body: some View {
@@ -427,6 +446,9 @@ struct ChatView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         // Honest capability note — only when the device can't run the on-device
                         // model at all (a Settings toggle can't help; the built-in paths still work).
+                        // The self-care framing, said once for the whole conversation instead of
+                        // at the end of every reply — the same footer the other screens use.
+                        WellnessFooter()
                         if !ChatLLM.deviceSupported {
                             Text(AppLocale.pick(
                                 "此设备不支持设备端 AI 生成回答。\(CoachPersona.name) 会照常用内建的穴位图谱、经络与常见问题回答。",
