@@ -2,14 +2,24 @@
 """Score the shipped camera-coach anchors against MetaAcuPoint, and test whether the dataset transfers.
 
 Usage (run eval.swift first to produce results.csv):
-    python3 -I analyze.py results.csv ../../data/te3_labels_2026-07-07.jsonl
+    python3 -I analyze.py results.csv ../../data/te3_labels_2026-07-07.jsonl <dataset>/avatar_description.xlsx
+
+HOW THE LABELS WERE MADE decides how the cross-validation must be split. Per the paper (§3), a
+practitioner placed the five points ONCE PER SKELETON TYPE as bone-attached sockets; they were then
+copied to the 6 avatars sharing that skeleton and projected into every frame automatically. So the
+900 labels are 5 placement decisions, and a hand held out alone still has its exact bone-relative
+TE3 in training via its 5 skeleton-mates. Leave-one-SKELETON-out is the honest split. The
+leave-one-hand-out number is printed beside it because the two came out the same here (the
+2-parameter frame model barely varies across skeletons) — the split was wrong in principle and
+happened not to matter, and a reader should be able to see that rather than take it on trust.
 
 Everything is in the app's own units: positions in Vision's hand frame (origin wrist, axis
 wrist → middle MCP, "across" positive toward the little finger), distances in hand-sizes
 (isotropic wrist → middle MCP, Coach.isoHandSize). The ring radii are the shipped
 toleranceXHandSize values: TE3 0.16, SJ5 0.24.
 """
-import csv, json, statistics as st, sys
+import csv, json, re, statistics as st, sys, zipfile
+import xml.etree.ElementTree as ET
 from collections import Counter
 
 SYN_ASPECT = 1488 / 837
@@ -33,11 +43,33 @@ def basis(w, m, little, asp):
     return to, back, hs
 
 
+def skeleton_of(xlsx):
+    """avatar id → skeleton group, from sheet 2 of avatar_description.xlsx (the 30 avatars used).
+
+    The sheet has no skeleton column; grouping by (gender, height, size) yields exactly the paper's
+    five groups of six. Its gender column is swapped relative to the paper's 12 male / 18 female,
+    so the group key is used only as an opaque label."""
+    z = zipfile.ZipFile(xlsx); M = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    shared = ["".join(t.text or "" for t in si.iter(M + "t"))
+              for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall(M + "si")]
+    out = {}
+    for row in ET.fromstring(z.read("xl/worksheets/sheet2.xml")).iter(M + "row"):
+        vals = []
+        for c in row.findall(M + "c"):
+            v = c.find(M + "v")
+            vals.append(shared[int(v.text)] if c.get("t") == "s" and v is not None
+                        else (v.text if v is not None else ""))
+        if len(vals) > 4 and vals[2].strip().isdigit():
+            out[vals[2].strip()] = "/".join(vals[i] for i in (1, 3, 4))
+    return out
+
+
 def pct(xs, q):
     xs = sorted(xs); return xs[min(len(xs) - 1, int(q * len(xs)))]
 
 
-def main(results_csv, real_jsonl):
+def main(results_csv, real_jsonl, xlsx):
+    skel = skeleton_of(xlsx)
     syn = [r for r in csv.DictReader(open(results_csv))]
     det = [r for r in syn if r["detected"] == "1"]
     print(f"MetaAcuPoint images {len(syn)}; Vision found the four anchor joints in {len(det)}\n")
@@ -53,7 +85,7 @@ def main(results_csv, real_jsonl):
           f"true left → {dict((k[1], v) for k, v in c.items() if k[0] == 'left')}\n")
 
     # 2. Where things sit in the hand frame, per source
-    groups, syn_t, syn_lab, syn_te5 = {}, [], [], []
+    groups, by_skel, syn_t, syn_lab, syn_te5 = {}, {}, [], [], []
     for r in det:
         P = lambda k: (float(r[k + "_x"]), float(r[k + "_y"]))
         to, back, hs = basis(P("wrist"), P("middleMCP"), P("littleMCP"), SYN_ASPECT)
@@ -62,6 +94,7 @@ def main(results_csv, real_jsonl):
         syn_t.append(to(t)); syn_lab.append(lab)
         syn_te5.append(to((float(r["te5_x"]), float(r["te5_y"]))))
         groups.setdefault(r["avatar"] + r["side"], []).append(lab)
+        by_skel.setdefault(skel[r["avatar"]], []).append(lab)
 
     real = [json.loads(l) for l in open(real_jsonl) if l.strip()]
     real_t, real_lab, real_frames = [], [], []
@@ -77,7 +110,7 @@ def main(results_csv, real_jsonl):
 
     med = lambda xs, i: st.median(x[i] for x in xs)
     print("2. TE3 IN THE HAND FRAME (along: 0 wrist → 1 middle knuckle; across: + toward little finger)")
-    print(f"   MetaAcuPoint labels ({len(groups)} hands)   along {med(syn_lab, 0):.2f}  across {med(syn_lab, 1):+.2f}")
+    print(f"   MetaAcuPoint labels ({len(by_skel)} placements, {len(groups)} hands)  along {med(syn_lab, 0):.2f}  across {med(syn_lab, 1):+.2f}")
     print(f"   real device labels ({len(real)}, 1 session)  along {med(real_lab, 0):.2f}  across {med(real_lab, 1):+.2f}")
     print(f"   shipped target on REAL frames      along {med(real_t, 0):.2f}  across {med(real_t, 1):+.2f}")
     print(f"   shipped target on the RENDERS      along {med(syn_t, 0):.2f}  across {med(syn_t, 1):+.2f}")
@@ -85,22 +118,26 @@ def main(results_csv, real_jsonl):
           f"across 0.00 by definition\n")
 
     # 3. Does a model fit on the dataset transfer to real hands?
-    ids = list(groups)
-    loo = []
-    for gid in ids:
-        train = [p for h in ids if h != gid for p in groups[h]]
-        a, c = st.median(p[0] for p in train), st.median(p[1] for p in train)
-        loo += [((p[0] - a) ** 2 + (p[1] - c) ** 2) ** .5 for p in groups[gid]]
+    def held_out(parts):
+        errs = []
+        for gid in parts:
+            train = [p for h in parts if h != gid for p in parts[h]]
+            a, c = st.median(p[0] for p in train), st.median(p[1] for p in train)
+            errs += [((p[0] - a) ** 2 + (p[1] - c) ** 2) ** .5 for p in parts[gid]]
+        return errs
+    loo, loso = held_out(groups), held_out(by_skel)
     A, C = med(syn_lab, 0), med(syn_lab, 1)
     fm = [isod(back(A, C), lab, asp) / hs for back, hs, asp, t, lab in real_frames]
     sh = [isod(t, lab, asp) / hs for back, hs, asp, t, lab in real_frames]
     print("3. TRANSFER: a hand-frame TE3 fit ONLY on the dataset, scored on the real labels it never saw")
     print(f"   fit: TE3 = wrist + {A:.3f}·axis {C:+.3f}·across")
-    print(f"   within the dataset, leave-one-hand-out: mean {st.mean(loo):.3f}, inside 0.16: "
-          f"{100 * sum(x <= .16 for x in loo) / len(loo):.0f}%")
+    print(f"   within the dataset, leave-one-SKELETON-out ({len(by_skel)} folds): mean {st.mean(loso):.3f}, "
+          f"inside 0.16: {100 * sum(x <= .16 for x in loso) / len(loso):.0f}%")
+    print(f"   (leave-one-hand-out, which leaks skeleton-mates: mean {st.mean(loo):.3f}, "
+          f"inside 0.16: {100 * sum(x <= .16 for x in loo) / len(loo):.0f}%)")
     print(f"   on the {len(real)} real labels:  dataset fit mean {st.mean(fm):.3f}, inside {sum(x <= .16 for x in fm)}/{len(fm)}"
           f"   |   shipped (in-sample) mean {st.mean(sh):.3f}, inside {sum(x <= .16 for x in sh)}/{len(sh)}")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
