@@ -204,6 +204,12 @@ TE3/TE5 MDE on reprojected data, the premise is falsified for the price of a few
 
 ## 13. Empirical caveats found while scoping (not from the papers)
 
+- **Oct 2026 — settled, and it closes Tier 1 for a shipped model.** Access was granted on request. The
+  Zenodo record's usage conditions limit the files to academic, non-commercial research (despite the
+  CC BY 4.0 field), and the Unreal EULA §6 bars using MetaHuman characters to build or train/test any
+  ML system. Measured in `claude-deliverables/experiments/metaacupoint-eval/`: the practitioner's TE3 sits
+  about 0.2 hand-sizes from the real by-feel labels, so the data would move TE3, not just sharpen it.
+
 - **Dataset access is unconfirmed.** The paper states the MetaAcuPoint set is CC BY 4.0 on Zenodo (DOI
   10.5281/zenodo.17713204, ~1.9 GB). A **direct Zenodo API query on record 17713204 returned an empty file
   list** (`files: []`, 4 downloads, 268 views) and the record title reads "…Synthetic **Forearm** Data" (a

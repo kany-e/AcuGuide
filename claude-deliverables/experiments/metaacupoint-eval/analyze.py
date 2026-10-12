@@ -23,6 +23,11 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 
 SYN_ASPECT = 1488 / 837
+# The 9 real labels were captured by LabelCapture.swift, which forces portrait buffers at the .high
+# preset (frameAspect = width/height = 9/16). The records do not store it, and their handSize is the
+# RAW normalised |middleMCP − wrist|, so it cannot be recovered from them: an earlier version did
+# exactly that, always got 1.0, and measured the real hands in squashed coordinates (Oct 2026 fix).
+REAL_ASPECT = 9 / 16
 TE3_W = {"ringMCP": .11, "littleMCP": .47, "wrist": .42}   # Acupoints.swift, TE3 mediapipeTarget
 
 
@@ -144,8 +149,8 @@ def main(results_csv, real_jsonl, xlsx):
     real_t, real_lab, real_frames, real_aff = [], [], [], []
     for r in real:
         j = r["joints"]; g = lambda k: tuple(j[k])
-        w, m = g("wrist"), g("middleMCP"); dx = m[0] - w[0]; dy = m[1] - w[1]
-        asp = abs(dy) / (r["handSize"] ** 2 - dx ** 2) ** .5         # capture aspect, from stored size
+        w, m = g("wrist"), g("middleMCP")
+        asp = r.get("frameAspect") or REAL_ASPECT                     # stored by newer captures
         to, back, hs = basis(w, m, g("pinkyMCP"), asp)
         t = (.11 * g("ringMCP")[0] + .47 * g("pinkyMCP")[0] + .42 * w[0],
              .11 * g("ringMCP")[1] + .47 * g("pinkyMCP")[1] + .42 * w[1])

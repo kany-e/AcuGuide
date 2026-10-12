@@ -8,6 +8,9 @@ import os
 // `weightedTarget`, measures the learned−affine delta + inference latency, and NEVER changes coach
 // behavior (it only reads a Hand and logs). Because the head is trained by affine-imitation, the live
 // delta should be ~0; a large delta means a coordinate-convention mismatch to fix before any cut-over.
+// EXCEPTION, TE3: this head imitates the PRE-refit TE3 anchors (ring .46 / pinky .34 / wrist .20 in
+// m1-head/train.py), not the shipped .11 / .47 / .42, so a TE3 delta of about 0.2 hand-sizes is the
+// expected reading until it is retrained — not a convention bug.
 // See claude-deliverables/experiments/m1-head/ + references/acuguide_localizer_research.md (§10 M1).
 
 // Canonical hand frame — ported VERBATIM from the M0 harness Core.swift and train.py: origin = middleMCP,

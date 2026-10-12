@@ -478,13 +478,24 @@ final class AcuGuideTests: XCTestCase {
                               joints: ["wrist": [0.5, 0.8], "middleMCP": [0.5, 0.52]],
                               confidence: ["wrist": 0.98, "middleMCP": 0.91],
                               target: [0.44, 0.30], affine: [0.45, 0.31], mirrored: true,
-                              ts: 1_700_000_000, session: "sess", image: "a.jpg")
+                              ts: 1_700_000_000, session: "sess", image: "a.jpg", frameAspect: 9.0 / 16.0)
         let back = try JSONDecoder().decode(LabelRecord.self, from: JSONEncoder().encode(rec))
         XCTAssertEqual(back.pointId, "TE3")
         XCTAssertEqual(back.joints["wrist"], [0.5, 0.8])
         XCTAssertEqual(back.target, [0.44, 0.30])
         XCTAssertEqual(back.affine, [0.45, 0.31])
         XCTAssertTrue(back.mirrored)
+        XCTAssertEqual(back.frameAspect, 9.0 / 16.0)
+    }
+
+    // The 9 TE3 labels on disk predate frameAspect; they must still decode (as nil, i.e. 9/16).
+    func testLabelRecordWithoutFrameAspectStillDecodes() throws {
+        let old = #"{"v":1,"pointId":"TE3","chirality":"right","handSize":0.28,"joints":{"wrist":[0.5,0.8]},"#
+            + #""confidence":{"wrist":0.65},"target":[0.44,0.64],"affine":null,"mirrored":true,"#
+            + #""ts":1783471843.2,"session":"s","image":null}"#
+        let rec = try JSONDecoder().decode(LabelRecord.self, from: Data(old.utf8))
+        XCTAssertNil(rec.frameAspect)
+        XCTAssertEqual(rec.target, [0.44, 0.64])
     }
 }
 
