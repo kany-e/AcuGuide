@@ -66,7 +66,7 @@ final class SafetyInvariantTests: XCTestCase {
                        + "an added 'canSkip'/'isOptional' flag would make the gate skippable")
     }
 
-    // MARK: - Excluded (pregnancy-cautioned) points must never surface from the model
+    // MARK: - Excluded (pregnancy-contraindicated) points must never surface from the model
 
     // ChatSafety.allowed filters them, but nothing asserted it — deleting the two excluded-point
     // lines passed the entire suite.
@@ -244,10 +244,10 @@ final class AtlasContentCountTests: XCTestCase {
 // MARK: - Point-specific cautions reach the screen where the press happens
 
 // The forced safety gate covers GENERIC red flags and says nothing point-specific. 22 of the 33
-// points carry their own caution — LR3 "don't press hard on the pulsing artery in the groove",
-// KI1 "skip if the sole skin is broken" — and those strings were rendered on the atlas card but
-// on NEITHER session screen, so a bundled routine could walk a user straight into pressing LR3
-// without ever showing its caution.
+// points carry their own caution — LR3: don't press hard on the pulse in the groove; KI1: skip it
+// if the sole has broken skin — and those strings were rendered on the atlas card but on NEITHER
+// session screen, so a bundled routine could walk a user straight into pressing LR3 without ever
+// showing its caution.
 final class PointCautionTests: XCTestCase {
     override func setUp() { super.setUp(); AppSettings.shared.lang = .en }
 
@@ -311,5 +311,83 @@ final class PracticeDataDeletionTests: XCTestCase {
         let reloaded = PracticeStore(defaults: defaults)
         XCTAssertTrue(reloaded.records.isEmpty,
                       "deleted history must stay deleted across a reload, not come back on relaunch")
+    }
+}
+
+// MARK: - Pregnancy: an asterisk and one notice, never a sentence in a caution
+
+// User direction (Oct 2026): pregnancy is not raised unprompted, so it left the seven cautions that
+// mentioned it. Those points carry an asterisk after their name instead, and the asterisk's notice
+// sits on the same screen. An extension of SafetyInvariantTests, not its own class, so the merge
+// gate's named safety pass (-only-testing:AcuGuideTests/SafetyInvariantTests) runs it.
+extension SafetyInvariantTests {
+    static let asteriskedIDs: Set<String> = ["CV12", "ST25", "ST36", "SP10", "LR3", "ST44", "KI1"]
+
+    /// Exactly these seven. Dropping one silently removes its pregnancy warning; adding one should be
+    /// a decision made here, with the source, not a stray flag.
+    func testPregnancyAsteriskIsExactlyTheSevenCautionedPoints() {
+        let flagged = Set(Acupoint.all.filter(\.pregnancyAsterisk).map(\.id))
+        XCTAssertEqual(flagged, Self.asteriskedIDs)
+    }
+
+    /// The pregnancy wording lives in the notice and nowhere in the point data, and every asterisked
+    /// point still has a caution of its own, because the notice is shown next to it.
+    func testNoCautionMentionsPregnancyAndEveryAsteriskHasACaution() {
+        for p in Acupoint.all {
+            for text in [p.cautionZh, p.cautionEn] {
+                XCTAssertFalse(text.contains("孕") || text.contains("妊娠") || text.lowercased().contains("pregnan"),
+                               "\(p.id): pregnancy belongs in the asterisk notice, not the caution: \(text)")
+            }
+            if p.pregnancyAsterisk {
+                XCTAssertFalse(p.cautionZh.isEmpty || p.cautionEn.isEmpty,
+                               "\(p.id): an asterisked point needs a caution for its notice to sit beside")
+            }
+        }
+    }
+
+    /// The notice is as strict as the strictest caution it replaced (SP10: best avoided in pregnancy):
+    /// hold off, and ask a doctor or midwife. It opens with the same mark the names carry.
+    func testPregnancyNoticeIsStrictAndExplainsTheMark() {
+        let zh = Acupoint.pregnancyNoticeZh, en = Acupoint.pregnancyNoticeEn
+        XCTAssertTrue(zh.hasPrefix(Acupoint.asteriskMark) && en.hasPrefix(Acupoint.asteriskMark))
+        XCTAssertTrue(zh.contains("孕") && zh.contains("先别按") && zh.contains("医生"), zh)
+        XCTAssertTrue(en.contains("pregnant") && en.contains("hold off") && en.contains("doctor"), en)
+    }
+
+    /// The asterisk is display-only. In a name or a spoken line it would change the voice-clip key,
+    /// orphan the clip, and have the fallback voice read the glyph aloud.
+    func testAsteriskNeverReachesNamesOrSpeech() {
+        for lang in AppSettings.Lang.allCases {
+            AppSettings.shared.lang = lang
+            for p in Acupoint.all {
+                XCTAssertFalse(p.zh.contains("*") || p.en.contains("*") || p.id.contains("*"), p.id)
+                XCTAssertFalse(p.spokenInfo.contains("*"), "\(p.id): the asterisk reached the spoken line")
+            }
+        }
+    }
+
+    /// The camera coach shows cautions without the notice, so no asterisked point may be coached.
+    func testNoAsteriskedPointIsCameraCoached() {
+        for p in Acupoint.all where p.pregnancyAsterisk {
+            XCTAssertNil(p.mediapipeTarget, "\(p.id): ARCoachView has no notice — add one before coaching it")
+        }
+    }
+
+    /// Chat: an asterisked point's answer carries the mark on its name and closes with the notice on
+    /// its own line; any other point's answer never mentions pregnancy.
+    func testChatPointAnswerCarriesTheNoticeOnlyWithTheAsterisk() async {
+        for lang in AppSettings.Lang.allCases {
+            AppSettings.shared.lang = lang
+            for p in Acupoint.all {
+                let a = await ChatService().reply(to: p.id, history: []).text
+                if p.pregnancyAsterisk {
+                    XCTAssertTrue(a.contains(p.zh + "*") || a.contains(p.en + "*"), "[\(lang)] \(p.id): no asterisk on the name")
+                    XCTAssertTrue(a.hasSuffix("\n" + Acupoint.pregnancyNotice), "[\(lang)] \(p.id): the notice must close the answer")
+                } else {
+                    XCTAssertFalse(a.contains("*") || a.contains("孕") || a.lowercased().contains("pregnan"),
+                                   "[\(lang)] \(p.id): pregnancy raised for a point without an asterisk")
+                }
+            }
+        }
     }
 }

@@ -122,3 +122,20 @@ struct WellnessFooter: View {
             .frame(maxWidth: .infinity)
     }
 }
+
+// The notice for the asterisk after a point's name (Acupoint.pregnancyAsterisk). Renders nothing
+// unless one of `points` carries the asterisk, so a screen can always include it next to the
+// caution and it shows only when there is an asterisk on screen to explain. Callers set alignment.
+struct PregnancyNotice: View {
+    let points: [Acupoint]
+    init(_ point: Acupoint) { points = [point] }
+    init(points: [Acupoint]) { self.points = points }
+
+    var body: some View {
+        if points.contains(where: \.pregnancyAsterisk) {
+            Text(verbatim: Acupoint.pregnancyNotice)
+                .font(.caption2).foregroundStyle(Ink.textDim)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}

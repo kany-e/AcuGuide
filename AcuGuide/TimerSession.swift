@@ -203,7 +203,7 @@ struct TimerSessionView: View {
         VStack(spacing: 18) {
             HStack(spacing: 8) {
                 Circle().fill(MeridianColors.color(acupoint.meridian)).frame(width: 10, height: 10)
-                Text("\(acupoint.id) · \(acupoint.zh)").font(Typo.serif(20, weight: .semibold)).foregroundStyle(Ink.gold)
+                Text(verbatim: "\(acupoint.id) · \(acupoint.zh)\(acupoint.asterisk)").font(Typo.serif(20, weight: .semibold)).foregroundStyle(Ink.gold)
                 Text(acupoint.en).font(Typo.code(15)).foregroundStyle(Ink.textDim)
             }
             Text(acupoint.location)
@@ -222,8 +222,9 @@ struct TimerSessionView: View {
             // THE POINT'S OWN CAUTION, on the screen where the press actually happens. The forced
             // safety gate covers generic red flags; it says nothing point-specific. This screen runs
             // 25 of the 33 points, and a bundled routine could walk a user straight into pressing
-            // LR3 without ever showing "don't press hard on the pulsing artery in the groove" —
-            // the string existed and was rendered on the atlas card, just never here.
+            // LR3 without ever being told not to press hard on the pulse in the groove — the string
+            // existed and was rendered on the atlas card, just never here. All seven asterisked
+            // points are timer points, so this is also where their notice matters most.
             if !acupoint.caution.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").font(.caption2)
@@ -235,6 +236,7 @@ struct TimerSessionView: View {
                 .padding(.horizontal, 24)
                 .accessibilityLabel(AppLocale.pick("注意：", "Caution: ") + acupoint.caution)
             }
+            PregnancyNotice(acupoint).multilineTextAlignment(.center).padding(.horizontal, 24)
 
             ZStack {
                 Circle().stroke(Ink.line, lineWidth: 8).frame(width: 150, height: 150)

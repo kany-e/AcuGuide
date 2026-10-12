@@ -123,6 +123,7 @@ final class AcuGuideTests: XCTestCase {
         for r in Routine.all { check("routine[\(r.id)]", [r.zh, r.en, r.descZh, r.descEn]) }
         for f in ChatService.faqs { check("faq[\(f.topic)]", [f.aZh, f.aEn]) }
         check("persona", [CoachPersona.name])
+        check("pregnancyNotice", [Acupoint.pregnancyNoticeZh, Acupoint.pregnancyNoticeEn])
         // THE MOXA DATASET. A new dataset is unguarded until it is explicitly added here — this scan
         // enumerates named collections, so `MoxaAtlas.all` was invisible to it the moment it was
         // written, which is exactly how an unscanned dataset ships. Its source material is saturated

@@ -252,13 +252,17 @@ final class ChatService {
     }
     // A point answer in Acu's voice (docs/acu-voice.md) is four things: how to find it, what the
     // tradition links it with, how to press and when to stop, and the point's own caution — which is
-    // never dropped, because it is the one part that is about safety. That is the whole answer.
+    // never dropped, because it is the one part that is about safety. That is the whole answer, except
+    // that an asterisked point closes with the asterisk's notice (below).
     //
     // Device feedback asked for concise answers and no commentary on sources, so the research count,
     // the classical category, the meridian bookkeeping and the trailing disclaimer are gone from the
     // reply. They are not lost: the atlas card and the Sources screen carry them, and the disclaimer
     // is now said ONCE on the chat screen (WellnessFooter) instead of at the end of every bubble. The
     // "open the Practice tab" line went too — camera points already get a Practice button underneath.
+    // A point with an asterisk (Acupoint.pregnancyAsterisk) carries it on its name here too, and the
+    // asterisk's notice closes the bubble on its own line — the only way pregnancy enters a point
+    // answer, since no caution mentions it.
     private func pointReply(_ p: Acupoint) -> String {
         let zh = AppLocale.isChinese
         // Every piece is a whole sentence. Chinese joins with no space after its 。, English with one.
@@ -268,14 +272,15 @@ final class ChatService {
             if zh { return "。！？".contains(last) ? t : t + "。" }
             return ".!?".contains(last) ? t : t + "."
         }
-        let lead = zh ? "找\(p.zh)（\(p.id)）：" : "To find \(p.en) (\(p.id)): "
+        let lead = zh ? "找\(p.zh)\(p.asterisk)（\(p.id)）：" : "To find \(p.en)\(p.asterisk) (\(p.id)): "
         let find = sentence(p.hasFindGuide ? p.findHow : p.location)
         let uses = sentence(zh ? p.indicationsZh : p.indicationsEn)
         let press = AppLocale.pick("轻轻按 30 到 60 秒，慢慢呼吸，不舒服就停。",
                                    "Press gently for 30 to 60 seconds, breathing slowly, and stop if it feels wrong.")
         let caution = p.caution.isEmpty ? "" : (zh ? "注意：" + sentence(p.cautionZh)
                                                     : "Caution: " + sentence(p.cautionEn))
-        return lead + [find, uses, press, caution].filter { !$0.isEmpty }.joined(separator: zh ? "" : " ")
+        let notice = p.pregnancyAsterisk ? "\n" + Acupoint.pregnancyNotice : ""
+        return lead + [find, uses, press, caution].filter { !$0.isEmpty }.joined(separator: zh ? "" : " ") + notice
     }
 
     // Match a meridian when the query clearly asks about a channel/meridian (gates English-organ
@@ -431,8 +436,9 @@ struct ChatView: View {
     private let service = ChatService()
 
     // Concise, and about what you can ask — not a list of topics. Pregnancy is answered when someone
-    // asks (the safety screen and the points' own cautions cover it); a greeting that raises it
-    // unprompted reads as if the app expects it.
+    // asks (the safety screen covers it, and the seven points the tradition cautions in pregnancy
+    // carry an asterisk and its notice); a greeting that raises it unprompted reads as if the app
+    // expects it.
     static func greetingMessage() -> ChatMessage {
         .init(role: .coach, text: AppLocale.pick(
             "你好，我是 \(CoachPersona.name)。想知道哪个穴位在哪、怎么找、怎么按，直接问我就行。",

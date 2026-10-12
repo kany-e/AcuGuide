@@ -74,6 +74,12 @@ CI mirrors this in `.github/workflows/ios-tests.yml`.
 - The safety gate before the camera is **forced** — it cannot be skipped.
 - "Felt worse" after a routine → show stop guidance, never "continue".
 - **LI4 is excluded entirely** (pregnancy-contraindicated), so no pregnancy screening is needed.
+- **Pregnancy never goes in an atlas point's caution** (`Acupoint.cautionZh/En`). The seven points
+  the tradition cautions in pregnancy (CV12 ST25 ST36 SP10 LR3 ST44 KI1, `pregnancyAsterisk`) carry
+  an asterisk after their name, and `PregnancyNotice` sits on the same screen as the caution. The
+  asterisk is display-only: never put it in `zh`/`en` or a spoken line (clip keys). Pinned in
+  `SafetyInvariantTests`. The moxa dataset (`MoxaPoint`, hidden this release) is the deliberate
+  exception: its cautions keep the restriction.
 - **Eight points are camera-coached** (non-nil `mediapipeTarget`, test-pinned): TE3, PC6, SJ5, PC8,
   HT7, SI3, TE4, PC7. TE3 is only the DEFAULT DEMO point — the docs used to say it was the only
   coached one, which undersold the app's main differentiator by 8x.

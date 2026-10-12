@@ -106,6 +106,9 @@ NO_HAND / WRONG_FACE.
 - Each point's own caution is shown **where the press happens**, not only on the atlas card.
 - **LI4 is excluded entirely** (pregnancy-contraindicated) — which is *why* the app needs no
   pregnancy screening. CI fails if it reappears.
+- The seven points the tradition cautions in pregnancy carry an **asterisk** after their name, and
+  one notice beside the caution says to hold off and ask a doctor or midwife first. No caution
+  mentions pregnancy itself.
 - Crisis and red-flag routing run before any chat answer.
 - Acupoint data is sourced and adversarially verified — see `claude-deliverables/references/` and
   the in-app Sources screen.

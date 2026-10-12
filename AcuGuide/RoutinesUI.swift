@@ -42,7 +42,7 @@ struct RoutineDetailSheet: View {
                                     .frame(width: 22, height: 22)
                                     .background(Circle().stroke(Ink.line, lineWidth: 1))
                                 Circle().fill(MeridianColors.color(pt.meridian)).frame(width: 8, height: 8)
-                                Text("\(pt.id) · \(AppLocale.pick(pt.zh, pt.en))")
+                                Text(verbatim: "\(pt.id) · \(AppLocale.pick(pt.zh, pt.en))\(pt.asterisk)")
                                     .font(.subheadline).foregroundStyle(Ink.text)
                                 Spacer()
                                 Image(systemName: pt.mediapipeTarget != nil ? "camera.viewfinder" : "timer")
@@ -65,6 +65,8 @@ struct RoutineDetailSheet: View {
                             }
                         }
                     }
+                    // Once for the whole routine, not under every asterisked step.
+                    PregnancyNotice(points: routine.steps.compactMap(\.point))
                     Text(AppLocale.pick("带相机图标的穴位由相机引导，其余为计时引导（按说明自行定位）。",
                                         "Camera-marked points are camera-coached; the rest are timer-guided (self-located from the instructions)."))
                         .font(.footnote).foregroundStyle(Ink.textDim)
