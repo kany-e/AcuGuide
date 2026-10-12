@@ -59,3 +59,7 @@ M1 produces the model; wiring it into the app is the remaining M1→M2 step, kep
    fallback (seamless, since the head is initialized to reproduce it).
 4. Then M2 swaps the imitation labels for MetaAcuPoint-reprojected TE3/TE5 + expert labels, and the σ head
    starts driving the adaptive hit-ring.
+   *Oct 2026: M2 as written is off.* MetaAcuPoint's files are released for academic, non-commercial
+   research only, and its practitioner's TE3 sits about 0.2 hand-sizes from the real by-feel labels — see
+   `../metaacupoint-eval/README.md`. Supervision has to come from new real labels. Also: `train.py`
+   still imitates the pre-refit TE3 anchors, so the bundled head's TE3 is stale.

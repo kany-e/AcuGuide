@@ -20,6 +20,9 @@ JOINTS = ["wrist","thumbTip","indexTip","middleTip","ringTip","pinkyTip",
           "indexMCP","middleMCP","ringMCP","pinkyMCP"]
 POINTS = ["TE3","SI3","PC8","HT7","PC6","SJ5","TE4","PC7"]          # the 8 AR-coachable points
 ANCHORS = {
+    # PRE-REFIT TE3. The app has shipped .11 ringMCP / .47 pinkyMCP / .42 wrist since Jul 7 2026
+    # (fit on real labels); the bundled AcupointHead was trained on this older line. Retrain before
+    # any cut-over.
     "TE3":[("ringMCP",0.46),("pinkyMCP",0.34),("wrist",0.20)],
     "SI3":[("pinkyMCP",0.85),("wrist",0.35),("ringMCP",-0.20)],
     "PC8":[("middleMCP",0.50),("indexMCP",0.18),("wrist",0.32)],

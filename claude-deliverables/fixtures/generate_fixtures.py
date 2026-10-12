@@ -34,6 +34,8 @@ def dist(a,b): return math.hypot(a[0]-b[0], a[1]-b[1])
 def jitter(p,s=0.004): return [round(p[0]+random.gauss(0,s),4), round(p[1]+random.gauss(0,s),4), round(p[2]+random.gauss(0,s/2),4)]
 def hand_size(lm): return dist(lm[0], lm[9])
 
+# A legacy TE3 line (the shipped anchors are .11 ringMCP / .47 pinkyMCP / .42 wrist). The fixtures
+# exercise the coaching state machine, not point placement, so it is left as generated.
 def te3_target(lm):
     x = 0.45*lm[13][0] + 0.40*lm[17][0] + 0.15*lm[0][0]
     y = 0.45*lm[13][1] + 0.40*lm[17][1] + 0.15*lm[0][1]

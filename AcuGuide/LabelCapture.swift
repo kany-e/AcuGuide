@@ -25,6 +25,10 @@ struct LabelRecord: Codable {
     let ts: Double                      // unix seconds
     let session: String                 // capture-session UUID
     let image: String?                  // relative img/<uuid>.jpg if a frame was saved, else nil
+    // Frame width/height when captured (9/16 for the forced-portrait buffers). Joints are normalised
+    // per axis, so every distance needs it — and handSize above is the RAW normalised length, which
+    // does not carry it. Records from before Oct 2026 lack it; they were all 9/16 portrait.
+    var frameAspect: Double? = nil
 }
 
 // Append-only JSONL store (+ optional frame JPEGs) under Documents/acuguide_labels/.
@@ -334,7 +338,8 @@ struct LabelCaptureView: View {
             handSize: Double(h.handSize), joints: joints, confidence: conf,
             target: [Double(t.x), Double(t.y)],
             affine: h.weightedTarget(anchors).map { [Double($0.x), Double($0.y)] },
-            mirrored: cam.mirrored, ts: Date().timeIntervalSince1970, session: session, image: name)
+            mirrored: cam.mirrored, ts: Date().timeIntervalSince1970, session: session, image: name,
+            frameAspect: Double(cam.frameAspect))
         store.append(rec, image: saveFrames ? f.image : nil)
         tapN = nil
         cam.resume()

@@ -191,18 +191,21 @@ struct Acupoint: Identifiable, Hashable {
             // TE3 anchors are FITTED FROM OWNED EXPERT LABELS (Jul 7 2026): 9 device-captured
             // labels (M3 harness, both hands; claude-deliverables/data/te3_labels_2026-07-07.jsonl),
             // shared-weight least squares in isotropic units, leave-one-out mean error 0.096·handSize
-            // (max 0.154; a later reproduction with hand-size-normalised residuals recovers these same
-            // weights but scores 0.124 / max 0.214, 6-of-9 inside — claude-deliverables/experiments/
-            // metaacupoint-eval) — vs 0.233 mean / 1-of-9 inside tolerance for the previous WHO-text-derived
+            // (max 0.154; reproduced at the capture's 9:16 aspect as 0.097, 9-of-9 inside —
+            // claude-deliverables/experiments/metaacupoint-eval) — vs 0.233 mean / 1-of-9 inside tolerance for the previous WHO-text-derived
             // ring .46/pinky .34/wrist .20. The fit is more ULNAR and much more PROXIMAL than the
-            // anatomical fractions suggested because Vision's MCP landmarks sit distal of the
-            // anatomical joint heads (on the knuckle bumps) — exactly the bias text-derivation can't
-            // see. Richer joint sets LOO-scored marginally better but with |w|≈2–3 (noise-amplifying
+            // anatomical fractions. The first explanation — Vision's MCP landmarks sit distal of the
+            // anatomical joint heads — is NOT borne out (Oct 2026): on the MetaAcuPoint renders a
+            // practitioner's WHO-based TE3 sits at 0.70 along in Vision's own hand frame, right where
+            // the text fractions put it. The by-feel labels are simply more proximal. Richer joint sets LOO-scored marginally better but with |w|≈2–3 (noise-amplifying
             // overfit on n=9); this 3-anchor form keeps every weight ≤ 0.5. Re-fit if more labels land.
             // DO NOT POOL THE MetaAcuPoint RENDERS INTO THIS FIT. Measured (same experiment folder):
-            // adding them makes real-hand error worse at every weight tried, monotonically, because
-            // Vision places joints differently on renders than on real frames — the labels agree,
-            // the landmarks do not. Re-fit on REAL labels only.
+            // adding them makes real-hand error worse at every weight tried, monotonically — not
+            // because Vision misreads the renders (this formula lands at 0.47 along on them, 0.49 on
+            // real frames) but because the LABELS disagree: the dataset's practitioner put TE3 at
+            // 0.70 along / +0.40 across, these by-feel labels sit at 0.52 / +0.25. Which is right is
+            // an open question for new real labels, not something to average. The dataset is also
+            // licensed for academic, non-commercial research only. Re-fit on REAL labels only.
             mediapipeTarget: MediaPipeTarget(
                 anchors: [
                     AnchorWeight(landmark: .ringMCP, weight: 0.11),
