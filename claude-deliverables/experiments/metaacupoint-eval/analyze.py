@@ -2,7 +2,11 @@
 """Score the shipped camera-coach anchors against MetaAcuPoint, and test whether the dataset transfers.
 
 Usage (run eval.swift first to produce results.csv):
-    python3 -I analyze.py results.csv ../../data/te3_labels_2026-07-07.jsonl <dataset>/avatar_description.xlsx
+    python3 -I analyze.py results.csv ../../data/te3_labels_2026-07-07.jsonl <dataset>/avatar_description.xlsx [real-aspect]
+
+real-aspect is the width/height of the frames the real labels were captured on, default 9/16 (see
+REAL_ASPECT). Vision normalises x by width and y by height, so every distance and angle in the real
+frames depends on it.
 
 HOW THE LABELS WERE MADE decides how the cross-validation must be split. Per the paper (§3), a
 practitioner placed the five points ONCE PER SKELETON TYPE as bone-attached sockets; they were then
@@ -23,7 +27,16 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 
 SYN_ASPECT = 1488 / 837
+# ASSUMED, not stored. LabelRecord does not carry the frame aspect. The 9 real labels came from
+# LabelCapture.swift, which runs the .high preset with forcePortrait(), giving 9:16 buffers (its own
+# frameAspect defaults to 9/16). The saved frame JPEGs on the capture device would confirm it. The
+# aspect CANNOT be recovered from the records: LabelRecord.handSize is Hand.handSize, the RAW
+# normalised hypot |middleMCP − wrist|, not the isotropic Coach.isoHandSize. The first version of this
+# script divided it back out, always got 1.0, and measured the real hands squashed (Oct 2026).
+REAL_ASPECT = 9 / 16
 TE3_W = {"ringMCP": .11, "littleMCP": .47, "wrist": .42}   # Acupoints.swift, TE3 mediapipeTarget
+OLD_TE3_W = {"ringMCP": .46, "littleMCP": .34, "wrist": .20}  # the WHO-text line it replaced on Jul 7 2026
+KNUCKLES = ("indexMCP", "ringMCP", "littleMCP")
 
 
 def isod(a, b, asp):
@@ -41,6 +54,19 @@ def basis(w, m, little, asp):
                     ((q[0] - W[0]) * p[0] + (q[1] / asp - W[1]) * p[1]) / hs)
     back = lambda a, c: (W[0] + hs * (a * u[0] + c * p[0]), (W[1] + hs * (a * u[1] + c * p[1])) * asp)
     return to, back, hs
+
+
+def blend(weights, P):
+    """Σ weight·joint over normalised coordinates: the coach's anchor formula."""
+    return tuple(sum(weights[k] * P(k)[i] for k in weights) for i in (0, 1))
+
+
+def bary(w, r, l, q):
+    """q as wrist + a·(ringMCP − wrist) + b·(littleMCP − wrist). An affine coordinate, so it comes out
+    the same at any frame aspect: the one comparison here that assumes nothing about the real frames."""
+    u = (r[0] - w[0], r[1] - w[1]); v = (l[0] - w[0], l[1] - w[1]); d = (q[0] - w[0], q[1] - w[1])
+    det = u[0] * v[1] - u[1] * v[0]
+    return ((d[0] * v[1] - d[1] * v[0]) / det, (u[0] * d[1] - u[1] * d[0]) / det)
 
 
 def skeleton_of(xlsx):
@@ -109,7 +135,7 @@ def pooled_affine(real_samples, syn_samples):
               f"{sum(e <= .16 for e in errs)}/{len(errs)}")
 
 
-def main(results_csv, real_jsonl, xlsx):
+def main(results_csv, real_jsonl, xlsx, real_aspect=REAL_ASPECT):
     skel = skeleton_of(xlsx)
     syn = [r for r in csv.DictReader(open(results_csv))]
     det = [r for r in syn if r["detected"] == "1"]
@@ -126,40 +152,66 @@ def main(results_csv, real_jsonl, xlsx):
           f"true left → {dict((k[1], v) for k, v in c.items() if k[0] == 'left')}\n")
 
     # 2. Where things sit in the hand frame, per source
-    groups, by_skel, syn_t, syn_lab, syn_te5, syn_aff = {}, {}, [], [], [], []
+    groups, by_skel, syn_t, syn_old, syn_lab, syn_te5, syn_aff, syn_bc = {}, {}, [], [], [], [], [], []
+    syn_kn = {k: [] for k in KNUCKLES}
     for r in det:
         P = lambda k: (float(r[k + "_x"]), float(r[k + "_y"]))
         to, back, hs = basis(P("wrist"), P("middleMCP"), P("littleMCP"), SYN_ASPECT)
-        t = tuple(sum(TE3_W[k] * P(k)[i] for k in TE3_W) for i in (0, 1))
-        lab = to((float(r["te3_x"]), float(r["te3_y"])))
+        t = blend(TE3_W, P)
+        raw = (float(r["te3_x"]), float(r["te3_y"])); lab = to(raw)
         syn_t.append(to(t)); syn_lab.append(lab)
+        syn_old.append(to(blend(OLD_TE3_W, P)))
         syn_te5.append(to((float(r["te5_x"]), float(r["te5_y"]))))
+        for k in KNUCKLES:
+            syn_kn[k].append(to(P(k)))
+        syn_bc.append(bary(P("wrist"), P("ringMCP"), P("littleMCP"), raw))
         iso = lambda q: (q[0], q[1] / SYN_ASPECT)
-        syn_aff.append((iso(P("wrist")), iso(P("ringMCP")), iso(P("littleMCP")),
-                        iso((float(r["te3_x"]), float(r["te3_y"]))), hs))
+        syn_aff.append((iso(P("wrist")), iso(P("ringMCP")), iso(P("littleMCP")), iso(raw), hs))
         groups.setdefault(r["avatar"] + r["side"], []).append(lab)
         by_skel.setdefault(skel[r["avatar"]], []).append(lab)
 
     real = [json.loads(l) for l in open(real_jsonl) if l.strip()]
-    real_t, real_lab, real_frames, real_aff = [], [], [], []
+    real_t, real_old, real_lab, real_frames, real_aff, real_bc = [], [], [], [], [], []
+    real_kn = {k: [] for k in KNUCKLES}
+    asp = real_aspect
     for r in real:
-        j = r["joints"]; g = lambda k: tuple(j[k])
-        w, m = g("wrist"), g("middleMCP"); dx = m[0] - w[0]; dy = m[1] - w[1]
-        asp = abs(dy) / (r["handSize"] ** 2 - dx ** 2) ** .5         # capture aspect, from stored size
-        to, back, hs = basis(w, m, g("pinkyMCP"), asp)
-        t = (.11 * g("ringMCP")[0] + .47 * g("pinkyMCP")[0] + .42 * w[0],
-             .11 * g("ringMCP")[1] + .47 * g("pinkyMCP")[1] + .42 * w[1])
+        j = r["joints"]; g = lambda k: tuple(j["pinkyMCP" if k == "littleMCP" else k])   # app naming
+        w, m = g("wrist"), g("middleMCP")
+        to, back, hs = basis(w, m, g("littleMCP"), asp)
+        t = blend(TE3_W, g)
         real_t.append(to(t)); real_lab.append(to(tuple(r["target"])))
+        real_old.append(to(blend(OLD_TE3_W, g)))
+        for k in KNUCKLES:
+            real_kn[k].append(to(g(k)))
+        real_bc.append(bary(w, g("ringMCP"), g("littleMCP"), tuple(r["target"])))
         real_frames.append((back, hs, asp, t, tuple(r["target"])))
         iso = lambda q, a=asp: (q[0], q[1] / a)
-        real_aff.append((iso(w), iso(g("ringMCP")), iso(g("pinkyMCP")), iso(tuple(r["target"])), hs))
+        real_aff.append((iso(w), iso(g("ringMCP")), iso(g("littleMCP")), iso(tuple(r["target"])), hs))
 
     med = lambda xs, i: st.median(x[i] for x in xs)
-    print("2. TE3 IN THE HAND FRAME (along: 0 wrist → 1 middle knuckle; across: + toward little finger)")
+    # The tell the first version missed: at the wrong aspect the little-finger knuckle came out at 1.08
+    # along, past the middle knuckle. No hand does that, so refuse to interpret anything built on it.
+    for src, kn in (("renders", syn_kn), ("real frames", real_kn)):
+        if med(kn["littleMCP"], 0) >= 1:
+            sys.exit(f"{src}: little-finger knuckle at {med(kn['littleMCP'], 0):.2f} along the wrist → middle-"
+                     "knuckle axis, beyond the middle knuckle. That is anatomically impossible: the frame "
+                     "aspect is wrong.")
+    print("2. THE HAND FRAME (along: 0 wrist → 1 middle knuckle; across: + toward little finger; medians)")
+    print(f"   Vision's knuckles, along/across    renders        real frames (aspect {asp:.4f})")
+    for k in KNUCKLES:
+        print(f"     {k:<10}                       {med(syn_kn[k], 0):.2f} {med(syn_kn[k], 1):+.2f}     "
+              f"{med(real_kn[k], 0):.2f} {med(real_kn[k], 1):+.2f}")
     print(f"   MetaAcuPoint labels ({len(by_skel)} placements, {len(groups)} hands)  along {med(syn_lab, 0):.2f}  across {med(syn_lab, 1):+.2f}")
     print(f"   real device labels ({len(real)}, 1 session)  along {med(real_lab, 0):.2f}  across {med(real_lab, 1):+.2f}")
     print(f"   shipped target on REAL frames      along {med(real_t, 0):.2f}  across {med(real_t, 1):+.2f}")
     print(f"   shipped target on the RENDERS      along {med(syn_t, 0):.2f}  across {med(syn_t, 1):+.2f}")
+    print(f"   pre-Jul-7 WHO-text target (.46/.34/.20): REAL along {med(real_old, 0):.2f} across "
+          f"{med(real_old, 1):+.2f}, RENDERS along {med(syn_old, 0):.2f} across {med(syn_old, 1):+.2f}")
+    gap = ((med(syn_lab, 0) - med(real_lab, 0)) ** 2 + (med(syn_lab, 1) - med(real_lab, 1)) ** 2) ** .5
+    print(f"   the two TE3 label sets are {gap:.2f} hand-sizes apart (TE3 ring 0.16)")
+    print("   TE3 labels as wrist + a·(ringMCP − wrist) + b·(littleMCP − wrist), which needs no aspect:")
+    print(f"     MetaAcuPoint a {med(syn_bc, 0):+.2f} b {med(syn_bc, 1):+.2f}   real a {med(real_bc, 0):+.2f} "
+          f"b {med(real_bc, 1):+.2f}   shipped a {TE3_W['ringMCP']:+.2f} b {TE3_W['littleMCP']:+.2f}")
     print(f"   SJ5 labels: along {med(syn_te5, 0):+.2f} across {med(syn_te5, 1):+.2f}; shipped SJ5 is along -0.70 "
           f"across 0.00 by definition\n")
 
@@ -188,4 +240,7 @@ def main(results_csv, real_jsonl, xlsx):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2], sys.argv[3])
+    aspect = REAL_ASPECT
+    if len(sys.argv) > 4:                                       # "9/16" or "0.5625"
+        num, _, den = sys.argv[4].partition("/"); aspect = float(num) / float(den or 1)
+    main(sys.argv[1], sys.argv[2], sys.argv[3], aspect)
